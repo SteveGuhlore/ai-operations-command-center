@@ -1,31 +1,41 @@
 ---
 task_id: POD-ETSY-001
-assigned_agent: content_worker
+assigned_agent: digital_product_worker
 status: todo
 priority: high
 pod: etsy_store_pod
-task_type: content_drafting
+task_type: guide_creation
 ---
 
-# Etsy Listing Copy — Digital Productivity Planner
+# Prompt Pack — "100 ChatGPT Prompts for Content Creators"
+
+## Shop
+ThePromptVaultUS (Etsy) — AI prompt packs for general buyers.
 
 ## Goal
-Write a complete Etsy listing for a digital productivity planner PDF. The planner includes: weekly schedule template, habit tracker, goal breakdown worksheet, and daily to-do template. Price: $7.99. Target buyer: remote workers and freelancers who want to get organised.
+Write the complete content for a PDF prompt pack titled: **"100 ChatGPT Prompts for Content Creators"**
 
-## Deliverables
+## Audience
+YouTubers, bloggers, podcasters, Instagram creators, and TikTokers who want to use AI to speed up their content workflow but don't know what to ask it.
 
-**Title** (max 140 characters, include primary keyword):
-Write an SEO-optimised Etsy listing title.
+## Problem Solved
+They stare at a blank ChatGPT screen not knowing what to type. This pack gives them 100 plug-and-play prompts that cover every part of the content creation process.
 
-**Description** (400–500 words):
-- Hook sentence (lead with the buyer's pain)
-- What's included (bullet list)
-- Who it's for
-- How they get it (instant download)
-- Call to action
+## Required Sections
 
-**Tags** (13 tags, comma-separated):
-Include: productivity planner, digital planner, weekly planner, printable planner, habit tracker, goal setting, remote work, freelancer planner, instant download, PDF planner, undated planner, work from home, time management
+1. **How To Use This Pack** (100 words) — what to copy, where to paste, how to customise for their niche
 
-**Materials field** (Etsy requires this):
-"Digital download — PDF"
+2. **Video/Podcast Ideas** (20 prompts) — generating topic ideas, angles, hooks for any niche
+
+3. **Script & Outline Writing** (20 prompts) — intro hooks, full outlines, section scripts, outros
+
+4. **Titles & Thumbnails** (15 prompts) — click-worthy titles, A/B test options, thumbnail concept descriptions
+
+5. **Captions & Social Posts** (15 prompts) — repurposing content into Instagram, TikTok, LinkedIn captions
+
+6. **Email & Newsletter** (15 prompts) — welcome emails, newsletters from a YouTube video, subject lines
+
+7. **SEO & Descriptions** (15 prompts) — YouTube descriptions, blog meta descriptions, keyword-rich summaries
+
+## Format
+Numbered prompts under each section heading. Every prompt must be complete and copy-paste ready — no [PLACEHOLDER] brackets. Write them so they produce great output on the first try.

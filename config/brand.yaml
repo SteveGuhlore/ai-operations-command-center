@@ -1,0 +1,32 @@
+shop_name: ThePromptVaultUS
+platform: Etsy
+audience: general — creators, freelancers, and small business owners
+tagline: "Ready-to-use AI prompt packs. Better results from ChatGPT and Claude, instantly."
+tone: practical, friendly, no fluff — like advice from a smart friend
+price_range: "$6–$14"
+format: PDF — copy-paste ready prompts with instructions
+works_with: "ChatGPT (free and Plus), Claude, Gemini"
+
+product_formula:
+  - a tight use case (email writing, content calendar, job search, etc.)
+  - 30–150 prompts depending on the pack
+  - instructions for getting the best output on the first try
+  - priced $6–$14 based on prompt count and specificity
+
+seo_keywords:
+  - chatgpt prompts
+  - ai prompts
+  - prompt pack
+  - chatgpt tips
+  - claude prompts
+  - ai productivity
+  - chatgpt for [niche]
+  - prompt template
+  - instant download
+  - digital download
+
+do_not:
+  - use jargon like "leverage synergies" or "unlock your potential"
+  - make claims about income or results guarantees
+  - promise specific AI outputs (AI varies by user)
+  - use more than 13 Etsy tags per listing

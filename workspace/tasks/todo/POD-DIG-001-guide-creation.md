@@ -7,27 +7,35 @@ pod: digital_products_pod
 task_type: guide_creation
 ---
 
-# Digital Product — "The Freelancer's Rate-Setting Guide"
+# Prompt Pack — "75 ChatGPT Prompts for Freelancers"
+
+## Shop
+ThePromptVaultUS (Etsy) — AI prompt packs for general buyers.
 
 ## Goal
-Create the complete content for a 15–20 page PDF guide titled: **"The Freelancer's Rate-Setting Guide: Stop Undercharging and Start Earning What You're Worth"**
+Write the complete content for a PDF prompt pack titled: **"75 ChatGPT Prompts for Freelancers: Win Clients, Do Better Work, Get Paid More"**
 
 ## Audience
-Freelancers with 0–3 years of experience who are undercharging, unsure how to price, or losing clients they don't want because they're too cheap and attracting clients they don't want because they're too cheap.
+Freelancers (writers, designers, developers, VAs, marketers) who use ChatGPT but mostly just for basic tasks. They want to use it to run their business more efficiently.
 
 ## Problem Solved
-They don't know how to set rates confidently, negotiate without panic, or move upmarket.
+They don't know what to ask AI for, so they only use it for the obvious stuff. This pack gives them 75 prompts for every part of running a freelance business.
 
 ## Required Sections
 
-1. **Why Freelancers Undercharge** (psychology, fear, imposter syndrome — 400 words)
-2. **The Rate Formula** (costs + profit + taxes + time — include a worked example with real numbers — 500 words)
-3. **Market Research: Finding Your Real Rates** (how to research competitors without underselling — 300 words)
-4. **The Rate Reveal Script** (exact word-for-word script for telling a client your rate — 200 words)
-5. **Handling "That's Too Expensive"** (3 responses that work — 300 words)
-6. **Raising Rates With Existing Clients** (email template included — 300 words)
-7. **Moving Upmarket** (how to attract higher-paying clients — 400 words)
-8. **Action Plan** (30-day checklist — 200 words)
+1. **How To Use This Pack** (100 words)
+
+2. **Finding & Winning Clients** (15 prompts) — cold outreach, proposal writing, follow-ups, objection handling
+
+3. **Project Management** (10 prompts) — scope documents, timeline emails, client check-ins, scope creep responses
+
+4. **Doing the Work Faster** (15 prompts) — research, first drafts, feedback interpretation, revision management
+
+5. **Pricing & Negotiation** (10 prompts) — rate-setting scripts, negotiation responses, raising rates with existing clients
+
+6. **Admin & Business** (15 prompts) — invoice emails, contracts language, testimonial requests, referral asks
+
+7. **Marketing Yourself** (10 prompts) — LinkedIn posts, portfolio descriptions, bio writing, niche positioning
 
 ## Format
-Full markdown content, each section clearly headed. Write every section in full — no placeholders.
+Numbered prompts under each heading. Every prompt complete and copy-paste ready — no brackets or placeholders. Each prompt should produce a useful output on the first try without the user needing to edit it much.

@@ -3,31 +3,33 @@ task_id: POD-DIG-002
 assigned_agent: marketing_worker
 status: todo
 priority: high
-pod: digital_products_pod
+pod: etsy_store_pod
 task_type: listing_strategy
 ---
 
-# Etsy Listing + Marketing Copy — Freelancer Rate Guide
+# Etsy Listing Copy — "100 ChatGPT Prompts for Content Creators"
 
-## Goal
-Write the complete Etsy listing and social media launch copy for the "Freelancer's Rate-Setting Guide" PDF ($12.99).
+## Shop
+ThePromptVaultUS — practical, friendly tone. No fluff.
 
-## Context
-The guide covers: rate formula, market research, the rate reveal script, handling objections, raising rates with existing clients, and moving upmarket. 15–20 pages. Instant digital download.
+## Product
+A PDF prompt pack with 100 copy-paste ChatGPT prompts for content creators (YouTubers, bloggers, podcasters, Instagram/TikTok creators). Covers: idea generation, scripting, titles, captions, email, SEO. Price: $9.
 
 ## Deliverables
 
 **1. Etsy Listing Title** (max 140 chars):
-SEO-optimised, keyword-rich.
+Lead with "ChatGPT Prompts for Content Creators" — include secondary keywords naturally.
 
-**2. Etsy Description** (500 words):
-Lead with the pain (undercharging, losing money, attracting bad clients), deliver the promise, list what's inside, explain instant download, strong CTA.
+**2. Etsy Description** (400–500 words):
+- Open with the buyer's pain (staring at a blank screen, wasting hours on ideas)
+- What's inside (reference the 7 sections)
+- Who it's for (list the creator types)
+- How it works (copy, paste, get great output — works with ChatGPT free and Plus, Claude, Gemini)
+- Instant download, PDF format
+- Strong CTA
 
-**3. 13 Etsy Tags**:
-Target: freelancer pricing, freelance rates, rate setting guide, freelance income, how to price, freelance business, pricing strategy, freelancer guide, raise your rates, pricing template, freelance tips, income guide, digital download
+**3. 13 Etsy Tags** (comma-separated):
+Mix broad and specific. Must include: chatgpt prompts, content creator prompts, ai prompts for creators, chatgpt for youtube, social media prompts, ai content creation, chatgpt tips, prompt pack, digital download, chatgpt for bloggers, instagram caption prompts, youtube script prompts, ai writing prompts
 
-**4. Instagram Caption + 5 Hashtags** (for launch post):
-Hook, story, CTA to link in bio. Casual, direct, relatable to freelancers.
-
-**5. Email Subject Line Options** (write 3):
-For announcing to a newsletter list. A/B test these.
+**4. Price recommendation with reasoning** (1 sentence):
+Based on prompt count and competitor research.
