@@ -3,7 +3,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Set
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from dashboard.watcher import StateFileWatcher
 
@@ -66,3 +66,90 @@ async def websocket_endpoint(ws: WebSocket):
             await ws.receive_text()
     except WebSocketDisconnect:
         _connections.discard(ws)
+
+import subprocess
+import sys
+from datetime import datetime
+
+VAULT_DIR = Path(__file__).parent.parent / "vault"
+TASKS_DIR = Path(__file__).parent.parent / "workspace" / "tasks"
+
+_POD_MAP = {
+    "spark":         ("social_media_worker", "video_production",  "social_media_pod"),
+    "maker":         ("digital_product_worker", "guide_creation", "digital_products_pod"),
+    "atlas":         ("manager",             "planning",          "management"),
+    "trend_scan":    ("debug_worker",        "research",          "general"),
+    "full_pipeline": ("manager",             "planning",          "management"),
+}
+
+
+@app.get("/api/status")
+async def api_status():
+    exec_active = False
+    improve_next = "unavailable"
+
+    if sys.platform != "win32":
+        try:
+            r = subprocess.run(
+                ["systemctl", "is-active", "execution-loop"],
+                capture_output=True, text=True, timeout=5,
+            )
+            exec_active = r.stdout.strip() == "active"
+        except Exception:
+            pass
+
+        try:
+            r2 = subprocess.run(
+                ["systemctl", "show", "improvement-loop.timer",
+                 "--property=NextElapseUSecRealtime", "--value"],
+                capture_output=True, text=True, timeout=5,
+            )
+            raw = r2.stdout.strip()
+            if raw and raw != "0":
+                # Convert microseconds since epoch to human-readable
+                ts = int(raw) // 1_000_000
+                improve_next = datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M UTC")
+        except Exception:
+            pass
+
+    return {"execution_loop_active": exec_active, "improvement_next_run": improve_next}
+
+
+@app.post("/api/trigger")
+async def api_trigger(request: Request):
+    body = await request.json()
+    pod = body.get("pod", "")
+
+    if pod not in _POD_MAP:
+        return {"error": f"Unknown pod '{pod}'. Valid: {list(_POD_MAP)}"}
+
+    role, task_type, pod_name = _POD_MAP[pod]
+    from runner.tools.task_creator import create_task
+
+    result = create_task(
+        title=f"Manual trigger: {pod}",
+        body=(
+            f"Manually triggered from dashboard at {datetime.now().isoformat()}. "
+            f"Run the standard {pod} workflow for ThePromptVaultUS."
+        ),
+        assigned_agent=role,
+        task_type=task_type,
+        pod=pod_name,
+        priority="high",
+    )
+    return result
+
+
+@app.get("/api/vault/feed")
+async def api_vault_feed():
+    today = datetime.now().strftime("%Y-%m-%d")
+    session_dir = VAULT_DIR / "sessions" / today
+    if not session_dir.exists():
+        return {"sessions": [], "date": today}
+
+    sessions = []
+    for f in sorted(session_dir.glob("*.md"), reverse=True)[:20]:
+        first_line = f.read_text(encoding="utf-8").split("\n")[0].lstrip("# ").strip()
+        sessions.append({"task_id": f.stem, "summary": first_line})
+
+    return {"sessions": sessions, "date": today}
