@@ -1,0 +1,40 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+*.key
+config/secrets.yaml
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Generated assets (large files, not source)
+workspace/assets/images/*.png
+workspace/assets/images/*.jpg
+workspace/assets/audio/*.mp3
+workspace/assets/audio/*.wav
+
+# Ledger data (runtime, not source)
+workspace/ledger/
+workspace/logs/
+workspace/locks/
