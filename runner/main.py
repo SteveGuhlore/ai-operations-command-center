@@ -81,6 +81,7 @@ def _sync_vault() -> None:
     if not sync_script.exists():
         return
     try:
+        # 30s ceiling — vault_sync.sh is a fast git push; give up rather than stall the next cycle
         subprocess.run(["bash", str(sync_script)], timeout=30, check=False)
     except Exception as exc:
         log.warning("vault sync skipped: %s", exc)
@@ -195,7 +196,7 @@ def run_task(task: dict) -> dict:
 
     except Exception as exc:
         log.error("%s failed %s: %s", role_id, task_id, exc)
-        write_vault_session(task_id, role_id, {"error": str(exc), "task_id": task_id})
+        write_vault_session(task_id, role_id, {"error": str(exc)})
         try:
             move_task(task_id, "in_progress", "failed")
         except Exception:
