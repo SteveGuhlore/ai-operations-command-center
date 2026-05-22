@@ -178,6 +178,11 @@ def run_task(task: dict) -> dict:
         log.info("Task %s already locked — skipping", task_id)
         return {"skipped": True, "task_id": task_id}
 
+    if is_budget_exceeded():
+        release_lock(task_id)
+        log.warning("Budget cap reached — skipping %s", task_id)
+        return {"skipped": True, "task_id": task_id}
+
     try:
         update_agent_state(role_id, "working", task_id)
         move_task(task_id, "todo", "in_progress")
