@@ -54,6 +54,7 @@ def test_scan_and_process_handles_multiple_files(tmp_path, monkeypatch):
     tasks_dir.mkdir()
     monkeypatch.setattr(bridge_module, "BRIDGE_DIR", bridge_dir)
     monkeypatch.setattr(bridge_module, "TASKS_DIR", tasks_dir)
+    monkeypatch.setattr(bridge_module, "_PROCESSED_LOG", tmp_path / "processed.json")
 
     for i in range(3):
         f = bridge_dir / f"scanner-2026-05-{i+1:02d}.json"
