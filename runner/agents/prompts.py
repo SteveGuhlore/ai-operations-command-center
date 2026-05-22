@@ -16,6 +16,7 @@ _ROLE_MD_FILES = {
     "digital_product_worker": "agents/digital_product_worker.md",
     "marketing_worker":       "agents/marketing_worker.md",
     "market_research_worker": "agents/market_research_worker.md",
+    "social_media_worker":    "agents/social_media_worker.md",
 }
 
 

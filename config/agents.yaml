@@ -225,6 +225,31 @@ agents:
       - spending above budget
     notes: Central marketing and sales strategist across all pods. Does not publish, spend, trade, or connect APIs. Consumes upstream agent outputs; Maker is one input, not the only one.
 
+  - role_id: social_media_worker
+    display_name: Spark
+    purpose: Plan and script all short-form video content across TikTok, Instagram Reels, Facebook Reels, and YouTube Shorts — both organic (CPM/followers) and affiliate/product promo. Coordinates with Echo (audio) and Frame (visuals) to produce complete video packages.
+    allowed_task_types:
+      - video_production
+      - affiliate_research
+      - ad_script
+      - caption_pack
+      - stats_report
+      - content_calendar
+      - hook_writing
+      - tiktok_shop_promo
+    forbidden_task_types:
+      - direct_publishing
+      - real_account_actions
+      - budget_override
+      - live_trade_execution
+    default_model_label: sonnet-class strategist
+    max_retries: 2
+    requires_human_approval_for:
+      - publishing to any platform
+      - paid ad spend
+      - affiliate link changes
+    notes: Spark scripts and coordinates. Echo voices. Frame visuals. Output lands in workspace/social/ ready to edit and post. Posting automation via Meta Graph API and YouTube Data API when keys are set.
+
   - role_id: market_research_worker
     display_name: Tony Stocks
     enabled: false

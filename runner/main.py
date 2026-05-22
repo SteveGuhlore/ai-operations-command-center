@@ -28,6 +28,7 @@ MODELS: dict[str, str] = {
     "budget_worker":          "claude-haiku-4-5",
     "digital_product_worker": "claude-sonnet-4-6",
     "marketing_worker":       "claude-sonnet-4-6",
+    "social_media_worker":    "claude-sonnet-4-6",
 }
 
 MAX_CONCURRENT = 4
