@@ -9,6 +9,7 @@ from runner.tasks.locker import acquire_lock, release_lock
 from runner.tasks.reader import read_todo_tasks
 from runner.tasks.router import route_task
 from runner.tasks.transitions import move_task, write_task_output
+from runner.bridge.tony_bridge import scan_and_process as scan_tony_bridge
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -69,6 +70,7 @@ def run_cycle() -> None:
         log.warning("Daily budget cap reached — skipping cycle.")
         return
 
+    scan_tony_bridge()
     tasks = read_todo_tasks()
     if not tasks:
         log.info("No tasks in queue.")
