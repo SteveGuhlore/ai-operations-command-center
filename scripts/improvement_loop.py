@@ -1,0 +1,189 @@
+#!/usr/bin/env python3
+"""
+Nightly improvement loop.
+Reads today's vault sessions, calls Claude API, rewrites agent/*.md files that
+underperformed, and commits the changes.
+
+Run manually: python scripts/improvement_loop.py
+Runs automatically: systemd improvement-loop.timer at 2 AM daily
+"""
+import logging
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
+import anthropic
+from dotenv import load_dotenv
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger(__name__)
+
+ROOT = Path(__file__).parent.parent
+VAULT_DIR = ROOT / "vault"
+AGENTS_DIR = ROOT / "agents"
+
+_AGENTS_TO_REVIEW = [
+    "manager",
+    "social_media_worker",
+    "digital_product_worker",
+    "content_worker",
+    "marketing_worker",
+]
+
+_IMPROVEMENT_SYSTEM = """\
+You are the improvement engine for ThePromptVaultUS AI Operations Command Center.
+Your job: analyze today's agent session data and improve agent prompt files that underperformed.
+
+Rules:
+- Only rewrite agents that produced poor output or hit errors today.
+- Preserve each agent's core role — only tune the instructions and style.
+- If an agent performed well, output NO_CHANGE.
+- Be specific: if Spark wrote weak hooks, improve the hook-writing instructions.
+- Output valid markdown that fully replaces the existing agent file.
+
+Output format — use this exact structure for EVERY agent you review:
+
+AGENT: <agent_name>
+CHANGED
+<full new markdown content for agents/<agent_name>.md>
+END_AGENT
+
+or if no change needed:
+
+AGENT: <agent_name>
+NO_CHANGE
+END_AGENT
+
+After all agent blocks, write a one-paragraph plain-text summary of what you changed and why.
+"""
+
+
+def _read_vault_today() -> str:
+    today = datetime.now().strftime("%Y-%m-%d")
+    session_dir = VAULT_DIR / "sessions" / today
+    if not session_dir.exists():
+        return ""
+    parts = [f.read_text(encoding="utf-8") for f in sorted(session_dir.glob("*.md"))]
+    return "\n\n---\n\n".join(parts)
+
+
+def _read_workspace_context() -> str:
+    parts = []
+    for name in ("AGENTS.md", "SOUL.md", "TOOLS.md"):
+        f = VAULT_DIR / name
+        if f.exists():
+            parts.append(f"## {name}\n{f.read_text(encoding='utf-8')}")
+    return "\n\n".join(parts)
+
+
+def _parse_updates(response_text: str) -> tuple[dict[str, str], str]:
+    """Parse Claude's response into {agent_name: new_content} and a summary string."""
+    updates: dict[str, str] = {}
+    summary = ""
+
+    blocks = response_text.split("AGENT: ")
+    for block in blocks[1:]:
+        lines = block.strip().split("\n")
+        agent_name = lines[0].strip()
+        rest = "\n".join(lines[1:])
+        end_idx = rest.find("END_AGENT")
+        if end_idx == -1:
+            continue
+        body = rest[:end_idx].strip()
+        if body.startswith("NO_CHANGE"):
+            continue
+        # Strip the "CHANGED" sentinel line if present
+        body_lines = body.split("\n")
+        if body_lines and body_lines[0].strip() == "CHANGED":
+            body = "\n".join(body_lines[1:]).strip()
+        if body:
+            updates[agent_name] = body
+
+    # Everything after the last END_AGENT is the summary
+    last_end = response_text.rfind("END_AGENT")
+    if last_end != -1:
+        summary = response_text[last_end + len("END_AGENT"):].strip()
+
+    return updates, summary
+
+
+def _commit_improvements(agents_updated: list[str]) -> None:
+    today = datetime.now().strftime("%Y-%m-%d")
+    msg = f"improvement-loop: {today} — {len(agents_updated)} agent(s) updated: {', '.join(agents_updated)}"
+    subprocess.run(["git", "add", "agents/"], cwd=ROOT, check=False, capture_output=True)
+    result = subprocess.run(["git", "commit", "-m", msg], cwd=ROOT, check=False, capture_output=True, text=True)
+    if result.returncode == 0:
+        log.info("Committed: %s", msg)
+    else:
+        log.warning("Git commit output: %s", result.stdout + result.stderr)
+
+
+def _write_improvement_summary(summary: str, agents_updated: list[str]) -> None:
+    today = datetime.now().strftime("%Y-%m-%d")
+    out = VAULT_DIR / "learnings" / f"{today}-overnight.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    content = (
+        f"# Improvement Loop — {today}\n"
+        f"Agents updated: {', '.join(agents_updated) if agents_updated else 'none'}\n\n"
+        f"{summary}\n"
+    )
+    out.write_text(content, encoding="utf-8")
+    log.info("Summary written to %s", out)
+
+
+def run() -> None:
+    log.info("Improvement loop starting")
+
+    vault_today = _read_vault_today()
+    if not vault_today:
+        log.info("No session data for today — skipping")
+        return
+
+    workspace_ctx = _read_workspace_context()
+    agent_contents = {
+        name: (AGENTS_DIR / f"{name}.md").read_text(encoding="utf-8")
+        for name in _AGENTS_TO_REVIEW
+        if (AGENTS_DIR / f"{name}.md").exists()
+    }
+
+    user_prompt = (
+        f"## Today's Session Data\n{vault_today}\n\n"
+        f"## Workspace Context\n{workspace_ctx}\n\n"
+        f"## Current Agent Files\n"
+        + "\n".join(f"### {n}\n{c}" for n, c in agent_contents.items())
+    )
+
+    client = anthropic.Anthropic()
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=8192,
+        system=_IMPROVEMENT_SYSTEM,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+
+    output = response.content[0].text
+    log.info("Improvement response received (%d chars)", len(output))
+
+    updates, summary = _parse_updates(output)
+    agents_updated = []
+
+    for agent_name, new_content in updates.items():
+        if agent_name not in agent_contents:
+            log.warning("Skipping unknown agent: %s", agent_name)
+            continue
+        (AGENTS_DIR / f"{agent_name}.md").write_text(new_content, encoding="utf-8")
+        log.info("Updated agents/%s.md", agent_name)
+        agents_updated.append(agent_name)
+
+    if agents_updated:
+        _commit_improvements(agents_updated)
+
+    _write_improvement_summary(summary, agents_updated)
+    log.info("Improvement loop complete — updated: %s", agents_updated or "none")
+
+
+if __name__ == "__main__":
+    run()
