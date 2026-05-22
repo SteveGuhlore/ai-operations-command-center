@@ -3,7 +3,7 @@
 # Runs on Linux VPS only — silently skipped if not present.
 set -euo pipefail
 
-VAULT_DIR="/home/ubuntu/vault"
+VAULT_DIR="/home/ubuntu/ai-ops/vault"
 cd "$VAULT_DIR"
 
 git add -A
