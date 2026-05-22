@@ -1,5 +1,6 @@
 from pathlib import Path
 from runner.config import load_agents
+from runner.plugins.loader import build_agent_skills_prompt
 
 BASE_DIR = Path(__file__).parent.parent.parent
 
@@ -49,5 +50,9 @@ def build_system_prompt(role_id: str) -> str:
         "\nComplete the assigned task fully. Write your output clearly and concisely. "
         "Begin immediately — do not explain what you are about to do, just do it."
     )
+
+    skills_content = build_agent_skills_prompt(role_id)
+    if skills_content:
+        parts.append(f"\n## Workflow Skills\n\n{skills_content}")
 
     return "\n\n".join(parts)
