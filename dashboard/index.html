@@ -448,6 +448,68 @@
     0%  { transform: translateY(-4px); opacity: 0; }
     100%{ transform: translateY(0);    opacity: 1; }
   }
+
+  /* ─── LOOP STATUS ────────────────────────── */
+  .loop-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 0;
+    font-size: 10px;
+  }
+  .loop-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--muted);
+    display: inline-block;
+    margin-right: 5px;
+    vertical-align: middle;
+  }
+  .loop-dot.active {
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    animation: dotpulse 2s infinite;
+  }
+
+  /* ─── TRIGGER BUTTONS ────────────────────── */
+  #trigger-panel { margin-top: 12px; }
+  #trigger-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .trigger-btn {
+    background: rgba(77,159,255,0.08);
+    border: 1px solid rgba(77,159,255,0.25);
+    color: var(--blue);
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 9px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    font-family: 'Courier New', monospace;
+    transition: all 0.2s;
+  }
+  .trigger-btn:hover {
+    background: rgba(77,159,255,0.18);
+    border-color: var(--blue);
+    box-shadow: 0 0 8px rgba(77,159,255,0.3);
+  }
+  .trigger-btn:active { transform: scale(0.97); }
+  .trigger-btn.fired { color: var(--green); border-color: var(--green); }
+
+  /* ─── VAULT FEED ─────────────────────────── */
+  #vault-feed-wrap { margin-top: 10px; }
+  #vault-feed { font-size: 9px; line-height: 1.8; color: var(--muted); margin-top: 6px; }
+  .vault-entry {
+    padding: 2px 0;
+    border-bottom: 1px solid rgba(26,37,64,0.4);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .vault-entry span { color: var(--cyan); margin-right: 6px; }
 </style>
 </head>
 <body>
@@ -486,6 +548,16 @@
     <div class="section-title">System</div>
     <div class="queue-row"><span>Agents</span><span class="queue-count active" id="s-active">0</span></div>
     <div class="queue-row"><span>Cycles</span><span class="queue-count done" id="s-cycles">0</span></div>
+    <hr class="divider">
+    <div class="section-title">Loops</div>
+    <div class="loop-row">
+      <span><span class="loop-dot" id="exec-dot"></span>Execution</span>
+      <span style="font-size:9px;color:var(--muted)" id="exec-status">—</span>
+    </div>
+    <div class="loop-row">
+      <span style="color:var(--muted)">Next improve</span>
+      <span style="font-size:9px;color:var(--muted)" id="improve-next">—</span>
+    </div>
   </div>
 
   <!-- CENTER -->
@@ -497,12 +569,28 @@
       <div id="detail-content"></div>
       <div id="detail-log"></div>
     </div>
+    <div id="trigger-panel">
+      <hr class="divider">
+      <div class="section-title">Pod Triggers</div>
+      <div id="trigger-buttons">
+        <button class="trigger-btn" onclick="triggerPod('spark')">▶ SPARK</button>
+        <button class="trigger-btn" onclick="triggerPod('maker')">▶ MAKER</button>
+        <button class="trigger-btn" onclick="triggerPod('atlas')">▶ ATLAS</button>
+        <button class="trigger-btn" onclick="triggerPod('trend_scan')">▶ TREND SCAN</button>
+        <button class="trigger-btn" onclick="triggerPod('full_pipeline')">▶ FULL PIPELINE</button>
+      </div>
+    </div>
   </div>
 
   <!-- RIGHT -->
   <div class="panel" id="log-panel">
     <div class="section-title">Activity Log</div>
     <div id="activity-log"></div>
+    <hr class="divider">
+    <div id="vault-feed-wrap">
+      <div class="section-title">Vault Feed (today)</div>
+      <div id="vault-feed">loading...</div>
+    </div>
   </div>
 
 </div>
@@ -752,6 +840,69 @@ setInterval(async () => {
     applyState(lastState);
   } catch {}
 }, 5000);
+
+// ── Loop status polling ───────────────────────────────────────
+async function refreshLoopStatus() {
+  try {
+    const r = await fetch("/api/status");
+    const d = await r.json();
+    const dot = document.getElementById("exec-dot");
+    const statusEl = document.getElementById("exec-status");
+    const nextEl = document.getElementById("improve-next");
+    if (d.execution_loop_active) {
+      dot.classList.add("active");
+      statusEl.textContent = "running";
+      statusEl.style.color = "var(--green)";
+    } else {
+      dot.classList.remove("active");
+      statusEl.textContent = "stopped";
+      statusEl.style.color = "var(--red)";
+    }
+    nextEl.textContent = d.improvement_next_run || "—";
+  } catch {}
+}
+setInterval(refreshLoopStatus, 15000);
+refreshLoopStatus();
+
+// ── Pod trigger ───────────────────────────────────────────────
+async function triggerPod(pod) {
+  const btn = [...document.querySelectorAll(".trigger-btn")]
+    .find(b => b.onclick?.toString().includes(`'${pod}'`));
+  try {
+    const r = await fetch("/api/trigger", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pod }),
+    });
+    const d = await r.json();
+    if (d.task_id) {
+      if (btn) { btn.classList.add("fired"); setTimeout(() => btn.classList.remove("fired"), 2000); }
+      addLog("trigger", `queued ${pod} → ${d.task_id}`, "done");
+    } else {
+      addLog("trigger", `trigger failed: ${d.error || "unknown"}`, "error");
+    }
+  } catch (e) {
+    addLog("trigger", `trigger error: ${e}`, "error");
+  }
+}
+
+// ── Vault feed ────────────────────────────────────────────────
+async function refreshVaultFeed() {
+  try {
+    const r = await fetch("/api/vault/feed");
+    const d = await r.json();
+    const el = document.getElementById("vault-feed");
+    if (!d.sessions || d.sessions.length === 0) {
+      el.textContent = "No sessions today yet.";
+      return;
+    }
+    el.innerHTML = d.sessions.map(s =>
+      `<div class="vault-entry"><span>${s.task_id}</span>${s.summary}</div>`
+    ).join("");
+  } catch {}
+}
+setInterval(refreshVaultFeed, 30000);
+refreshVaultFeed();
 
 // ── Boot ──────────────────────────────────────────────────────
 addLog("system", "AI Ops Command Center online", "done");
