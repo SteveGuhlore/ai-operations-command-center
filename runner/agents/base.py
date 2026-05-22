@@ -36,9 +36,14 @@ class AgentBase:
         total_output = 0
         output_text = ""
 
+        # Digital product tasks need more room — bump to 8k for content-heavy roles
+        max_tokens = 8192 if self.role_id in (
+            "digital_product_worker", "content_worker", "heavy_worker"
+        ) else 4096
+
         kwargs: dict = dict(
             model=self.model,
-            max_tokens=4096,
+            max_tokens=max_tokens,
             system=self.system_prompt,
             messages=messages,
         )

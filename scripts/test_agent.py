@@ -71,9 +71,18 @@ def main():
     agent = AgentBase(args.role, model, system_prompt)
     result = agent.run(task)
 
+    # Save output to workspace/outputs/
+    out_dir = Path(__file__).parent.parent / "workspace" / "outputs"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    task_id = task.get("task_id", task_path.stem)
+    out_file = out_dir / f"{task_id}-output.md"
+    out_file.write_text(result["output"], encoding="utf-8")
+
     print("--- OUTPUT ---")
-    print(result["output"])
+    sys.stdout.buffer.write((result["output"][:3000] + ("\n...(truncated — see full output in workspace/outputs/)" if len(result["output"]) > 3000 else "") + "\n").encode("utf-8", errors="replace"))
+    sys.stdout.buffer.flush()
     print(f"\n--- COST: ${result['cost_usd']:.4f} | in: {result['input_tokens']} | out: {result['output_tokens']} ---")
+    print(f"--- SAVED: {out_file} ---")
 
 
 if __name__ == "__main__":
