@@ -1,0 +1,10 @@
+[Unit]
+Description=AI Ops Improvement Loop — fires at 2 AM daily
+Requires=improvement-loop.service
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

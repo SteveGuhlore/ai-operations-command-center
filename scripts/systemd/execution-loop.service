@@ -1,0 +1,18 @@
+[Unit]
+Description=ThePromptVaultUS AI Ops Execution Loop
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/ai-ops
+EnvironmentFile=/home/ubuntu/ai-ops/.env
+ExecStart=/home/ubuntu/ai-ops/venv/bin/python scripts/launch.py --interval 300
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
