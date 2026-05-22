@@ -22,9 +22,11 @@ from runner.tools.web import web_research
 from runner.tools.code import code_runner
 from runner.tools.image import image_generation
 from runner.tools.audio import audio_generation
+from runner.tools.etsy import etsy_listing
 
 register_tool("file_editor", file_editor)
 register_tool("web_research", web_research)
 register_tool("code_runner", code_runner)
 register_tool("image_generation", image_generation)
 register_tool("audio_generation", audio_generation)
+register_tool("etsy_listing", etsy_listing)

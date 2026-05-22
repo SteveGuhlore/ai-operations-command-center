@@ -1,5 +1,8 @@
 import concurrent.futures
 import logging
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from runner.agents.base import AgentBase
 from runner.agents.prompts import build_system_prompt

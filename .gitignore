@@ -11,6 +11,7 @@ env/
 # Environment / secrets
 .env
 .env.*
+!config/.env.example
 *.key
 config/secrets.yaml
 
