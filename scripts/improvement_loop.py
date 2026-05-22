@@ -89,7 +89,7 @@ def _parse_updates(response_text: str) -> tuple[dict[str, str], str]:
         lines = block.strip().split("\n")
         agent_name = lines[0].strip()
         rest = "\n".join(lines[1:])
-        end_idx = rest.find("END_AGENT")
+        end_idx = rest.find("\nEND_AGENT")
         if end_idx == -1:
             continue
         body = rest[:end_idx].strip()
@@ -130,8 +130,11 @@ def _write_improvement_summary(summary: str, agents_updated: list[str]) -> None:
         f"Agents updated: {', '.join(agents_updated) if agents_updated else 'none'}\n\n"
         f"{summary}\n"
     )
-    out.write_text(content, encoding="utf-8")
-    log.info("Summary written to %s", out)
+    try:
+        out.write_text(content, encoding="utf-8")
+        log.info("Summary written to %s", out)
+    except OSError as exc:
+        log.error("Could not write improvement summary: %s", exc)
 
 
 def run() -> None:
@@ -157,13 +160,20 @@ def run() -> None:
     )
 
     client = anthropic.Anthropic()
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=8192,
-        system=_IMPROVEMENT_SYSTEM,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
+    try:
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=8192,
+            system=_IMPROVEMENT_SYSTEM,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+    except anthropic.APIError as exc:
+        log.error("Claude API call failed: %s", exc)
+        return
 
+    if not response.content:
+        log.error("Empty response content from Claude")
+        return
     output = response.content[0].text
     log.info("Improvement response received (%d chars)", len(output))
 
