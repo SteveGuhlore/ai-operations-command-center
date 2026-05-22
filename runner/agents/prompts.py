@@ -5,9 +5,17 @@ from runner.plugins.loader import build_agent_skills_prompt
 BASE_DIR = Path(__file__).parent.parent.parent
 
 _ROLE_MD_FILES = {
-    "manager": "agents/manager.md",
-    "heavy_worker": "agents/heavy_worker.md",
-    "debug_worker": "agents/debug_worker.md",
+    "manager":                "agents/manager.md",
+    "heavy_worker":           "agents/heavy_worker.md",
+    "debug_worker":           "agents/debug_worker.md",
+    "content_worker":         "agents/content_worker.md",
+    "media_worker":           "agents/media_worker.md",
+    "audio_worker":           "agents/audio_worker.md",
+    "guard_worker":           "agents/guard_worker.md",
+    "budget_worker":          "agents/budget_worker.md",
+    "digital_product_worker": "agents/digital_product_worker.md",
+    "marketing_worker":       "agents/marketing_worker.md",
+    "market_research_worker": "agents/market_research_worker.md",
 }
 
 
