@@ -19,8 +19,12 @@ def test_calculate_cost_haiku():
 
 
 def test_agent_run_returns_output(monkeypatch):
+    mock_block = MagicMock()
+    mock_block.type = "text"
+    mock_block.text = "Task completed successfully."
     mock_response = MagicMock()
-    mock_response.content = [MagicMock(text="Task completed successfully.")]
+    mock_response.stop_reason = "end_turn"
+    mock_response.content = [mock_block]
     mock_response.usage.input_tokens = 100
     mock_response.usage.output_tokens = 50
 
