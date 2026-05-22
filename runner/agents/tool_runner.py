@@ -24,6 +24,7 @@ from runner.tools.image import image_generation
 from runner.tools.audio import audio_generation
 from runner.tools.etsy import etsy_listing
 from runner.tools.social import save_video_package, post_to_instagram, post_to_facebook, post_to_youtube
+from runner.tools.video import assemble_video
 
 register_tool("file_editor",        file_editor)
 register_tool("web_research",       web_research)
@@ -35,3 +36,4 @@ register_tool("save_video_package", save_video_package)
 register_tool("post_to_instagram",  post_to_instagram)
 register_tool("post_to_facebook",   post_to_facebook)
 register_tool("post_to_youtube",    post_to_youtube)
+register_tool("assemble_video",     assemble_video)

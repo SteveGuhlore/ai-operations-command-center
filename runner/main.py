@@ -19,6 +19,7 @@ from runner.tools.image import TOOL_SPEC as IMAGE_TOOL_SPEC
 from runner.tools.audio import TOOL_SPEC as AUDIO_TOOL_SPEC
 from runner.tools.web import TOOL_SPEC as WEB_TOOL_SPEC
 from runner.tools.files import TOOL_SPEC as FILE_TOOL_SPEC
+from runner.tools.video import TOOL_SPEC as VIDEO_TOOL_SPEC
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ MAX_CONCURRENT = 4
 
 # Tools each role is allowed to call
 ROLE_TOOLS: dict[str, list[dict]] = {
-    "social_media_worker":    [TOOL_SPEC_SAVE, IMAGE_TOOL_SPEC, AUDIO_TOOL_SPEC],
+    "social_media_worker":    [TOOL_SPEC_SAVE, IMAGE_TOOL_SPEC, AUDIO_TOOL_SPEC, VIDEO_TOOL_SPEC],
     "media_worker":           [IMAGE_TOOL_SPEC, FILE_TOOL_SPEC],
     "audio_worker":           [AUDIO_TOOL_SPEC, FILE_TOOL_SPEC],
     "digital_product_worker": [FILE_TOOL_SPEC],

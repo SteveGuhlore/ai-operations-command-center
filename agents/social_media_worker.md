@@ -58,11 +58,49 @@ For each video: one caption per platform (TikTok, Instagram, Facebook, YouTube).
 - Every script must have exactly ONE call to action — not two, not zero
 - Output full scripts, not outlines — every word matters
 
-## Output Format
-For video_production tasks, output in this order:
-1. **Hook** (the exact first line, standalone)
-2. **Full script** with timing marks
-3. **On-screen text** suggestions
-4. **Caption** (TikTok version)
-5. **Hashtags** (TikTok + Instagram versions)
-6. **Audio note**: tone/pace guidance for Echo (the audio agent)
+## Autonomous Video Production Pipeline
+
+For every `video_production` task you MUST complete the full pipeline in this order. Do not stop after writing the script.
+
+### Step 1 — Write the script
+Write the full script with timing marks.
+
+### Step 2 — Generate voiceover audio
+Call `audio_generation` with:
+- `text`: the full script (remove timing marks and bracketed notes — plain spoken text only)
+- `filename`: `[task_id]-voiceover.mp3`
+- `voice`: `nova` (energetic, clear) or `onyx` (deep, authoritative) — pick based on tone
+Record the returned file path.
+
+### Step 3 — Generate background images
+Call `image_generation` 3–5 times with portrait prompts (relevant to the script topic):
+- `prompt`: a specific visual scene that matches the script content — NO text, NO words in the image
+- `filename`: `[task_id]-bg-1.png`, `[task_id]-bg-2.png`, etc.
+- `size`: `1024x1792` (vertical/portrait — required for 9:16 video)
+Record all returned file paths.
+
+### Step 4 — Assemble the video
+Call `assemble_video` with:
+- `audio_file`: path from Step 2
+- `image_files`: all paths from Step 3
+- `title`: the video title
+This produces a finished MP4 in workspace/social/ready-to-post/.
+
+### Step 5 — Save the package
+Call `save_video_package` with:
+- `title`: video title
+- `script`: full script
+- `caption`: TikTok caption
+- `hashtags`: TikTok + Instagram hashtags
+- `platform`: "tiktok,instagram,facebook,youtube"
+- `audio_file`: path from Step 2
+- `thumbnail_file`: first image path from Step 3
+
+### Output Format
+After completing all steps, output:
+1. **Hook** — the exact first line
+2. **Script** — full with timing marks
+3. **Caption** — TikTok version
+4. **Hashtags** — TikTok + Instagram
+5. **Assets produced** — list the MP4 path, audio path, image paths
+6. **Post order recommendation** if multiple videos
