@@ -1,0 +1,48 @@
+budgets:
+  daily_limits:
+    total_token_limit: 5000000
+    total_spend_limit_usd: 50.00
+
+  per_role_limits:
+    manager:
+      daily_spend_limit_usd: 15.00
+      daily_token_limit: 1000000
+    heavy_worker:
+      daily_spend_limit_usd: 10.00
+      daily_token_limit: 800000
+    debug_worker:
+      daily_spend_limit_usd: 5.00
+      daily_token_limit: 600000
+    content_worker:
+      daily_spend_limit_usd: 5.00
+      daily_token_limit: 600000
+    media_worker:
+      daily_spend_limit_usd: 5.00
+      daily_token_limit: 400000
+    audio_worker:
+      daily_spend_limit_usd: 3.00
+      daily_token_limit: 400000
+    guard_worker:
+      daily_spend_limit_usd: 2.00
+      daily_token_limit: 300000
+    budget_worker:
+      daily_spend_limit_usd: 2.00
+      daily_token_limit: 300000
+
+  retry_limits:
+    default_max_retries: 2
+    manager: 1
+    heavy_worker: 2
+    debug_worker: 2
+    content_worker: 2
+    media_worker: 2
+    audio_worker: 2
+    guard_worker: 1
+    budget_worker: 1
+
+  alert_thresholds:
+    warn_at_percent_of_daily_budget: 70
+    pause_noncritical_work_at_percent_of_daily_budget: 95
+
+  shutdown_threshold:
+    stop_all_nonapproved_work_at_percent_of_daily_budget: 100

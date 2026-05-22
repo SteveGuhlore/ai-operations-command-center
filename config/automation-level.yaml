@@ -1,0 +1,6 @@
+automation:
+  current_level: 2
+  level_3_actions:
+    etsy_publish: false
+    social_post: false
+    paid_campaign: false

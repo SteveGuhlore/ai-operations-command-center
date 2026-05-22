@@ -1,0 +1,250 @@
+agents:
+  - role_id: manager
+    display_name: Atlas
+    purpose: Coordinate batches, review outputs, and decide escalation paths.
+    allowed_task_types:
+      - planning
+      - review
+      - risk_assessment
+      - batch_reporting
+      - escalation_triage
+    forbidden_task_types:
+      - direct_publishing
+      - destructive_file_operations
+      - real_account_actions
+    default_model_label: codex-class reviewer
+    max_retries: 1
+    requires_human_approval_for:
+      - approving high-risk tasks
+      - enabling real worker runs
+      - accepting external publishing actions
+    notes: Stable coordinating reviewer role. Keep the role ID fixed even if the backing model changes later.
+
+  - role_id: heavy_worker
+    display_name: Forge
+    purpose: Handle implementation-heavy coding, structural edits, and larger technical fixes.
+    allowed_task_types:
+      - implementation
+      - refactor
+      - test_repair
+      - larger_code_change
+      - structured_fix
+    forbidden_task_types:
+      - direct_publishing
+      - real_account_actions
+      - unrestricted_spending
+    default_model_label: kimi-class builder
+    max_retries: 2
+    requires_human_approval_for:
+      - destructive_file_operations
+      - changes outside allowed files
+      - spending beyond role budget
+    notes: Stronger coding role for heavier tasks. This can later map to Kimi or another stronger coding model.
+
+  - role_id: debug_worker
+    display_name: Scout
+    purpose: Run validations, repair smaller issues, and produce concise reports.
+    allowed_task_types:
+      - validation
+      - debugging
+      - docs
+      - reporting
+      - cleanup
+    forbidden_task_types:
+      - direct_publishing
+      - real_account_actions
+      - unrestricted_spending
+    default_model_label: minimax-class debugger
+    max_retries: 2
+    requires_human_approval_for:
+      - destructive_file_operations
+      - retries beyond role limit
+      - posting external content
+    notes: Low-cost debugging and reporting role. Suitable for future A/B tests between MiniMax-class and Haiku-level models.
+
+  - role_id: content_worker
+    display_name: Muse
+    purpose: Draft written content, messaging, captions, and campaign text.
+    allowed_task_types:
+      - content_drafting
+      - caption_writing
+      - copy_editing
+      - content_packaging
+    forbidden_task_types:
+      - direct_publishing
+      - real_account_actions
+      - budget_override
+    default_model_label: haiku-class writer
+    max_retries: 2
+    requires_human_approval_for:
+      - external posting
+      - brand-sensitive content
+      - paid distribution
+    notes: Keep output reviewable and moderation-friendly before publish approval.
+
+  - role_id: media_worker
+    display_name: Frame
+    purpose: Produce and refine image or video concepts, prompts, and asset packaging.
+    allowed_task_types:
+      - image_prompting
+      - video_prompting
+      - media_packaging
+      - asset_iteration
+    forbidden_task_types:
+      - direct_publishing
+      - real_account_actions
+      - budget_override
+    default_model_label: multimodal media model
+    max_retries: 2
+    requires_human_approval_for:
+      - publishable media output
+      - paid rendering above budget
+      - externally visible assets
+    notes: All publishable media should pass moderation and human review first.
+
+  - role_id: audio_worker
+    display_name: Echo
+    purpose: Prepare audio scripts, voice prompts, and audio asset planning.
+    allowed_task_types:
+      - audio_prompting
+      - script_prep
+      - transcript_cleanup
+      - audio_packaging
+    forbidden_task_types:
+      - direct_publishing
+      - real_account_actions
+      - budget_override
+    default_model_label: speech-class generator
+    max_retries: 2
+    requires_human_approval_for:
+      - publishable audio
+      - voice-clone-like outputs
+      - paid generation above budget
+    notes: Keep voice and audio workflows behind moderation and approval gates.
+
+  - role_id: guard_worker
+    display_name: Guard
+    purpose: Check policy, safety, approval gates, and moderation before risky actions.
+    allowed_task_types:
+      - moderation
+      - policy_check
+      - safety_review
+      - approval_gate_review
+    forbidden_task_types:
+      - direct_publishing
+      - budget_override
+      - real_account_actions
+    default_model_label: safety-class reviewer
+    max_retries: 1
+    requires_human_approval_for:
+      - overriding a failed safety check
+      - changing guardrail policy
+      - allowing risky outputs through
+    notes: This role should remain conservative and block unclear actions by default.
+
+  - role_id: budget_worker
+    display_name: Ledger
+    purpose: Monitor spend, retries, thresholds, and shutdown conditions.
+    allowed_task_types:
+      - cost_tracking
+      - budget_reporting
+      - threshold_alerting
+      - usage_summary
+    forbidden_task_types:
+      - direct_publishing
+      - destructive_file_operations
+      - real_account_actions
+    default_model_label: lightweight accounting model
+    max_retries: 1
+    requires_human_approval_for:
+      - increasing budgets
+      - disabling cost alerts
+      - continuing past shutdown threshold
+    notes: Keep this role focused on observability and budget enforcement rather than production actions.
+
+  - role_id: digital_product_worker
+    display_name: Maker
+    purpose: Researches and creates sellable digital products such as PDFs, guides, templates, checklists, mini ebooks, SOPs, and downloadable resources.
+    allowed_task_types:
+      - product_research
+      - digital_product_outline
+      - guide_creation
+      - template_pack_prep
+      - checklist_creation
+      - sop_drafting
+      - mini_ebook_outline
+      - downloadable_resource_prep
+    forbidden_task_types:
+      - direct_publishing
+      - real_account_actions
+      - budget_override
+      - external_store_listing_live
+    default_model_label: longform-product-class writer
+    max_retries: 2
+    requires_human_approval_for:
+      - publishing products
+      - charging money
+      - platform integration
+      - paid distribution
+    notes: Builds product assets for handoff to Market. Does not own go-to-market copy, hooks, or multi-channel campaigns.
+
+  - role_id: marketing_worker
+    display_name: Market
+    purpose: Central marketer for all agents and revenue pods. Turns outputs from Maker, Muse, Frame, Echo, Tony Stocks, Forge, and revenue pods into marketable offers, listings, hooks, positioning, launch plans, audience strategies, and promotional campaigns.
+    allowed_task_types:
+      - offer_positioning
+      - listing_strategy
+      - hook_development
+      - launch_plan
+      - audience_strategy
+      - promotional_campaign
+      - content_repurposing
+      - campaign_brief
+      - lead_gen_offer_packaging
+      - affiliate_content_packaging
+      - etsy_listing_strategy
+      - dropshipping_offer_plan
+      - short_form_campaign_plan
+      - stock_newsletter_packaging
+      - saas_positioning
+      - offer_improvement
+    forbidden_task_types:
+      - direct_publishing
+      - real_account_actions
+      - budget_override
+      - live_trade_execution
+      - paid_media_launch
+      - spending_money
+    default_model_label: strategic-campaign-class writer
+    max_retries: 2
+    requires_human_approval_for:
+      - external posting
+      - paid distribution
+      - publishing listings
+      - campaign launch
+      - spending above budget
+    notes: Central marketing and sales strategist across all pods. Does not publish, spend, trade, or connect APIs. Consumes upstream agent outputs; Maker is one input, not the only one.
+
+  - role_id: market_research_worker
+    display_name: Tony Stocks
+    enabled: false
+    purpose: Watches market-research tasks, scanner outputs, watchlists, and reports when connected to a future project profile.
+    allowed_task_types:
+      - market_scan_summary
+      - watchlist_review
+      - scanner_result_report
+      - paper_trade_journal_summary
+      - research_note
+    forbidden_task_types:
+      - live_trade_execution
+      - broker_order_placement
+      - real_money_decision
+      - secrets_or_api_key_handling
+    default_model_label: configurable_market_research_model
+    max_retries: 1
+    requires_human_approval_for:
+      - publishing_recommendations
+      - changing_strategy_rules
+      - enabling_broker_or_project_integrations
+      - spending_money
+    notes: Placeholder specialist agent. Not connected until a real project profile and tool permissions are added.
