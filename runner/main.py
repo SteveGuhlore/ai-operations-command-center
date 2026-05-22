@@ -13,6 +13,12 @@ from runner.tasks.reader import read_todo_tasks
 from runner.tasks.router import route_task
 from runner.tasks.transitions import move_task, write_task_output
 from runner.bridge.tony_bridge import scan_and_process as scan_tony_bridge
+from runner.tools.social import TOOL_SPEC_SAVE
+from runner.tools.etsy import TOOL_SPEC as ETSY_TOOL_SPEC
+from runner.tools.image import TOOL_SPEC as IMAGE_TOOL_SPEC
+from runner.tools.audio import TOOL_SPEC as AUDIO_TOOL_SPEC
+from runner.tools.web import TOOL_SPEC as WEB_TOOL_SPEC
+from runner.tools.files import TOOL_SPEC as FILE_TOOL_SPEC
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -33,6 +39,21 @@ MODELS: dict[str, str] = {
 
 MAX_CONCURRENT = 4
 
+# Tools each role is allowed to call
+ROLE_TOOLS: dict[str, list[dict]] = {
+    "social_media_worker":    [TOOL_SPEC_SAVE, IMAGE_TOOL_SPEC, AUDIO_TOOL_SPEC],
+    "media_worker":           [IMAGE_TOOL_SPEC, FILE_TOOL_SPEC],
+    "audio_worker":           [AUDIO_TOOL_SPEC, FILE_TOOL_SPEC],
+    "digital_product_worker": [FILE_TOOL_SPEC],
+    "content_worker":         [FILE_TOOL_SPEC],
+    "debug_worker":           [WEB_TOOL_SPEC, FILE_TOOL_SPEC],
+    "marketing_worker":       [ETSY_TOOL_SPEC, FILE_TOOL_SPEC],
+    "manager":                [FILE_TOOL_SPEC],
+    "heavy_worker":           [FILE_TOOL_SPEC],
+    "guard_worker":           [],
+    "budget_worker":          [],
+}
+
 
 def run_task(task: dict) -> dict:
     task_id = task["task_id"]
@@ -47,7 +68,8 @@ def run_task(task: dict) -> dict:
         move_task(task_id, "todo", "in_progress")
 
         model = MODELS.get(role_id, "claude-haiku-4-5")
-        agent = AgentBase(role_id, model, build_system_prompt(role_id))
+        tools = ROLE_TOOLS.get(role_id, [])
+        agent = AgentBase(role_id, model, build_system_prompt(role_id), tools=tools)
         result = agent.run(task)
 
         write_task_output(task_id, result["output"], "in_progress")

@@ -18,20 +18,7 @@ load_dotenv()
 from runner.agents.base import AgentBase
 from runner.agents.prompts import build_system_prompt
 from runner.tasks.reader import parse_task_file
-
-MODELS = {
-    "manager":                "claude-opus-4-7",
-    "heavy_worker":           "claude-sonnet-4-6",
-    "debug_worker":           "claude-haiku-4-5",
-    "content_worker":         "claude-haiku-4-5",
-    "media_worker":           "claude-sonnet-4-6",
-    "audio_worker":           "claude-haiku-4-5",
-    "guard_worker":           "claude-haiku-4-5",
-    "budget_worker":          "claude-haiku-4-5",
-    "digital_product_worker": "claude-sonnet-4-6",
-    "marketing_worker":       "claude-sonnet-4-6",
-    "market_research_worker": "claude-haiku-4-5",
-}
+from runner.main import MODELS, ROLE_TOOLS
 
 
 def main():
@@ -67,8 +54,10 @@ def main():
         print("ERROR: ANTHROPIC_API_KEY not set. Add it to .env in the project root.")
         sys.exit(1)
 
+    tools = ROLE_TOOLS.get(args.role, [])
+    print(f"  Tools: {[t['name'] for t in tools] or 'none'}\n")
     print("Calling Claude API...\n")
-    agent = AgentBase(args.role, model, system_prompt)
+    agent = AgentBase(args.role, model, system_prompt, tools=tools)
     result = agent.run(task)
 
     # Save output to workspace/outputs/
