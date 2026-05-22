@@ -6,127 +6,490 @@
 <title>AI Ops Command Center</title>
 <style>
   :root {
-    --bg: #0a0e1a;
-    --panel: #111827;
-    --border: #1f2937;
-    --text: #e2e8f0;
-    --muted: #6b7280;
-    --green: #10b981;
-    --orange: #f59e0b;
-    --red: #ef4444;
-    --blue: #3b82f6;
-    --purple: #8b5cf6;
+    --bg: #060910;
+    --panel: #0c1120;
+    --panel2: #0e1528;
+    --border: #1a2540;
+    --border2: #243050;
+    --text: #cdd9f5;
+    --muted: #4a5a80;
+    --green: #00f5a0;
+    --green-dim: #00c47f;
+    --green-glow: rgba(0,245,160,0.15);
+    --orange: #ffb340;
+    --orange-glow: rgba(255,179,64,0.15);
+    --red: #ff4560;
+    --red-glow: rgba(255,69,96,0.15);
+    --blue: #4d9fff;
+    --blue-dim: #2a7de0;
+    --blue-glow: rgba(77,159,255,0.15);
+    --purple: #a855f7;
+    --cyan: #22d3ee;
   }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; font-size: 13px; height: 100vh; display: flex; flex-direction: column; }
 
-  /* TOPBAR */
-  #topbar { background: var(--panel); border-bottom: 1px solid var(--border); padding: 8px 16px; display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
-  #topbar h1 { font-size: 14px; letter-spacing: 2px; color: var(--blue); }
-  .level-badge { background: #1e3a5f; color: var(--blue); padding: 2px 8px; border-radius: 4px; font-size: 11px; }
-  #budget-bar-wrap { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-  #budget-label { font-size: 11px; color: var(--muted); }
-  #budget-bar { width: 120px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
-  #budget-fill { height: 100%; background: var(--green); border-radius: 3px; transition: width 0.5s, background 0.3s; }
-  #budget-text { font-size: 11px; color: var(--text); min-width: 90px; }
-
-  /* MAIN LAYOUT */
-  #main { display: grid; grid-template-columns: 180px 1fr 240px; gap: 1px; flex: 1; overflow: hidden; background: var(--border); }
-  .panel { background: var(--panel); padding: 12px; overflow-y: auto; }
-
-  /* LEFT PANEL */
-  .section-title { font-size: 10px; letter-spacing: 1.5px; color: var(--muted); margin-bottom: 8px; }
-  .queue-row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; }
-  .queue-count { font-weight: bold; }
-  .queue-count.todo { color: var(--text); }
-  .queue-count.active { color: var(--blue); }
-  .queue-count.review { color: var(--orange); }
-  .queue-count.done { color: var(--green); }
-  .queue-count.failed { color: var(--red); }
-  .divider { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
-  .pod-item { padding: 4px 6px; cursor: pointer; border-radius: 4px; font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-  .pod-item:hover, .pod-item.active { background: #1f2937; color: var(--text); }
-  .pod-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
-  .pod-item.active .pod-dot { background: var(--green); }
-
-  /* AGENT GRID */
-  #agent-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; align-content: start; }
-  .agent-card {
-    background: #0d1117;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px;
-    cursor: pointer;
-    transition: border-color 0.2s;
-    position: relative;
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
   }
-  .agent-card:hover { border-color: #374151; }
-  .agent-card.working { border-color: var(--green); box-shadow: 0 0 12px rgba(16,185,129,0.15); }
-  .agent-card.error { border-color: var(--red); box-shadow: 0 0 12px rgba(239,68,68,0.15); }
-  .agent-card.budget_paused { border-color: var(--orange); box-shadow: 0 0 12px rgba(245,158,11,0.15); }
-  .agent-card.offline { border: 1px dashed var(--border); opacity: 0.5; }
-  .agent-name { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
-  .agent-display { font-size: 14px; font-weight: bold; margin: 4px 0; }
-  .agent-state { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
-  .agent-state.idle { color: var(--muted); }
-  .agent-state.working { color: var(--green); }
-  .agent-state.error { color: var(--red); }
+
+  /* scanline overlay */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.07) 2px,
+      rgba(0,0,0,0.07) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* animated background grid */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(77,159,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(77,159,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ─── TOPBAR ─────────────────────────────── */
+  #topbar {
+    background: linear-gradient(90deg, #0a1020, #0c1528, #0a1020);
+    border-bottom: 1px solid var(--border2);
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-shrink: 0;
+    height: 44px;
+    position: relative;
+    z-index: 10;
+  }
+  #topbar::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--blue-dim), var(--cyan), var(--blue-dim), transparent);
+    opacity: 0.6;
+  }
+
+  #topbar h1 {
+    font-size: 13px;
+    letter-spacing: 3px;
+    color: var(--cyan);
+    text-shadow: 0 0 20px rgba(34,211,238,0.6);
+    white-space: nowrap;
+  }
+
+  .level-badge {
+    background: rgba(77,159,255,0.1);
+    color: var(--blue);
+    border: 1px solid rgba(77,159,255,0.3);
+    padding: 2px 10px;
+    border-radius: 3px;
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
+
+  #clock {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+
+  #conn-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+  }
+  #conn-label { font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  #status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--red);
+    box-shadow: 0 0 6px var(--red);
+  }
+  #status-dot.connected {
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: dotpulse 2s infinite;
+  }
+  @keyframes dotpulse {
+    0%,100% { box-shadow: 0 0 4px var(--green); }
+    50%      { box-shadow: 0 0 14px var(--green), 0 0 30px rgba(0,245,160,0.3); }
+  }
+
+  /* budget */
+  #budget-bar-wrap { display: flex; align-items: center; gap: 8px; }
+  #budget-label { font-size: 10px; color: var(--muted); letter-spacing: 1px; }
+  #budget-bar { width: 100px; height: 4px; background: var(--border2); border-radius: 2px; overflow: hidden; }
+  #budget-fill { height: 100%; background: var(--green); border-radius: 2px; transition: width 0.8s cubic-bezier(.4,0,.2,1), background 0.5s; }
+  #budget-text { font-size: 10px; color: var(--text); min-width: 90px; }
+
+  /* ─── MAIN LAYOUT ────────────────────────── */
+  #main {
+    display: grid;
+    grid-template-columns: 170px 1fr 230px;
+    gap: 1px;
+    flex: 1;
+    overflow: hidden;
+    background: var(--border);
+    position: relative;
+    z-index: 1;
+  }
+
+  .panel {
+    background: var(--panel);
+    padding: 14px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+  .panel::-webkit-scrollbar { width: 3px; }
+  .panel::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  /* ─── LEFT PANEL ─────────────────────────── */
+  .section-title {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    margin-bottom: 10px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+    text-transform: uppercase;
+  }
+
+  .queue-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 3px 0;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .queue-count {
+    font-weight: bold;
+    font-size: 13px;
+    transition: all 0.3s;
+    min-width: 20px;
+    text-align: right;
+  }
+  .queue-count.todo    { color: var(--text); }
+  .queue-count.active  { color: var(--blue); text-shadow: 0 0 8px var(--blue); }
+  .queue-count.review  { color: var(--orange); }
+  .queue-count.done    { color: var(--green); }
+  .queue-count.failed  { color: var(--red); }
+
+  .divider { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+
+  .pod-item {
+    padding: 5px 8px;
+    cursor: pointer;
+    border-radius: 4px;
+    font-size: 10px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    transition: all 0.2s;
+    margin-bottom: 2px;
+    letter-spacing: 0.5px;
+  }
+  .pod-item:hover { background: rgba(77,159,255,0.06); color: var(--text); }
+  .pod-item.active { background: rgba(77,159,255,0.1); color: var(--blue); }
+  .pod-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+    transition: all 0.3s;
+  }
+  .pod-item.active .pod-dot {
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    animation: dotpulse 2s infinite;
+  }
+
+  /* ─── AGENT GRID ─────────────────────────── */
+  #center-panel { background: var(--panel2); }
+  #agent-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    align-content: start;
+  }
+
+  .agent-card {
+    background: #080d18;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 12px 10px;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s, box-shadow 0.3s, transform 0.15s;
+  }
+  .agent-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--border2);
+    transition: background 0.4s, box-shadow 0.4s;
+  }
+  .agent-card:hover { transform: translateY(-1px); border-color: var(--border2); }
+
+  /* working state */
+  .agent-card.working {
+    border-color: var(--green);
+    box-shadow: 0 0 20px var(--green-glow), inset 0 0 20px rgba(0,245,160,0.03);
+  }
+  .agent-card.working::before {
+    background: linear-gradient(90deg, transparent, var(--green), var(--cyan), var(--green), transparent);
+    background-size: 200% 100%;
+    animation: scanbar 1.8s linear infinite;
+    box-shadow: 0 0 8px var(--green);
+  }
+  @keyframes scanbar {
+    0%   { background-position: -100% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  .agent-card.error {
+    border-color: var(--red);
+    box-shadow: 0 0 16px var(--red-glow);
+  }
+  .agent-card.error::before { background: var(--red); }
+
+  .agent-card.budget_paused {
+    border-color: var(--orange);
+    box-shadow: 0 0 16px var(--orange-glow);
+  }
+  .agent-card.budget_paused::before { background: var(--orange); }
+
+  .agent-card.offline { opacity: 0.35; border-style: dashed; }
+
+  /* card content */
+  .agent-name {
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 5px;
+  }
+  .agent-display {
+    font-size: 17px;
+    font-weight: bold;
+    color: var(--text);
+    letter-spacing: 0.5px;
+    margin-bottom: 6px;
+  }
+  .agent-card.working .agent-display { color: var(--green); text-shadow: 0 0 12px rgba(0,245,160,0.5); }
+  .agent-card.error   .agent-display { color: var(--red); }
+
+  .agent-state-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .state-icon {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .agent-state {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .agent-state.idle          { color: var(--muted); }
+  .agent-state.working       { color: var(--green); }
+  .agent-state.error         { color: var(--red); }
   .agent-state.budget_paused { color: var(--orange); }
-  .agent-state.offline { color: var(--muted); }
-  .agent-task { font-size: 10px; color: var(--muted); margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pulse { animation: pulse 2s infinite; }
-  @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.5 } }
+  .agent-state.offline       { color: var(--muted); }
 
-  /* DETAIL PANEL */
-  #detail-panel { display: none; }
+  .state-icon.idle          { background: var(--muted); }
+  .state-icon.working       { background: var(--green); box-shadow: 0 0 6px var(--green); animation: dotpulse 1.2s infinite; }
+  .state-icon.error         { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  .state-icon.budget_paused { background: var(--orange); }
+  .state-icon.offline       { background: var(--border2); }
+
+  .agent-task {
+    font-size: 9px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-top: 4px;
+    border-top: 1px solid var(--border);
+  }
+  .agent-card.working .agent-task { color: rgba(0,245,160,0.6); }
+
+  /* working spinner overlay */
+  .spinner {
+    position: absolute;
+    top: 10px; right: 10px;
+    width: 14px; height: 14px;
+    border: 1.5px solid var(--border2);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    display: none;
+  }
+  .agent-card.working .spinner { display: block; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ─── DETAIL PANEL ───────────────────────── */
+  #detail-panel { display: none; margin-top: 14px; }
   #detail-panel.visible { display: block; }
-  #detail-title { font-size: 12px; font-weight: bold; margin-bottom: 8px; color: var(--blue); }
-  #detail-content { font-size: 11px; color: var(--muted); line-height: 1.6; }
-  #detail-log { background: #060a12; border: 1px solid var(--border); border-radius: 4px; padding: 8px; font-size: 10px; max-height: 200px; overflow-y: auto; margin-top: 8px; white-space: pre-wrap; word-break: break-all; }
+  #detail-title {
+    font-size: 11px;
+    font-weight: bold;
+    color: var(--cyan);
+    margin-bottom: 8px;
+    letter-spacing: 1px;
+  }
+  #detail-content {
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.8;
+    margin-bottom: 8px;
+  }
+  #detail-content b { color: var(--text); }
+  #detail-log {
+    background: #04060f;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    font-size: 9px;
+    max-height: 160px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--muted);
+    line-height: 1.7;
+  }
 
-  /* RIGHT PANEL - ACTIVITY LOG */
-  #log-panel .section-title { margin-bottom: 6px; }
-  #activity-log { font-size: 10px; line-height: 1.8; }
-  .log-entry { display: flex; gap: 8px; padding: 2px 0; border-bottom: 1px solid #0d1117; }
-  .log-time { color: var(--muted); flex-shrink: 0; }
-  .log-agent { color: var(--blue); flex-shrink: 0; min-width: 60px; }
-  .log-msg { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* ─── ACTIVITY LOG ───────────────────────── */
+  #log-panel { background: var(--panel); }
+  #activity-log { font-size: 10px; }
 
-  #status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); margin-left: auto; }
-  #status-dot.connected { background: var(--green); }
+  .log-entry {
+    display: flex;
+    gap: 8px;
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(26,37,64,0.6);
+    animation: slideIn 0.3s ease-out;
+    overflow: hidden;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateX(10px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  .log-time  { color: var(--muted); flex-shrink: 0; font-size: 9px; padding-top: 1px; }
+  .log-agent { color: var(--blue); flex-shrink: 0; min-width: 52px; font-size: 9px; padding-top: 1px; }
+  .log-msg   { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+  .log-entry.log-working .log-msg { color: var(--green); }
+  .log-entry.log-error   .log-msg { color: var(--red); }
+  .log-entry.log-done    .log-msg { color: rgba(0,245,160,0.6); }
+
+  /* ─── TICKER ─────────────────────────────── */
+  #ticker-wrap {
+    height: 24px;
+    background: #04070f;
+    border-top: 1px solid var(--border);
+    overflow: hidden;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    position: relative;
+    z-index: 10;
+  }
+  #ticker {
+    display: flex;
+    white-space: nowrap;
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    animation: ticker 30s linear infinite;
+    gap: 40px;
+  }
+  #ticker span { color: var(--blue); }
+  @keyframes ticker {
+    0%   { transform: translateX(100vw); }
+    100% { transform: translateX(-100%); }
+  }
+
+  /* ─── UTIL ───────────────────────────────── */
+  .num-flip {
+    display: inline-block;
+    animation: numflip 0.2s ease;
+  }
+  @keyframes numflip {
+    0%  { transform: translateY(-4px); opacity: 0; }
+    100%{ transform: translateY(0);    opacity: 1; }
+  }
 </style>
 </head>
 <body>
 
+<!-- TOPBAR -->
 <div id="topbar">
-  <h1>AI OPS COMMAND CENTER</h1>
-  <span class="level-badge" id="level-badge">Level 2</span>
+  <h1>&#9632; AI OPS COMMAND CENTER</h1>
+  <span class="level-badge" id="level-badge">LVL 2</span>
+  <span id="clock"></span>
   <div id="budget-bar-wrap">
     <span id="budget-label">BUDGET</span>
     <div id="budget-bar"><div id="budget-fill" style="width:0%"></div></div>
     <span id="budget-text">$0.00 / $50.00</span>
   </div>
-  <div id="status-dot" title="WebSocket disconnected"></div>
+  <div id="conn-wrap">
+    <span id="conn-label">WS</span>
+    <div id="status-dot" title="Disconnected"></div>
+  </div>
 </div>
 
+<!-- MAIN -->
 <div id="main">
 
-  <!-- LEFT: queue + pods -->
+  <!-- LEFT -->
   <div class="panel" id="left-panel">
-    <div class="section-title">TASK QUEUE</div>
-    <div class="queue-row"><span>todo</span><span class="queue-count todo" id="q-todo">0</span></div>
-    <div class="queue-row"><span>active</span><span class="queue-count active" id="q-active">0</span></div>
-    <div class="queue-row"><span>review</span><span class="queue-count review" id="q-review">0</span></div>
-    <div class="queue-row"><span>done</span><span class="queue-count done" id="q-done">0</span></div>
-    <div class="queue-row"><span>failed</span><span class="queue-count failed" id="q-failed">0</span></div>
+    <div class="section-title">Task Queue</div>
+    <div class="queue-row"><span>Todo</span><span class="queue-count todo" id="q-todo">0</span></div>
+    <div class="queue-row"><span>Active</span><span class="queue-count active" id="q-active">0</span></div>
+    <div class="queue-row"><span>Review</span><span class="queue-count review" id="q-review">0</span></div>
+    <div class="queue-row"><span>Done</span><span class="queue-count done" id="q-done">0</span></div>
+    <div class="queue-row"><span>Failed</span><span class="queue-count failed" id="q-failed">0</span></div>
     <hr class="divider">
-    <div class="section-title">REVENUE PODS</div>
+    <div class="section-title">Revenue Pods</div>
     <div id="pod-list"></div>
+    <hr class="divider">
+    <div class="section-title">System</div>
+    <div class="queue-row"><span>Agents</span><span class="queue-count active" id="s-active">0</span></div>
+    <div class="queue-row"><span>Cycles</span><span class="queue-count done" id="s-cycles">0</span></div>
   </div>
 
-  <!-- CENTER: agent grid + detail -->
-  <div class="panel">
+  <!-- CENTER -->
+  <div class="panel" id="center-panel">
     <div id="agent-grid"></div>
     <div id="detail-panel">
       <hr class="divider">
@@ -136,55 +499,79 @@
     </div>
   </div>
 
-  <!-- RIGHT: activity log -->
+  <!-- RIGHT -->
   <div class="panel" id="log-panel">
-    <div class="section-title">ACTIVITY LOG</div>
+    <div class="section-title">Activity Log</div>
     <div id="activity-log"></div>
   </div>
 
+</div>
+
+<!-- TICKER -->
+<div id="ticker-wrap">
+  <div id="ticker">
+    <span>SYSTEM ONLINE</span> &nbsp;·&nbsp; ThePromptVaultUS AI Operations &nbsp;·&nbsp;
+    <span>ATLAS</span> orchestrating &nbsp;·&nbsp;
+    <span>MUSE</span> content engine &nbsp;·&nbsp;
+    <span>MAKER</span> digital products &nbsp;·&nbsp;
+    <span>MARKET</span> listings &nbsp;·&nbsp;
+    <span>SCOUT</span> debug &amp; research &nbsp;·&nbsp;
+    <span>FRAME</span> visuals &nbsp;·&nbsp;
+    <span>ECHO</span> audio &nbsp;·&nbsp;
+    <span>LEDGER</span> budget guard &nbsp;·&nbsp;
+    <span>GUARD</span> compliance &nbsp;·&nbsp;
+    <span>TONY STOCKS</span> market bridge &nbsp;·&nbsp;
+    <span>FORGE</span> heavy impl &nbsp;·&nbsp; Level 2 Automation &nbsp;·&nbsp;
+  </div>
 </div>
 
 <script>
 const AGENTS = [
   { role: "manager",                display: "Atlas",       name: "MANAGER" },
   { role: "heavy_worker",           display: "Forge",       name: "HEAVY WORKER" },
-  { role: "debug_worker",           display: "Scout",       name: "DEBUG WORKER" },
+  { role: "debug_worker",           display: "Scout",       name: "DEBUG" },
   { role: "content_worker",         display: "Muse",        name: "CONTENT" },
   { role: "media_worker",           display: "Frame",       name: "MEDIA" },
   { role: "audio_worker",           display: "Echo",        name: "AUDIO" },
   { role: "guard_worker",           display: "Guard",       name: "GUARD" },
   { role: "budget_worker",          display: "Ledger",      name: "BUDGET" },
-  { role: "digital_product_worker", display: "Maker",       name: "DIGITAL PROD" },
+  { role: "digital_product_worker", display: "Maker",       name: "DIGITAL" },
   { role: "marketing_worker",       display: "Market",      name: "MARKETING" },
-  { role: "market_research_worker", display: "Tony Stocks", name: "MARKET RES" },
+  { role: "market_research_worker", display: "Tony Stocks", name: "MKT RES" },
 ];
 
 const PODS = [
-  "Etsy Store", "Dropshipping", "Affiliate Content",
-  "Short-Form Video", "Digital Products", "Lead Gen",
-  "Stock Research", "App SaaS",
+  "Etsy Store", "Dropshipping", "Affiliate",
+  "Short-Form Video", "Digital Products",
+  "Lead Gen", "Stock Research", "App / SaaS",
 ];
 
 let selectedAgent = null;
-let logEntries = [];
+let logEntries    = [];
+let lastState     = {};
+let cycleCount    = 0;
 
-// Build agent grid
+// ── Build agent grid ──────────────────────────────────────────
 const grid = document.getElementById("agent-grid");
 AGENTS.forEach(a => {
   const card = document.createElement("div");
   card.className = "agent-card idle";
   card.id = `card-${a.role}`;
   card.innerHTML = `
+    <div class="spinner"></div>
     <div class="agent-name">${a.name}</div>
     <div class="agent-display">${a.display}</div>
-    <div class="agent-state idle" id="state-${a.role}">idle</div>
+    <div class="agent-state-row">
+      <div class="state-icon idle" id="icon-${a.role}"></div>
+      <div class="agent-state idle" id="state-${a.role}">idle</div>
+    </div>
     <div class="agent-task" id="task-${a.role}">—</div>
   `;
   card.addEventListener("click", () => showDetail(a));
   grid.appendChild(card);
 });
 
-// Build pod list
+// ── Build pod list ────────────────────────────────────────────
 const podList = document.getElementById("pod-list");
 PODS.forEach((pod, i) => {
   const div = document.createElement("div");
@@ -197,13 +584,34 @@ PODS.forEach((pod, i) => {
   podList.appendChild(div);
 });
 
+// ── Clock ─────────────────────────────────────────────────────
+function updateClock() {
+  const now = new Date();
+  document.getElementById("clock").textContent =
+    now.toISOString().replace("T"," ").slice(0,19) + " UTC";
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── Number animation ──────────────────────────────────────────
+function setCount(el, val) {
+  if (!el) return;
+  const prev = el.textContent;
+  if (prev !== String(val)) {
+    el.innerHTML = `<span class="num-flip">${val}</span>`;
+  }
+}
+
+// ── Apply state from server ───────────────────────────────────
+const prevStates = {};
+
 function applyState(data) {
-  if (!data || !data.agents) return;
+  if (!data) return;
 
   // Budget
   const spent = data.budget?.spent_usd ?? 0;
-  const cap = data.budget?.cap_usd ?? 50;
-  const pct = Math.min((spent / cap) * 100, 100);
+  const cap   = data.budget?.cap_usd   ?? 50;
+  const pct   = Math.min((spent / cap) * 100, 100);
   document.getElementById("budget-text").textContent = `$${spent.toFixed(2)} / $${cap.toFixed(2)}`;
   const fill = document.getElementById("budget-fill");
   fill.style.width = pct + "%";
@@ -211,70 +619,101 @@ function applyState(data) {
 
   // Task counts
   const t = data.tasks ?? {};
-  document.getElementById("q-todo").textContent = t.todo ?? 0;
-  document.getElementById("q-active").textContent = t.in_progress ?? 0;
-  document.getElementById("q-review").textContent = t.review ?? 0;
-  document.getElementById("q-done").textContent = t.done ?? 0;
-  document.getElementById("q-failed").textContent = t.failed ?? 0;
+  setCount(document.getElementById("q-todo"),   t.todo        ?? 0);
+  setCount(document.getElementById("q-active"), t.in_progress ?? 0);
+  setCount(document.getElementById("q-review"), t.review      ?? 0);
+  setCount(document.getElementById("q-done"),   t.done        ?? 0);
+  setCount(document.getElementById("q-failed"), t.failed      ?? 0);
 
-  // Agent cards
+  // System stats
+  const activeCount = Object.values(data.agents ?? {}).filter(a => a.state === "working").length;
+  setCount(document.getElementById("s-active"), activeCount);
+  if (data.cycle_count !== undefined) {
+    cycleCount = data.cycle_count;
+    setCount(document.getElementById("s-cycles"), cycleCount);
+  }
+
+  // Agents
+  if (!data.agents) return;
   Object.entries(data.agents).forEach(([role, info]) => {
-    const card = document.getElementById(`card-${role}`);
+    const card    = document.getElementById(`card-${role}`);
     const stateEl = document.getElementById(`state-${role}`);
-    const taskEl = document.getElementById(`task-${role}`);
+    const iconEl  = document.getElementById(`icon-${role}`);
+    const taskEl  = document.getElementById(`task-${role}`);
     if (!card) return;
 
     const state = info.state ?? "idle";
-    card.className = `agent-card ${state}`;
-    stateEl.className = `agent-state ${state}`;
-    stateEl.textContent = state === "budget_paused" ? "paused" : state;
-    if (state === "working") stateEl.classList.add("pulse");
-    taskEl.textContent = info.task_id || info.last_action || "—";
+    const prev  = prevStates[role];
 
-    if (state === "working" && info.task_id) {
-      addLog(role, `working on ${info.task_id}`);
-    } else if (info.last_action && state === "idle") {
-      addLog(role, info.last_action);
+    // Only update DOM if state changed
+    if (prev !== state) {
+      card.className  = `agent-card ${state}`;
+      stateEl.className = `agent-state ${state}`;
+      iconEl.className  = `state-icon ${state}`;
+      stateEl.textContent = state === "budget_paused" ? "paused" : state;
+      prevStates[role] = state;
+
+      // Log transitions
+      if (state === "working" && info.task_id) {
+        addLog(role, `working on ${info.task_id}`, "working");
+      } else if (state === "idle" && prev === "working") {
+        addLog(role, info.last_action || "completed", "done");
+      } else if (state === "error") {
+        addLog(role, info.last_action || "error", "error");
+      }
     }
+
+    taskEl.textContent = info.task_id || info.last_action || "—";
   });
+
+  // refresh detail panel if open
+  if (selectedAgent) {
+    const a = AGENTS.find(x => x.role === selectedAgent);
+    if (a) showDetail(a, true);
+  }
 }
 
-function addLog(role, msg) {
-  const now = new Date();
-  const time = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  const entry = { time, role, msg };
-  logEntries.unshift(entry);
-  if (logEntries.length > 100) logEntries.pop();
+// ── Activity log ──────────────────────────────────────────────
+function addLog(role, msg, type = "") {
+  const now  = new Date();
+  const time = now.toTimeString().slice(0,8);
+  logEntries.unshift({ time, role, msg, type });
+  if (logEntries.length > 200) logEntries.pop();
   renderLog();
 }
 
 function renderLog() {
   const el = document.getElementById("activity-log");
-  el.innerHTML = logEntries.slice(0, 40).map(e =>
-    `<div class="log-entry">
+  el.innerHTML = logEntries.slice(0, 60).map(e => {
+    const short = e.role.replace("_worker","").replace(/_/g," ");
+    return `<div class="log-entry log-${e.type}">
       <span class="log-time">${e.time}</span>
-      <span class="log-agent">${e.role.replace("_worker","").replace("_"," ")}</span>
+      <span class="log-agent">${short}</span>
       <span class="log-msg">${e.msg}</span>
-    </div>`
-  ).join("");
+    </div>`;
+  }).join("");
 }
 
-function showDetail(agent) {
+// ── Detail panel ──────────────────────────────────────────────
+function showDetail(agent, silent = false) {
   selectedAgent = agent.role;
-  document.getElementById("detail-panel").classList.add("visible");
-  document.getElementById("detail-title").textContent = `${agent.display} (${agent.name})`;
+  const panel = document.getElementById("detail-panel");
+  panel.classList.add("visible");
+  document.getElementById("detail-title").textContent =
+    `▶ ${agent.display} — ${agent.name}`;
+
   const info = lastState?.agents?.[agent.role] ?? {};
   document.getElementById("detail-content").innerHTML =
-    `State: <b>${info.state ?? "—"}</b><br>` +
-    `Task: <b>${info.task_id ?? "—"}</b><br>` +
+    `State: <b>${info.state ?? "—"}</b> &nbsp;·&nbsp; ` +
+    `Task: <b>${info.task_id ?? "none"}</b><br>` +
     `Last action: ${info.last_action ?? "—"}`;
+
   document.getElementById("detail-log").textContent =
-    logEntries.filter(e => e.role === agent.role).slice(0, 20)
+    logEntries.filter(e => e.role === agent.role).slice(0, 30)
       .map(e => `${e.time}  ${e.msg}`).join("\n") || "No recent activity.";
 }
 
-// WebSocket
-let lastState = {};
+// ── WebSocket ─────────────────────────────────────────────────
 const dot = document.getElementById("status-dot");
 
 function connect() {
@@ -282,7 +721,8 @@ function connect() {
 
   ws.onopen = () => {
     dot.classList.add("connected");
-    dot.title = "WebSocket connected";
+    dot.title = "Connected";
+    addLog("system", "WebSocket connected", "done");
   };
 
   ws.onmessage = (e) => {
@@ -294,22 +734,26 @@ function connect() {
 
   ws.onclose = () => {
     dot.classList.remove("connected");
-    dot.title = "WebSocket disconnected — reconnecting...";
+    dot.title = "Disconnected — reconnecting...";
+    addLog("system", "WebSocket disconnected — reconnecting in 3s", "error");
     setTimeout(connect, 3000);
   };
 
   ws.onerror = () => ws.close();
 }
 
-// Poll /state every 5s as fallback
+// ── Polling fallback ──────────────────────────────────────────
 setInterval(async () => {
   try {
-    const r = await fetch("/state");
+    const r  = await fetch("/state");
     lastState = await r.json();
     applyState(lastState);
   } catch {}
 }, 5000);
 
+// ── Boot ──────────────────────────────────────────────────────
+addLog("system", "AI Ops Command Center online", "done");
+addLog("system", "ThePromptVaultUS — awaiting tasks", "");
 connect();
 </script>
 </body>
