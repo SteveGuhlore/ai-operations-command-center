@@ -254,7 +254,10 @@ Buttons that inject a high-priority task directly into `workspace/tasks/todo/` w
 
 ---
 
-## Open Questions
-- Which private git host for vault repo: GitHub (free private repos) or self-hosted on VPS?
-- Should the improvement loop require a human review step before committing rewrites, at least initially?
-- Dashboard authentication: should the Cloudflare Tunnel URL be password-protected?
+## Decisions
+
+| Decision | Choice | Reason |
+|---|---|---|
+| Vault git host | GitHub private repo | Free, easiest setup, already using git |
+| Improvement loop safety gate | None — auto-commit | Full autonomy, git history is the rollback |
+| Dashboard authentication | None — open URL | Simplicity; no sensitive data exposed via dashboard |
