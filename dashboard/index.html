@@ -573,11 +573,8 @@
       <hr class="divider">
       <div class="section-title">Pod Triggers</div>
       <div id="trigger-buttons">
-        <button class="trigger-btn" onclick="triggerPod('spark')">▶ SPARK</button>
-        <button class="trigger-btn" onclick="triggerPod('maker')">▶ MAKER</button>
         <button class="trigger-btn" onclick="triggerPod('atlas')">▶ ATLAS</button>
         <button class="trigger-btn" onclick="triggerPod('trend_scan')">▶ TREND SCAN</button>
-        <button class="trigger-btn" onclick="triggerPod('full_pipeline')">▶ FULL PIPELINE</button>
       </div>
     </div>
   </div>
@@ -896,9 +893,11 @@ async function refreshVaultFeed() {
       el.textContent = "No sessions today yet.";
       return;
     }
-    el.innerHTML = d.sessions.map(s =>
-      `<div class="vault-entry"><span>${s.task_id}</span>${s.summary}</div>`
-    ).join("");
+    el.innerHTML = d.sessions.map(s => {
+      const dot = s.status === 'failed' ? '✗' : '✓';
+      const color = s.status === 'failed' ? 'var(--red)' : 'var(--green)';
+      return `<div class="vault-entry"><span style="color:${color}">${dot}</span>${s.label || s.task_id}</div>`;
+    }).join("");
   } catch {}
 }
 setInterval(refreshVaultFeed, 30000);
@@ -906,7 +905,7 @@ refreshVaultFeed();
 
 // ── Boot ──────────────────────────────────────────────────────
 addLog("system", "AI Ops Command Center online", "done");
-addLog("system", "ThePromptVaultUS — awaiting tasks", "");
+addLog("system", "Tony Stocks bridge active — awaiting trading reports", "");
 connect();
 </script>
 </body>

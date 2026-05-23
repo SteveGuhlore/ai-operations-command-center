@@ -47,7 +47,7 @@ MODELS: dict[str, str] = {
 }
 
 MAX_CONCURRENT = 4
-LOW_WATER_MARK = 3  # spawn Atlas planning task when todo queue drops below this
+LOW_WATER_MARK = 0  # set to 0 to disable Atlas auto-spawn; raise when content pods are active again
 
 # Tools each role is allowed to call
 ROLE_TOOLS: dict[str, list[dict]] = {

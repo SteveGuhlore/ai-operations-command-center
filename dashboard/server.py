@@ -140,6 +140,23 @@ async def api_trigger(request: Request):
     return result
 
 
+def _friendly_label(task_id: str) -> str:
+    p = task_id.split("-")
+    if task_id.startswith("TONY-DAILY-BRIEF-") and len(p) >= 4:
+        d = p[-1]
+        return f"Tony Brief · {d[4:6]}/{d[6:8]}" if len(d) == 8 else task_id
+    if task_id.startswith("TONY-TUESDAY-PREP-") and len(p) >= 4:
+        d = p[-1]
+        return f"Tony Tue Prep · {d[4:6]}/{d[6:8]}" if len(d) == 8 else task_id
+    if task_id.startswith("TONY-WEEKLY-") and len(p) >= 3:
+        d = p[-1]
+        return f"Tony Weekly · {d[4:6]}/{d[6:8]}" if len(d) == 8 else task_id
+    if task_id.startswith("ATLAS-PLAN-") and len(p) >= 3:
+        d = p[2]
+        return f"Atlas Plan · {d[4:6]}/{d[6:8]}" if len(d) == 8 else task_id
+    return task_id[:28]
+
+
 @app.get("/api/vault/feed")
 async def api_vault_feed():
     today = datetime.now().strftime("%Y-%m-%d")
@@ -149,7 +166,16 @@ async def api_vault_feed():
 
     sessions = []
     for f in sorted(session_dir.glob("*.md"), reverse=True)[:20]:
-        first_line = f.read_text(encoding="utf-8").split("\n")[0].lstrip("# ").strip()
-        sessions.append({"task_id": f.stem, "summary": first_line})
+        text = f.read_text(encoding="utf-8")
+        status = "done"
+        for line in text.split("\n"):
+            if line.startswith("Status:"):
+                status = line.split(":", 1)[1].strip()
+                break
+        sessions.append({
+            "task_id": f.stem,
+            "label": _friendly_label(f.stem),
+            "status": status,
+        })
 
     return {"sessions": sessions, "date": today}

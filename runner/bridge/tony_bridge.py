@@ -58,6 +58,29 @@ def _load_vault_history() -> str:
     return "\n\n---\n\n".join(entries[-10:])  # cap at 10 entries to keep context tight
 
 
+def _extract_watchlist(eod_raw: str) -> str:
+    """Pull watchlist from EOD report if present; return formatted section or empty string."""
+    try:
+        eod = json.loads(eod_raw)
+        watchlist = eod.get("watchlist", [])
+        if not watchlist:
+            return ""
+        lines = ["| Ticker | Sector | Setup | Score | Days Watched | Trigger Condition |",
+                 "|--------|--------|-------|-------|--------------|-------------------|"]
+        for w in watchlist:
+            lines.append(
+                f"| {w.get('ticker','?')} | {w.get('sector','?')} | {w.get('setup','?')} "
+                f"| {w.get('score','?')} | {w.get('days_watched','?')} "
+                f"| {w.get('trigger_condition','—')} |"
+            )
+        reasons = "\n".join(
+            f"- **{w.get('ticker','?')}:** {w.get('reason','')}" for w in watchlist
+        )
+        return f"## Scanner Watchlist (pre-trigger)\n\n{chr(10).join(lines)}\n\n### Why the scanner is watching these\n\n{reasons}\n"
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return ""
+
+
 def _make_daily_brief(date_str: str, reports: dict[str, str]) -> None:
     task_id = f"TONY-DAILY-BRIEF-{date_str.replace('-', '')}"
     title = f"Tony Daily Brief — {date_str}"
@@ -66,6 +89,7 @@ def _make_daily_brief(date_str: str, reports: dict[str, str]) -> None:
 
     eod = reports.get("eod_report", "{}")
     approval = reports.get("approval_package", "{}")
+    watchlist_section = _extract_watchlist(eod)
 
     # Skip deep strategy analysis if nothing changed
     strategy_raw = reports.get("strategy_proposal", "{}")
@@ -79,6 +103,12 @@ def _make_daily_brief(date_str: str, reports: dict[str, str]) -> None:
     except (json.JSONDecodeError, KeyError):
         strategy_note = strategy_raw
 
+    watchlist_instructions = ""
+    if watchlist_section:
+        watchlist_instructions = """\
+- Research the scanner watchlist: for each pre-trigger ticker, do a quick web search and check its vault page. Update `vault/tony-stocks/watchlist.md` with your findings.
+"""
+
     body = f"""\
 You are Tony Stocks. This is your daily analytical brief for {date_str}.
 
@@ -91,7 +121,7 @@ Follow the workflow in your system prompt exactly. Key focus for today:
 - Cross-reference active symbols against the signal ledger for persistence
 - Research any ticker appearing 2+ days with `web_research`
 - Flag if weakening count is rising
-
+{watchlist_instructions}
 ---
 
 ## Today's EOD Report
@@ -100,6 +130,8 @@ Follow the workflow in your system prompt exactly. Key focus for today:
 {eod}
 ```
 
+---
+{watchlist_section}
 ---
 
 ## Today's Strategy
