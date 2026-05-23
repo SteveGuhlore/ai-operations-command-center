@@ -1,26 +1,59 @@
 import json
+import logging
+import os
+from datetime import datetime
 from pathlib import Path
 
-BRIDGE_DIR = Path(__file__).parent.parent.parent / "bridge" / "tony-stocks"
-TASKS_DIR = Path(__file__).parent.parent.parent / "workspace" / "tasks" / "todo"
+_log = logging.getLogger(__name__)
 
+_default_reports = (
+    Path(__file__).parent.parent.parent.parent
+    / "TradingBotAgentProject"
+    / "reports"
+)
+TRADING_REPORTS_DIR = Path(os.environ.get("TONY_REPORTS_DIR", str(_default_reports)))
+TASKS_DIR = Path(__file__).parent.parent.parent / "workspace" / "tasks" / "todo"
 _PROCESSED_LOG = Path(__file__).parent.parent.parent / "workspace" / "logs" / "tony-bridge-processed.json"
 
+# Maps report filename → (task_type, title_template, body_template)
 TASK_TEMPLATES = {
-    "scanner": (
+    "eod_report": (
         "market_scan_summary",
-        "Scanner Summary — {date}",
-        "Summarise the following scanner output. Identify top setups, note momentum signals, and produce a brief research note.\n\n{content}",
+        "Tony EOD Report — {date}",
+        (
+            "Analyze the following end-of-day stock scanner report from Tony Stocks.\n\n"
+            "Your job:\n"
+            "1. Identify the top 3-5 momentum signals from the scan\n"
+            "2. Note any risk flags or unusual patterns\n"
+            "3. Summarize overall market conditions suggested by the data\n"
+            "4. Call `write_tony_insight` with your key finding (1-3 sentences, high signal-to-noise)\n\n"
+            "## EOD Report Data\n\n```json\n{content}\n```"
+        ),
     ),
-    "watchlist": (
+    "strategy_proposal": (
+        "strategy_review",
+        "Tony Strategy Proposal — {date}",
+        (
+            "Review the following strategy proposal from Tony Stocks.\n\n"
+            "Your job:\n"
+            "1. Summarize what changes are being proposed and why\n"
+            "2. Flag any concerns or risks with the proposal\n"
+            "3. Note whether the proposal looks sound based on the data\n"
+            "4. Call `write_tony_insight` with a one-sentence verdict\n\n"
+            "## Strategy Proposal Data\n\n```json\n{content}\n```"
+        ),
+    ),
+    "approval_package": (
         "watchlist_review",
-        "Watchlist Review — {date}",
-        "Review the following watchlist data. Note which tickers are showing strength or weakness and summarise key observations.\n\n{content}",
-    ),
-    "paper-trade": (
-        "paper_trade_journal_summary",
-        "Paper Trade Journal — {date}",
-        "Summarise the following paper trade journal entries. Note wins, losses, and lessons.\n\n{content}",
+        "Tony Approval Package — {date}",
+        (
+            "Review the following approval package from Tony Stocks.\n\n"
+            "Your job:\n"
+            "1. List what suggestions are pending decision\n"
+            "2. Note which look worth approving vs skipping\n"
+            "3. Call `write_tony_insight` with your recommendation\n\n"
+            "## Approval Package Data\n\n```json\n{content}\n```"
+        ),
     ),
 }
 
@@ -39,48 +72,62 @@ def _save_processed(processed: set) -> None:
     _PROCESSED_LOG.write_text(json.dumps(sorted(processed)), encoding="utf-8")
 
 
-def process_bridge_file(path: Path) -> None:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+def _make_task(date_str: str, report_name: str, content: str) -> None:
+    if report_name not in TASK_TEMPLATES:
         return
 
-    file_type = data.get("type", "")
-    if not file_type:
-        stem = path.stem
-        for key in TASK_TEMPLATES:
-            if stem.startswith(key):
-                file_type = key
-                break
-
-    if file_type not in TASK_TEMPLATES:
-        return
-
-    task_type, title_tpl, body_tpl = TASK_TEMPLATES[file_type]
-    date_str = data.get("date", path.stem.split("-", 1)[-1] if "-" in path.stem else "unknown")
-    content = json.dumps(data, indent=2)
-
-    task_id = f"TONY-{file_type.upper()}-{date_str.replace('-', '')}"
+    task_type, title_tpl, body_tpl = TASK_TEMPLATES[report_name]
+    task_id = f"TONY-{report_name.upper().replace('_', '-')}-{date_str.replace('-', '')}"
     title = title_tpl.format(date=date_str)
     body = body_tpl.format(date=date_str, content=content)
 
     TASKS_DIR.mkdir(parents=True, exist_ok=True)
-    task_file = TASKS_DIR / f"{task_id}-tony-bridge.md"
+    task_file = TASKS_DIR / f"{task_id}.md"
 
     task_file.write_text(
-        f"---\ntask_id: {task_id}\nassigned_agent: debug_worker\nstatus: todo\n"
-        f"priority: normal\npod: stock_research_pod\ntask_type: {task_type}\n---\n\n"
-        f"# {title}\n\n## Goal\n{body}\n",
+        f"---\n"
+        f"task_id: {task_id}\n"
+        f"assigned_agent: debug_worker\n"
+        f"status: todo\n"
+        f"priority: normal\n"
+        f"pod: stock_research_pod\n"
+        f"task_type: {task_type}\n"
+        f"---\n\n"
+        f"# {title}\n\n"
+        f"{body}\n",
         encoding="utf-8",
     )
+    _log.info("tony_bridge: created task %s", task_id)
 
 
 def scan_and_process() -> None:
-    if not BRIDGE_DIR.exists():
+    if not TRADING_REPORTS_DIR.exists():
         return
+
     processed = _load_processed()
-    for f in sorted(BRIDGE_DIR.glob("*.json")):
-        if f.name not in processed:
-            process_bridge_file(f)
-            processed.add(f.name)
+
+    # Walk dated subdirectories newest-first
+    dated_dirs = sorted(
+        [d for d in TRADING_REPORTS_DIR.iterdir() if d.is_dir() and d.name[:4].isdigit()],
+        reverse=True,
+    )
+
+    for dated_dir in dated_dirs:
+        date_str = dated_dir.name
+        for report_name in TASK_TEMPLATES:
+            json_file = dated_dir / f"{report_name}.json"
+            if not json_file.exists():
+                continue
+
+            key = f"{date_str}/{json_file.name}"
+            if key in processed:
+                continue
+
+            try:
+                content = json_file.read_text(encoding="utf-8")
+                _make_task(date_str, report_name, content)
+                processed.add(key)
+            except OSError as exc:
+                _log.warning("tony_bridge: could not read %s: %s", json_file, exc)
+
     _save_processed(processed)

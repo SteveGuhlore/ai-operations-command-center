@@ -25,6 +25,8 @@ from runner.tools.audio import audio_generation
 from runner.tools.etsy import etsy_listing
 from runner.tools.social import save_video_package, post_to_instagram, post_to_facebook, post_to_youtube
 from runner.tools.video import assemble_video
+from runner.tools.task_creator import create_task
+from runner.tools.tony_insights import write_tony_insight
 
 register_tool("file_editor",        file_editor)
 register_tool("web_research",       web_research)
@@ -37,3 +39,5 @@ register_tool("post_to_instagram",  post_to_instagram)
 register_tool("post_to_facebook",   post_to_facebook)
 register_tool("post_to_youtube",    post_to_youtube)
 register_tool("assemble_video",     assemble_video)
+register_tool("create_task",        create_task)
+register_tool("write_tony_insight", write_tony_insight)

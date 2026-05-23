@@ -25,6 +25,7 @@ from runner.tools.web import TOOL_SPEC as WEB_TOOL_SPEC
 from runner.tools.files import TOOL_SPEC as FILE_TOOL_SPEC
 from runner.tools.video import TOOL_SPEC as VIDEO_TOOL_SPEC
 from runner.tools.task_creator import TOOL_SPEC as TASK_CREATOR_TOOL_SPEC
+from runner.tools.tony_insights import TOOL_SPEC as TONY_INSIGHTS_TOOL_SPEC
 from runner.tools.vault_writer import write_vault_session
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -54,7 +55,7 @@ ROLE_TOOLS: dict[str, list[dict]] = {
     "audio_worker":           [AUDIO_TOOL_SPEC, FILE_TOOL_SPEC],
     "digital_product_worker": [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC],
     "content_worker":         [FILE_TOOL_SPEC],
-    "debug_worker":           [WEB_TOOL_SPEC, FILE_TOOL_SPEC],
+    "debug_worker":           [WEB_TOOL_SPEC, FILE_TOOL_SPEC, TONY_INSIGHTS_TOOL_SPEC],
     "marketing_worker":       [ETSY_TOOL_SPEC, FILE_TOOL_SPEC],
     "manager":                [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC],
     "heavy_worker":           [FILE_TOOL_SPEC],
