@@ -39,3 +39,4 @@ workspace/assets/audio/*.wav
 workspace/ledger/
 workspace/logs/
 workspace/locks/
+vault/
