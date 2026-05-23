@@ -4,7 +4,6 @@ from pathlib import Path
 
 VAULT_DIR = Path(__file__).parent.parent.parent / "vault"
 
-_OUTPUT_PREVIEW_CHARS = 500
 _log = logging.getLogger(__name__)
 
 
@@ -16,7 +15,7 @@ def write_vault_session(task_id: str, role_id: str, result: dict, *, vault_dir=N
         session_dir.mkdir(parents=True, exist_ok=True)
 
         status = "failed" if "error" in result else "done"
-        output_preview = str(result.get("output", ""))[:_OUTPUT_PREVIEW_CHARS]
+        output = str(result.get("output", ""))
         safe_id = task_id.replace("/", "_").replace("\\", "_").replace(":", "_")
 
         content = (
@@ -27,8 +26,8 @@ def write_vault_session(task_id: str, role_id: str, result: dict, *, vault_dir=N
             f"Cost: ${result.get('cost_usd', 0.0):.4f}\n"
             f"Errors: {result.get('error', 'none')}\n"
             f"\n"
-            f"## Output Preview\n"
-            f"{output_preview}\n"
+            f"## Output\n"
+            f"{output}\n"
         )
 
         (session_dir / f"{safe_id}.md").write_text(content, encoding="utf-8")
