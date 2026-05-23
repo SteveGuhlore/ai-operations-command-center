@@ -87,7 +87,7 @@ def _make_task(date_str: str, report_name: str, content: str) -> None:
     task_file.write_text(
         f"---\n"
         f"task_id: {task_id}\n"
-        f"assigned_agent: debug_worker\n"
+        f"assigned_agent: market_research_worker\n"
         f"status: todo\n"
         f"priority: normal\n"
         f"pod: stock_research_pod\n"

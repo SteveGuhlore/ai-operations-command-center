@@ -9,6 +9,7 @@ VALID_AGENTS = [
     "social_media_worker", "content_worker", "digital_product_worker",
     "marketing_worker", "media_worker", "audio_worker",
     "heavy_worker", "debug_worker", "budget_worker", "guard_worker",
+    "market_research_worker",
 ]
 
 

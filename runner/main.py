@@ -43,6 +43,7 @@ MODELS: dict[str, str] = {
     "digital_product_worker": "moonshotai/kimi-k2.5",
     "marketing_worker":       "minimax/minimax-m2.5",
     "social_media_worker":    "moonshotai/kimi-k2.5",
+    "market_research_worker": "moonshotai/kimi-k2.5",
 }
 
 MAX_CONCURRENT = 4
@@ -55,7 +56,8 @@ ROLE_TOOLS: dict[str, list[dict]] = {
     "audio_worker":           [AUDIO_TOOL_SPEC, FILE_TOOL_SPEC],
     "digital_product_worker": [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC],
     "content_worker":         [FILE_TOOL_SPEC],
-    "debug_worker":           [WEB_TOOL_SPEC, FILE_TOOL_SPEC, TONY_INSIGHTS_TOOL_SPEC],
+    "debug_worker":           [WEB_TOOL_SPEC, FILE_TOOL_SPEC],
+    "market_research_worker": [WEB_TOOL_SPEC, FILE_TOOL_SPEC, TONY_INSIGHTS_TOOL_SPEC],
     "marketing_worker":       [ETSY_TOOL_SPEC, FILE_TOOL_SPEC],
     "manager":                [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC],
     "heavy_worker":           [FILE_TOOL_SPEC],
