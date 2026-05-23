@@ -65,25 +65,32 @@ def _make_daily_brief(date_str: str, reports: dict[str, str]) -> None:
     vault_history = _load_vault_history()
 
     eod = reports.get("eod_report", "{}")
-    strategy = reports.get("strategy_proposal", "{}")
     approval = reports.get("approval_package", "{}")
+
+    # Skip deep strategy analysis if nothing changed
+    strategy_raw = reports.get("strategy_proposal", "{}")
+    try:
+        s = json.loads(strategy_raw)
+        strategy_note = (
+            "Strategy unchanged (v1→v1, no approvals). Skip deep analysis."
+            if s.get("current_version") == s.get("proposed_version") and s.get("approved_count", 0) == 0
+            else strategy_raw
+        )
+    except (json.JSONDecodeError, KeyError):
+        strategy_note = strategy_raw
 
     body = f"""\
 You are Tony Stocks. This is your daily analytical brief for {date_str}.
 
+**Signal Ledger:** `vault/tony-stocks/signal-ledger.md` — read this first, update it last.
+
 ## Your Workflow
 
-**Step 1 — Read holistically.** Read all three reports below as a unified picture. Do not summarize each one separately.
-
-**Step 2 — Identify top signals.** Pick the 2-3 most interesting signals, setups, or decisions from today's data. Look for: highest momentum scores, strategy changes, pending approvals that look significant.
-
-**Step 3 — Web research each signal.** For each of your top picks, call `web_research` to find the news, catalyst, or macro driver behind it. Search for "[ticker] news today" or "[sector] catalyst [date]". Add what you find to your analysis.
-
-**Step 4 — Check for historical patterns.** Review the recent session history below. Has this signal or setup appeared before? Did it follow through? Note any recurring patterns.
-
-**Step 5 — Write insights.** Call `write_tony_insight` 1-3 times with your most valuable findings. Be specific — include tickers, what the signal is, and what the external catalyst is. Set confidence based on how much evidence you have.
-
-**Step 6 — Spawn downstream task (if warranted).** If today's signals are strong enough to share, call `create_task` to create a `marketing_worker` task to package the insights into newsletter or social content.
+Follow the workflow in your system prompt exactly. Key focus for today:
+- Check `active_symbols`, `pending_triggers`, and `weakening` count in the EOD report
+- Cross-reference active symbols against the signal ledger for persistence
+- Research any ticker appearing 2+ days with `web_research`
+- Flag if weakening count is rising
 
 ---
 
@@ -95,11 +102,9 @@ You are Tony Stocks. This is your daily analytical brief for {date_str}.
 
 ---
 
-## Today's Strategy Proposal
+## Today's Strategy
 
-```json
-{strategy}
-```
+{strategy_note}
 
 ---
 
