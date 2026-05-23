@@ -31,17 +31,17 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger(__name__)
 
 MODELS: dict[str, str] = {
-    "manager":                "claude-opus-4-7",
-    "heavy_worker":           "claude-sonnet-4-6",
-    "debug_worker":           "claude-haiku-4-5",
-    "content_worker":         "claude-haiku-4-5",
-    "media_worker":           "claude-sonnet-4-6",
-    "audio_worker":           "claude-haiku-4-5",
-    "guard_worker":           "claude-haiku-4-5",
-    "budget_worker":          "claude-haiku-4-5",
-    "digital_product_worker": "claude-sonnet-4-6",
-    "marketing_worker":       "claude-sonnet-4-6",
-    "social_media_worker":    "claude-sonnet-4-6",
+    "manager":                "anthropic/claude-sonnet-4-6",  # atlas planning; opus was 25x pricier
+    "heavy_worker":           "moonshotai/kimi-k2.5",
+    "debug_worker":           "minimax/minimax-m2.5",
+    "content_worker":         "minimax/minimax-m2.5",
+    "media_worker":           "moonshotai/kimi-k2.5",
+    "audio_worker":           "minimax/minimax-m2.5",
+    "guard_worker":           "minimax/minimax-m2.5",
+    "budget_worker":          "minimax/minimax-m2.5",
+    "digital_product_worker": "moonshotai/kimi-k2.5",
+    "marketing_worker":       "minimax/minimax-m2.5",
+    "social_media_worker":    "moonshotai/kimi-k2.5",
 }
 
 MAX_CONCURRENT = 4
