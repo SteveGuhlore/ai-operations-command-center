@@ -535,3 +535,64 @@ async def api_pod(key: str):
         "artifacts": _POD_ARTIFACTS[key](),
         "status": _pod_status(budget, activity),
     }
+
+
+# ── Tony stock dashboard (parses vault signal ledger) ─────────────
+_TONY_LEDGER = VAULT_DIR / "tony-stocks" / "signal-ledger.md"
+
+
+def _parse_md_section_table(text: str, heading_contains: str) -> list[dict]:
+    """Rows of the first markdown table under an H2 whose title contains the given text."""
+    rows: list[dict] = []
+    headers: list[str] = []
+    in_section = in_table = False
+    for line in text.split("\n"):
+        s = line.strip()
+        if s.startswith("## "):
+            if in_section and in_table:
+                break
+            in_section = heading_contains.lower() in s.lower()
+            in_table = False
+            headers = []
+            continue
+        if not in_section:
+            continue
+        if s.startswith("|"):
+            cells = [c.strip() for c in s.strip("|").split("|")]
+            if set("".join(cells)) <= set("-: "):
+                continue
+            if not headers:
+                headers, in_table = cells, True
+            elif not all(c in ("", "—", "-") for c in cells):
+                rows.append(dict(zip(headers, cells)))
+        elif in_table and not s:
+            break
+    return rows
+
+
+@app.get("/api/tony/stocks")
+async def api_tony_stocks():
+    if not _TONY_LEDGER.exists():
+        return {"available": False, "signals": [], "metrics": {}, "sectors": [],
+                "note": "No signal ledger yet — Tony writes it after his first run."}
+    text = _TONY_LEDGER.read_text(encoding="utf-8", errors="ignore")
+    last_updated = ""
+    for line in text.split("\n"):
+        if line.lower().startswith("last updated:"):
+            last_updated = line.split(":", 1)[1].strip()
+            break
+    persistent = _parse_md_section_table(text, "Persistent Signals")
+    active = _parse_md_section_table(text, "Active Signals")
+    for r in persistent:
+        r["tier"] = "persistent"
+    for r in active:
+        r["tier"] = "active"
+    metrics_rows = _parse_md_section_table(text, "Weekly Metrics")
+    return {
+        "available": True,
+        "last_updated": last_updated,
+        "signals": persistent + active,
+        "signals_tracked": len(persistent) + len(active),
+        "metrics": metrics_rows[-1] if metrics_rows else {},
+        "sectors": _parse_md_section_table(text, "Sector Clusters"),
+    }

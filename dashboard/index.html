@@ -700,7 +700,7 @@
     <div id="tab-nav">
       <button class="tab-btn active" data-tab="agents" onclick="switchTab('agents')">Agents</button>
       <button class="tab-btn" data-tab="crm" onclick="switchTab('crm')">Outreach CRM</button>
-      <button class="tab-btn" data-tab="opportunities" onclick="switchTab('opportunities')">Opportunities</button>
+      <button class="tab-btn" data-tab="opportunities" onclick="switchTab('opportunities')">Prospector</button>
       <button class="tab-btn" data-tab="forge" onclick="switchTab('forge')">Forge</button>
       <button class="tab-btn" data-tab="atlas" onclick="switchTab('atlas')">Atlas</button>
       <button class="tab-btn" data-tab="sage" onclick="switchTab('sage')">Sage</button>
@@ -872,6 +872,7 @@ const AGENTS = [
   { role: "digital_product_worker", display: "Maker",       name: "DIGITAL" },
   { role: "marketing_worker",       display: "Market",      name: "MARKETING" },
   { role: "market_research_worker", display: "Tony Stocks", name: "MKT RES" },
+  { role: "opportunity_worker",    display: "Prospector",  name: "PROSPECTOR" },
   { role: "social_media_worker",   display: "Spark",       name: "SOCIAL" },
   { role: "outreach_worker",       display: "Pitch",       name: "OUTREACH" },
   { role: "builder",               display: "Clay",        name: "BUILDER" },
@@ -879,9 +880,12 @@ const AGENTS = [
 ];
 
 const PODS = [
-  "Social Media", "Digital Products", "Affiliate",
-  "TikTok Shop", "Short-Form Video",
-  "Lead Gen", "Stock Research", "App / SaaS",
+  { label: "Pitch · Easy Sites", tab: "crm" },
+  { label: "Prospector",         tab: "opportunities" },
+  { label: "Forge · PoC Lab",    tab: "forge" },
+  { label: "Tony Stocks",        tab: "tony" },
+  { label: "Atlas · Ops",        tab: "atlas" },
+  { label: "Sage · Memory",      tab: "sage" },
 ];
 
 let selectedAgent = null;
@@ -911,14 +915,12 @@ AGENTS.forEach(a => {
 
 // ── Build pod list ────────────────────────────────────────────
 const podList = document.getElementById("pod-list");
-PODS.forEach((pod, i) => {
+PODS.forEach((pod) => {
   const div = document.createElement("div");
-  div.className = "pod-item" + (i === 0 ? " active" : "");
-  div.innerHTML = `<span class="pod-dot"></span>${pod}`;
-  div.addEventListener("click", () => {
-    document.querySelectorAll(".pod-item").forEach(p => p.classList.remove("active"));
-    div.classList.add("active");
-  });
+  div.className = "pod-item";
+  div.dataset.tab = pod.tab;
+  div.innerHTML = `<span class="pod-dot"></span>${pod.label}`;
+  div.addEventListener("click", () => switchTab(pod.tab));
   podList.appendChild(div);
 });
 
@@ -1156,7 +1158,7 @@ refreshVaultFeed();
 
 // ── Tab switching ─────────────────────────────────────────────
 const TABS = ["agents","crm","opportunities","forge","atlas","sage","tony","analytics","spawn"];
-const POD_TABS = ["forge","atlas","sage","tony"];
+const POD_TABS = ["forge","atlas","sage"];
 function switchTab(name) {
   TABS.forEach(t => {
     const el = document.getElementById(`tab-${t}`);
@@ -1165,10 +1167,14 @@ function switchTab(name) {
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.tab === name);
   });
+  document.querySelectorAll(".pod-item").forEach(p => {
+    p.classList.toggle("active", p.dataset.tab === name);
+  });
   if (name === "crm")           refreshCRM();
   if (name === "opportunities") refreshOpportunities();
   if (name === "analytics")     refreshAnalytics();
   if (name === "spawn")         refreshSpawnGate();
+  if (name === "tony")          renderTonyStocks();
   if (POD_TABS.includes(name))  renderPod(name);
 }
 
@@ -1321,7 +1327,61 @@ async function refreshOpportunities() {
   } catch { document.getElementById("opp-empty").textContent = "Error loading opportunities."; }
 }
 
-// ── Per-pod views (Forge / Atlas / Sage / Tony) ───────────────
+// ── Tony stock dashboard ──────────────────────────────────────
+async function renderTonyStocks() {
+  const el = document.getElementById("podview-tony");
+  if (!el) return;
+  try {
+    const d = await fetch("/api/tony/stocks").then(r => r.json());
+    if (!d.available) {
+      el.innerHTML = `<div class="pod-muted">${d.note || "No Tony data yet."}</div>`;
+      return;
+    }
+    const m = d.metrics || {};
+    const sig = d.signals || [];
+    const sectors = d.sectors || [];
+    const vital = (v, label, color) =>
+      `<div class="funnel-card"><span class="f-num" style="color:${color}">${v ?? "—"}</span><span class="f-label">${label}</span></div>`;
+    const rowsHtml = sig.length ? sig.map(s => {
+      const status = (s.Status || "").toLowerCase();
+      const sc = status.includes("valid") ? "var(--green)" : status.includes("weak") ? "var(--orange)" : "var(--muted)";
+      const tc = s.tier === "persistent" ? "var(--green)" : "var(--cyan)";
+      return `<tr>
+        <td style="font-family:monospace;color:var(--cyan);font-weight:600">${s.Ticker || "?"}</td>
+        <td>${s["Days Active"] || "—"}</td>
+        <td>${s["Setup Type"] || "—"}</td>
+        <td style="color:${tc};font-size:8px;text-transform:uppercase">${s.tier}</td>
+        <td style="color:${sc}">${s.Status || "—"}</td>
+      </tr>`;
+    }).join("") : `<tr><td colspan="5" style="color:var(--muted)">No active signals.</td></tr>`;
+    const sectorHtml = sectors.length ? sectors.map(s =>
+      `<div class="pod-row"><span class="pr-label" style="color:var(--cyan)">${s.Sector || ""}</span><span class="pr-when">${s.Tickers || ""}</span></div>`
+    ).join("") : `<div class="pod-muted">No sector clusters.</div>`;
+    el.innerHTML = `
+      <div class="section-title" style="margin-bottom:4px">
+        <span style="color:var(--green)">●</span> Tony Stocks — Signal Ledger
+        <span style="font-size:8px;color:var(--muted);letter-spacing:0;text-transform:none"> · market_research_pod${d.last_updated ? " · updated " + d.last_updated : ""}</span>
+      </div>
+      <div class="funnel-row" style="grid-template-columns:repeat(4,1fr);margin-top:10px">
+        ${vital(m["Active Positions"], "Active", "var(--green)")}
+        ${vital(m["Pending Triggers"], "Pending", "var(--orange)")}
+        ${vital(m["Weakening"], "Weakening", "var(--red)")}
+        ${vital(d.signals_tracked, "Signals Tracked", "var(--cyan)")}
+      </div>
+      <div class="section-title">Tracked Signals</div>
+      <table class="crm-table">
+        <thead><tr><th>Ticker</th><th>Days</th><th>Setup</th><th>Tier</th><th>Status</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <div class="section-title" style="margin-top:10px">Sector Clusters</div>
+      <div class="pod-list">${sectorHtml}</div>
+    `;
+  } catch (e) {
+    el.innerHTML = `<div style="color:var(--red);font-size:10px">Error loading Tony stocks: ${e}</div>`;
+  }
+}
+
+// ── Per-pod views (Forge / Atlas / Sage) ──────────────────────
 async function renderPod(key) {
   const el = document.getElementById(`podview-${key}`);
   if (!el) return;
