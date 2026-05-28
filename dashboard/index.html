@@ -587,6 +587,12 @@
   .ar-pct  { text-align: right; font-weight: bold; }
   .pct-bar-wrap { height: 3px; background: var(--border2); border-radius: 2px; overflow: hidden; margin-top: 2px; }
   .pct-bar      { height: 100%; border-radius: 2px; transition: width 0.8s; }
+
+  /* ─── OPPORTUNITY BOARD ──────────────────── */
+  .opp-vitals { display:flex; gap:12px; font-size:11px; color:var(--muted); padding:6px 0 12px; }
+  .opp-table { width:100%; border-collapse:collapse; font-size:10px; }
+  .opp-table th { color:var(--muted); text-align:left; font-weight:normal; padding:4px 6px; border-bottom:1px solid var(--border2); text-transform:uppercase; letter-spacing:1px; font-size:8px; }
+  .opp-table td { padding:4px 6px; border-top:1px solid var(--border); color:var(--text); }
 </style>
 </head>
 <body>
@@ -644,6 +650,7 @@
     <div id="tab-nav">
       <button class="tab-btn active" onclick="switchTab('agents')">Agents</button>
       <button class="tab-btn" onclick="switchTab('crm')">Outreach CRM</button>
+      <button class="tab-btn" onclick="switchTab('opportunities')">Opportunities</button>
       <button class="tab-btn" onclick="switchTab('analytics')">Analytics</button>
     </div>
 
@@ -714,6 +721,21 @@
           <div class="queue-row"><span>DM queue</span><span class="queue-count review" id="an-dmq">—</span></div>
         </div>
       </div>
+    </div>
+
+    <!-- Tab: Opportunities -->
+    <div id="tab-opportunities" style="display:none">
+      <div class="section-title" style="margin-bottom:12px">Opportunity Board</div>
+      <div class="opp-vitals">
+        <span id="opp-spend">$0 / $10</span>
+        <span id="opp-count">0 ideas</span>
+        <span id="opp-promising">0 promising</span>
+      </div>
+      <table class="opp-table">
+        <thead><tr><th>#</th><th>idea</th><th>score</th><th>phase</th><th>poc</th><th>fit</th><th>$est</th></tr></thead>
+        <tbody id="opp-rows"></tbody>
+      </table>
+      <div style="margin-top:10px;font-size:9px;color:var(--muted)" id="opp-empty">No opportunities scouted yet. Prospector runs on its scout interval.</div>
     </div>
 
   </div>
@@ -1048,14 +1070,15 @@ refreshVaultFeed();
 
 // ── Tab switching ─────────────────────────────────────────────
 function switchTab(name) {
-  ["agents","crm","analytics"].forEach(t => {
+  ["agents","crm","opportunities","analytics"].forEach(t => {
     document.getElementById(`tab-${t}`).style.display = t === name ? "" : "none";
   });
   document.querySelectorAll(".tab-btn").forEach((btn, i) => {
-    btn.classList.toggle("active", ["agents","crm","analytics"][i] === name);
+    btn.classList.toggle("active", ["agents","crm","opportunities","analytics"][i] === name);
   });
-  if (name === "crm")       refreshCRM();
-  if (name === "analytics") refreshAnalytics();
+  if (name === "crm")           refreshCRM();
+  if (name === "opportunities") refreshOpportunities();
+  if (name === "analytics")     refreshAnalytics();
 }
 
 // ── Outreach CRM ──────────────────────────────────────────────
@@ -1161,13 +1184,46 @@ async function refreshAnalytics() {
   } catch { document.getElementById("analytics-agent-rows").textContent = "Error loading analytics."; }
 }
 
-// ── Auto-refresh CRM + Analytics every 15s ────────────────────
+// ── Opportunity Board ─────────────────────────────────────────
+async function refreshOpportunities() {
+  try {
+    const d = await fetch("/api/opportunities").then(r => r.json());
+    const s = d.opportunity_spend || {spent: 0, cap: 10};
+    const capTxt = (s.cap === null || s.cap === undefined) ? "∞" : s.cap;
+    document.getElementById("opp-spend").textContent = `$${s.spent} / $${capTxt}`;
+    const rows = d.opportunities || [];
+    document.getElementById("opp-count").textContent = `${rows.length} ideas`;
+    const promising = rows.filter(r => (r.poc || "").includes("promis")).length;
+    document.getElementById("opp-promising").textContent = `${promising} promising`;
+    const tbody = document.getElementById("opp-rows");
+    const empty = document.getElementById("opp-empty");
+    if (!rows.length) {
+      tbody.innerHTML = "";
+      empty.textContent = "No opportunities scouted yet. Prospector runs on its scout interval.";
+      return;
+    }
+    empty.textContent = "";
+    tbody.innerHTML = rows.map((r, i) => {
+      const score = parseFloat(r.composite) || 0;
+      const color = score >= 75 ? "var(--green)" : (score >= 60 ? "var(--orange)" : "var(--muted)");
+      return `<tr>` +
+        `<td>${i + 1}</td><td>${r.slug}</td>` +
+        `<td style="color:${color}">${r.composite}</td>` +
+        `<td>${r.phase}</td><td>${r.poc}</td><td>${r.system_fit}</td><td>${r.est_rev_mo}</td>` +
+        `</tr>`;
+    }).join("");
+  } catch { document.getElementById("opp-empty").textContent = "Error loading opportunities."; }
+}
+
+// ── Auto-refresh CRM + Opportunities + Analytics every 15s ─────
 // Keeps the dashboard live without the user having to click the tab.
 setInterval(() => {
   refreshCRM();
+  refreshOpportunities();
   refreshAnalytics();
 }, 15000);
 refreshCRM();
+refreshOpportunities();
 refreshAnalytics();
 
 // ── Boot ──────────────────────────────────────────────────────

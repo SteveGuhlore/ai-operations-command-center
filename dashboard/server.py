@@ -265,6 +265,40 @@ async def update_outreach_status(request: Request):
     return {"error": f"'{business}' not found in CRM"}
 
 
+def read_opportunities() -> list[dict]:
+    """Parse vault/opportunities/ledger.md into rows for the Opportunity Board."""
+    ledger = VAULT_DIR / "opportunities" / "ledger.md"
+    if not ledger.exists():
+        return []
+    rows = []
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line.startswith("|") or line.startswith("| slug") or set(line) <= set("|- "):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 9:
+            continue
+        rows.append({
+            "slug": cells[0], "composite": cells[1], "phase": cells[2],
+            "poc": cells[3], "system_fit": cells[4], "est_rev_mo": cells[5],
+            "status": cells[6], "pod": cells[7], "updated": cells[8],
+        })
+    rows.sort(key=lambda r: float(r["composite"]) if r["composite"].replace(".", "").isdigit() else 0, reverse=True)
+    return rows
+
+
+def read_pod_spend(pod: str = "opportunity_pod") -> dict:
+    """Real spend + cap for the opportunity pod."""
+    from runner.ledger.budget import get_pod_spend, get_pod_cap
+    cap = get_pod_cap(pod)
+    return {"spent": round(get_pod_spend(pod), 2), "cap": (None if cap == float("inf") else cap)}
+
+
+@app.get("/api/opportunities")
+async def api_opportunities():
+    return {"opportunities": read_opportunities(), "opportunity_spend": read_pod_spend()}
+
+
 def _friendly_label(task_id: str) -> str:
     p = task_id.split("-")
     if task_id.startswith("TONY-DAILY-BRIEF-") and len(p) >= 4:
