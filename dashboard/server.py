@@ -1,4 +1,5 @@
 import json
+import re
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -328,6 +329,81 @@ async def api_spawn_gate():
     """Per-scope-key spawn-cadence state + summary + recent gate decisions."""
     from runner.scheduler.spawn_gate import gate_snapshot
     return gate_snapshot()
+
+
+# ── Spawn-schedule editor (live-editable cadence, comment-preserving) ──────────
+_SCHEDULE_FILE = Path(__file__).parent.parent / "config" / "spawn-schedules.yaml"
+
+# field -> (section heading regex, knob key, min, max). Targeted line-edits keep
+# the file's explanatory comments intact (a full yaml.dump would wipe them).
+_EDITABLE_KNOBS = {
+    "scout_interval":       (r"^\s*scout:\s*$",          "min_interval_minutes", 1, 1440),
+    "outreach_interval":    (r"^\s*prospect_research:",   "min_interval_minutes", 1, 1440),
+    "outreach_max_per_day": (r"^\s*prospect_research:",   "max_per_day",          1, 500),
+}
+
+
+@app.get("/api/spawn-schedules")
+async def api_get_spawn_schedules():
+    from runner.config import load_spawn_schedules
+    s = load_spawn_schedules() or {}
+    pr = (s.get("by_task_type", {}) or {}).get("prospect_research", {}) or {}
+    return {
+        "scout_interval":       (s.get("scout", {}) or {}).get("min_interval_minutes"),
+        "outreach_interval":    pr.get("min_interval_minutes"),
+        "outreach_max_per_day": pr.get("max_per_day"),
+        "note": "Edits apply on the next runner cycle — no restart needed.",
+    }
+
+
+def _set_yaml_knob(lines: list[str], section_re: str, key: str, value: int) -> bool:
+    in_section = False
+    section_indent = -1
+    for i, line in enumerate(lines):
+        if re.match(section_re, line):
+            in_section = True
+            section_indent = len(line) - len(line.lstrip())
+            continue
+        if in_section:
+            stripped = line.strip()
+            indent = len(line) - len(line.lstrip())
+            if stripped and not stripped.startswith("#") and indent <= section_indent:
+                in_section = False
+                continue
+            m = re.match(rf"^(\s*{key}:\s*)(\d+)(.*)$", line)
+            if m:
+                lines[i] = f"{m.group(1)}{value}{m.group(3)}"
+                return True
+    return False
+
+
+@app.post("/api/spawn-schedules")
+async def api_set_spawn_schedules(request: Request):
+    body = await request.json()
+    if not _SCHEDULE_FILE.exists():
+        return {"error": "spawn-schedules.yaml not found"}
+    lines = _SCHEDULE_FILE.read_text(encoding="utf-8").splitlines()
+    applied, errors = {}, []
+    for field, (section_re, key, lo, hi) in _EDITABLE_KNOBS.items():
+        if field not in body or body[field] is None:
+            continue
+        try:
+            val = int(body[field])
+        except (TypeError, ValueError):
+            errors.append(f"{field} must be an integer")
+            continue
+        if not (lo <= val <= hi):
+            errors.append(f"{field} must be between {lo} and {hi}")
+            continue
+        if _set_yaml_knob(lines, section_re, key, val):
+            applied[field] = val
+        else:
+            errors.append(f"could not locate {field} in config")
+    if errors:
+        return {"ok": False, "errors": errors, "applied": applied}
+    _SCHEDULE_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return {"ok": True, "applied": applied,
+            "note": "Saved. Applies on the next runner cycle."}
 
 
 def _friendly_label(task_id: str) -> str:

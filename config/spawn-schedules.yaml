@@ -45,11 +45,10 @@ spawn_schedules:
     min_interval_minutes: 30
     jitter_minutes: 0
 
-  # Prospector opportunity-scout cadence. Read by runner/main.py _maybe_spawn_scout
-  # (NOT by the spawn gate — kept out of by_pair/by_task_type so it isn't
-  # double-gated). Edit here to retune; picked up on the next runner cycle.
+  # Prospector opportunity-scout cadence (read by runner/main.py _maybe_spawn_scout).
   scout:
-    min_interval_minutes: 30      # Prospector scouts new opportunities every 30 min
+    min_interval_minutes: 120     # scout a fresh idea batch every 2h — deepdives from
+                                  # the last batch keep the 10-min cycle busy in between
 
   # Keyed by task_type — shared cooldown across all agents emitting this type.
   by_task_type:

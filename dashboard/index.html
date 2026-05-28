@@ -811,6 +811,22 @@
     <!-- Tab: Spawn Gate -->
     <div id="tab-spawn" style="display:none">
       <div class="section-title" style="margin-bottom:12px">Spawn Gate <span id="sg-now" style="font-size:8px;color:var(--muted);letter-spacing:0;text-transform:none"></span></div>
+      <div id="cadence-editor" style="border:1px solid var(--border,#333);border-radius:6px;padding:10px;margin-bottom:12px">
+        <div class="section-title" style="margin-bottom:8px">Edit Cadence <span style="font-size:8px;color:var(--muted);letter-spacing:0;text-transform:none">· applies next cycle, no restart</span></div>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center;font-size:10px">
+          <label>Outreach interval (min)</label>
+          <input id="ce-outreach-int" type="number" min="1" max="1440" style="width:72px;background:#111;border:1px solid #444;color:#eee;border-radius:4px;padding:3px 6px;font-size:10px">
+          <label>Outreach max / day</label>
+          <input id="ce-outreach-max" type="number" min="1" max="500" style="width:72px;background:#111;border:1px solid #444;color:#eee;border-radius:4px;padding:3px 6px;font-size:10px">
+          <label>Prospector scout interval (min)</label>
+          <input id="ce-scout-int" type="number" min="1" max="1440" style="width:72px;background:#111;border:1px solid #444;color:#eee;border-radius:4px;padding:3px 6px;font-size:10px">
+        </div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+          <button class="trigger-btn" onclick="saveCadence(this)">💾 Save</button>
+          <span id="ce-status" style="font-size:9px;color:var(--muted)"></span>
+        </div>
+        <div style="margin-top:6px;font-size:8px;color:var(--muted)">Other agents: add a block in config/spawn-schedules.yaml. The 10-min cycle interval is a launch flag (needs restart).</div>
+      </div>
       <div class="sg-summary">
         <div class="sg-stat"><div class="v" style="color:var(--green)" id="sg-spawns">—</div><div class="l">Spawns Today</div></div>
         <div class="sg-stat"><div class="v" style="color:var(--red)" id="sg-denials">—</div><div class="l">Denials Today</div></div>
@@ -1174,7 +1190,7 @@ function switchTab(name) {
   if (name === "crm")           refreshCRM();
   if (name === "opportunities") refreshOpportunities();
   if (name === "analytics")     refreshAnalytics();
-  if (name === "spawn")         refreshSpawnGate();
+  if (name === "spawn")       { refreshSpawnGate(); loadCadence(); }
   if (name === "tony")          renderTonyStocks();
   if (POD_TABS.includes(name))  renderPod(name);
 }
@@ -1449,6 +1465,37 @@ function _fmtClock(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
   return isNaN(d) ? iso : d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+}
+
+async function loadCadence() {
+  try {
+    const d = await fetch("/api/spawn-schedules").then(r => r.json());
+    document.getElementById("ce-outreach-int").value = d.outreach_interval ?? "";
+    document.getElementById("ce-outreach-max").value = d.outreach_max_per_day ?? "";
+    document.getElementById("ce-scout-int").value = d.scout_interval ?? "";
+  } catch {}
+}
+
+async function saveCadence(btn) {
+  const num = id => { const v = parseInt(document.getElementById(id).value, 10); return Number.isNaN(v) ? null : v; };
+  const body = {
+    outreach_interval:    num("ce-outreach-int"),
+    outreach_max_per_day: num("ce-outreach-max"),
+    scout_interval:       num("ce-scout-int"),
+  };
+  const st = document.getElementById("ce-status");
+  st.textContent = "saving…"; st.style.color = "var(--muted)";
+  try {
+    const r = await fetch("/api/spawn-schedules", {
+      method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body)
+    }).then(r => r.json());
+    if (r.ok) {
+      st.textContent = "saved — applies next cycle"; st.style.color = "var(--green)";
+      btn.classList.add("fired"); setTimeout(() => btn.classList.remove("fired"), 1500);
+    } else {
+      st.textContent = (r.errors || [r.error || "failed"]).join("; "); st.style.color = "var(--red)";
+    }
+  } catch (e) { st.textContent = "error: " + e; st.style.color = "var(--red)"; }
 }
 
 async function refreshSpawnGate() {
