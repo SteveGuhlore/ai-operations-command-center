@@ -1,7 +1,7 @@
 budgets:
   daily_limits:
     total_token_limit: 5000000
-    total_spend_limit_usd: 5.00
+    total_spend_limit_usd: 60.00
 
   per_role_limits:
     manager:
@@ -28,6 +28,11 @@ budgets:
     budget_worker:
       daily_spend_limit_usd: 2.00
       daily_token_limit: 300000
+
+  per_pod_limits:
+    opportunity_pod:
+      daily_spend_limit_usd: 10.00
+      per_poc_limit_usd: 2.00
 
   retry_limits:
     default_max_retries: 2
