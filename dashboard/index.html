@@ -578,6 +578,15 @@
   .call-select { background:rgba(74,90,128,0.4); color:var(--text); border:1px solid rgba(255,255,255,0.1); border-radius:4px; font-size:10px; padding:2px 4px; cursor:pointer; width:70px; }
   .call-select:focus { outline:none; border-color:var(--cyan); }
 
+  /* ─── PER-POD TABS ─────────────────────────── */
+  .pod-purpose { font-size: 9px; color: var(--muted); line-height: 1.5; }
+  .pod-tt { font-size: 8px; color: var(--cyan); letter-spacing: 0.5px; margin-top: 4px; opacity: 0.8; }
+  .pod-list { margin-top: 4px; }
+  .pod-row { display: flex; gap: 8px; align-items: baseline; font-size: 9px; padding: 3px 4px; border-bottom: 1px solid rgba(26,37,64,0.5); }
+  .pod-row .pr-label { color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pod-row .pr-when { color: var(--muted); flex-shrink: 0; font-family: monospace; font-size: 8px; }
+  .pod-muted { font-size: 9px; color: var(--muted); padding: 6px 4px; }
+
   /* ─── ANALYTICS TAB ──────────────────────── */
   .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
   .stat-card { background: #080d18; border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
@@ -689,11 +698,15 @@
 
     <!-- Tab Nav -->
     <div id="tab-nav">
-      <button class="tab-btn active" onclick="switchTab('agents')">Agents</button>
-      <button class="tab-btn" onclick="switchTab('crm')">Outreach CRM</button>
-      <button class="tab-btn" onclick="switchTab('opportunities')">Opportunities</button>
-      <button class="tab-btn" onclick="switchTab('analytics')">Analytics</button>
-      <button class="tab-btn" onclick="switchTab('spawn')">Spawn Gate</button>
+      <button class="tab-btn active" data-tab="agents" onclick="switchTab('agents')">Agents</button>
+      <button class="tab-btn" data-tab="crm" onclick="switchTab('crm')">Outreach CRM</button>
+      <button class="tab-btn" data-tab="opportunities" onclick="switchTab('opportunities')">Opportunities</button>
+      <button class="tab-btn" data-tab="forge" onclick="switchTab('forge')">Forge</button>
+      <button class="tab-btn" data-tab="atlas" onclick="switchTab('atlas')">Atlas</button>
+      <button class="tab-btn" data-tab="sage" onclick="switchTab('sage')">Sage</button>
+      <button class="tab-btn" data-tab="tony" onclick="switchTab('tony')">Tony</button>
+      <button class="tab-btn" data-tab="analytics" onclick="switchTab('analytics')">Analytics</button>
+      <button class="tab-btn" data-tab="spawn" onclick="switchTab('spawn')">Spawn Gate</button>
     </div>
 
     <!-- Tab: Agents (default) -->
@@ -787,6 +800,12 @@
       </table>
       <div style="margin-top:10px;font-size:9px;color:var(--muted)" id="opp-empty">No opportunities scouted yet. Prospector runs on its scout interval.</div>
     </div>
+
+    <!-- Tab: Forge / Atlas / Sage / Tony (per-pod views, rendered by renderPod) -->
+    <div id="tab-forge" style="display:none"><div class="pod-view" id="podview-forge">Loading…</div></div>
+    <div id="tab-atlas" style="display:none"><div class="pod-view" id="podview-atlas">Loading…</div></div>
+    <div id="tab-sage"  style="display:none"><div class="pod-view" id="podview-sage">Loading…</div></div>
+    <div id="tab-tony"  style="display:none"><div class="pod-view" id="podview-tony">Loading…</div></div>
 
     <!-- Tab: Spawn Gate -->
     <div id="tab-spawn" style="display:none">
@@ -1136,17 +1155,21 @@ setInterval(refreshVaultFeed, 30000);
 refreshVaultFeed();
 
 // ── Tab switching ─────────────────────────────────────────────
+const TABS = ["agents","crm","opportunities","forge","atlas","sage","tony","analytics","spawn"];
+const POD_TABS = ["forge","atlas","sage","tony"];
 function switchTab(name) {
-  ["agents","crm","opportunities","analytics","spawn"].forEach(t => {
-    document.getElementById(`tab-${t}`).style.display = t === name ? "" : "none";
+  TABS.forEach(t => {
+    const el = document.getElementById(`tab-${t}`);
+    if (el) el.style.display = t === name ? "" : "none";
   });
-  document.querySelectorAll(".tab-btn").forEach((btn, i) => {
-    btn.classList.toggle("active", ["agents","crm","opportunities","analytics","spawn"][i] === name);
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.tab === name);
   });
   if (name === "crm")           refreshCRM();
   if (name === "opportunities") refreshOpportunities();
   if (name === "analytics")     refreshAnalytics();
   if (name === "spawn")         refreshSpawnGate();
+  if (POD_TABS.includes(name))  renderPod(name);
 }
 
 // ── Outreach CRM ──────────────────────────────────────────────
@@ -1297,6 +1320,56 @@ async function refreshOpportunities() {
     }).join("");
   } catch { document.getElementById("opp-empty").textContent = "Error loading opportunities."; }
 }
+
+// ── Per-pod views (Forge / Atlas / Sage / Tony) ───────────────
+async function renderPod(key) {
+  const el = document.getElementById(`podview-${key}`);
+  if (!el) return;
+  try {
+    const d = await fetch(`/api/pod/${key}`).then(r => r.json());
+    if (d.error) { el.innerHTML = `<div style="color:var(--red);font-size:10px">${d.error}</div>`; return; }
+    const dot = {green:"var(--green)",yellow:"var(--orange)",red:"var(--red)"}[d.status] || "var(--muted)";
+    const b = d.budget || {};
+    const capTxt = (b.cap === null || b.cap === undefined) ? "∞" : `$${b.cap}`;
+    const a = d.activity || {recent:[]};
+    const recent = (a.recent || []);
+    const recentRows = recent.length ? recent.map(r => {
+      const c = r.status === "done" ? "var(--green)" : r.status === "failed" ? "var(--red)" : "var(--muted)";
+      const icon = r.status === "done" ? "✓" : r.status === "failed" ? "✗" : "•";
+      return `<div class="pod-row"><span style="color:${c};flex-shrink:0">${icon}</span><span class="pr-label">${r.label}</span><span class="pr-when">${r.when || ""}</span></div>`;
+    }).join("") : `<div class="pod-muted">No task activity yet.</div>`;
+    const art = d.artifacts || {items:[]};
+    const artItems = (art.items || []);
+    const artRows = artItems.length ? artItems.map(i =>
+      `<div class="pod-row"><span class="pr-label">${i.label}</span><span class="pr-when">${i.value || ""}</span></div>`
+    ).join("") : `<div class="pod-muted">${art.empty || "Nothing to show yet."}</div>`;
+    const tt = (d.task_types || []).slice(0, 6).join(" · ");
+    el.innerHTML = `
+      <div class="section-title" style="margin-bottom:4px">
+        <span style="color:${dot}">●</span> ${d.name}
+        <span style="font-size:8px;color:var(--muted);letter-spacing:0;text-transform:none"> · ${d.agent} · ${d.pod}</span>
+      </div>
+      <div class="pod-purpose">${d.purpose || ""}</div>
+      ${tt ? `<div class="pod-tt">${tt}</div>` : ""}
+      <div class="funnel-row" style="grid-template-columns:repeat(4,1fr);margin-top:10px">
+        <div class="funnel-card green"><span class="f-num">${a.done ?? 0}</span><span class="f-label">Done</span></div>
+        <div class="funnel-card"><span class="f-num" style="color:var(--red)">${a.failed ?? 0}</span><span class="f-label">Failed</span></div>
+        <div class="funnel-card orange"><span class="f-num">${a.todo ?? 0}</span><span class="f-label">Queued</span></div>
+        <div class="funnel-card cyan"><span class="f-num" style="font-size:15px">$${b.spent ?? 0}<span style="font-size:9px;color:var(--muted)"> / ${capTxt}</span></span><span class="f-label">Spend (${b.basis || "—"})</span></div>
+      </div>
+      <div class="section-title">Recent Task Activity</div>
+      <div class="pod-list">${recentRows}</div>
+      <div class="section-title" style="margin-top:10px">${art.title || "Artifacts"}</div>
+      <div class="pod-list">${artRows}</div>
+    `;
+  } catch { el.innerHTML = `<div style="color:var(--red);font-size:10px">Error loading ${key} pod.</div>`; }
+}
+setInterval(() => {
+  POD_TABS.forEach(k => {
+    const el = document.getElementById(`tab-${k}`);
+    if (el && el.style.display !== "none") renderPod(k);
+  });
+}, 30000);
 
 // ── Spawn Gate ────────────────────────────────────────────────
 // Cache the last snapshot + a server↔client clock offset so the cooldown
