@@ -326,9 +326,42 @@ async def api_opportunities():
 
 @app.get("/api/spawn-gate")
 async def api_spawn_gate():
-    """Per-scope-key spawn-cadence state + summary + recent gate decisions."""
+    """Per-scope-key spawn-cadence state + summary + recent gate decisions.
+
+    The Prospector scout is gated by scout_due (scheduler-state), not the spawn
+    gate, so we inject a read-only row for it here — visible countdown without
+    throttling the per-target one-offs (deepdive/poc_build) that must run freely."""
     from runner.scheduler.spawn_gate import gate_snapshot
-    return gate_snapshot()
+    snap = gate_snapshot()
+    try:
+        from datetime import timedelta
+        from runner.config import load_spawn_schedules
+        interval = ((load_spawn_schedules() or {}).get("scout", {}) or {}).get("min_interval_minutes", 120)
+        state_file = Path(__file__).parent.parent / "workspace" / "scheduler-state.json"
+        last = None
+        if state_file.exists():
+            last = json.loads(state_file.read_text(encoding="utf-8")).get("last_scout")
+        now = datetime.now()
+        status, ready_in, next_allowed = "ready", None, None
+        if last:
+            na = datetime.fromisoformat(last) + timedelta(minutes=interval)
+            next_allowed = na.isoformat()
+            if now < na:
+                status, ready_in = "cooldown", max(0, round((na - now).total_seconds()))
+        snap.setdefault("keys", []).insert(0, {
+            "key": "scout:opportunity_worker", "scope": "scout", "agent": "opportunity_worker",
+            "task_type": "opportunity_scout", "configured": True,
+            "min_interval_minutes": interval, "jitter_minutes": None, "max_per_day": None,
+            "quiet_hours": None, "spawns_today": None, "last_spawn": last,
+            "next_allowed": next_allowed, "status": status, "ready_in_seconds": ready_in,
+            "last_reason": "Prospector scout (scheduler timer, not throttled)",
+        })
+        s = snap.setdefault("summary", {})
+        s["tracked_keys"] = s.get("tracked_keys", 0) + 1
+        s[("in_cooldown" if status == "cooldown" else "ready")] = s.get("in_cooldown" if status == "cooldown" else "ready", 0) + 1
+    except Exception:
+        pass
+    return snap
 
 
 # ── Spawn-schedule editor (live-editable cadence, comment-preserving) ──────────
@@ -664,12 +697,31 @@ async def api_tony_stocks():
         r["tier"] = "persistent"
     for r in active:
         r["tier"] = "active"
+    signals = persistent + active
+
+    # Enrich each signal from its ticker page: conviction is in the vault now;
+    # price + P/L populate from the bot's market run (None until then).
+    tickers_dir = VAULT_DIR / "tickers"
+    for sig in signals:
+        sig["conviction"] = sig["price"] = sig["pl"] = None
+        t = (sig.get("Ticker") or "").strip().upper()
+        page = tickers_dir / f"{t}.md"
+        if t and page.exists():
+            ptext = page.read_text(encoding="utf-8", errors="ignore")
+            mc = re.search(r"[Cc]onviction(?:\s+score)?[:\s|*]+(\d{1,3})", ptext)
+            if mc:
+                sig["conviction"] = int(mc.group(1))
+            mp = re.search(r"(?:current price|last price|price)[:\s|*$]+([\d.]+)", ptext, re.IGNORECASE)
+            if mp:
+                sig["price"] = float(mp.group(1))
+
     metrics_rows = _parse_md_section_table(text, "Weekly Metrics")
     return {
         "available": True,
         "last_updated": last_updated,
-        "signals": persistent + active,
-        "signals_tracked": len(persistent) + len(active),
+        "signals": signals,
+        "signals_tracked": len(signals),
         "metrics": metrics_rows[-1] if metrics_rows else {},
         "sectors": _parse_md_section_table(text, "Sector Clusters"),
+        "price_note": "Price & P/L populate when the trading bot runs (live market data).",
     }

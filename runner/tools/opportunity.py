@@ -161,6 +161,63 @@ def grade_poc(slug: str, verdict: str, reason: str) -> dict:
         return {"error": str(exc)}
 
 
+def update_opportunity(
+    slug: str,
+    composite: float | None = None,
+    phase: str | None = None,
+    est_rev_mo: str | None = None,
+    status: str | None = None,
+) -> dict:
+    """Update an existing ledger row in place — used after a deep-dive re-scores an
+    idea, so the Opportunity Board reflects the revised composite/phase."""
+    if not LEDGER_FILE.exists():
+        return {"error": "ledger.md does not exist yet"}
+    try:
+        lines = LEDGER_FILE.read_text(encoding="utf-8").splitlines()
+        for i, line in enumerate(lines):
+            if line.startswith(f"| {slug} |"):
+                cells = [c.strip() for c in line.strip("|").split("|")]
+                if len(cells) < 9:
+                    return {"error": f"malformed ledger row for {slug}"}
+                if composite is not None:
+                    cells[1] = str(round(float(composite), 2))
+                if phase is not None:
+                    cells[2] = phase
+                if est_rev_mo is not None:
+                    cells[5] = str(est_rev_mo)
+                if status is not None:
+                    cells[6] = status
+                cells[8] = datetime.now().strftime("%Y-%m-%d")
+                lines[i] = "| " + " | ".join(cells) + " |"
+                LEDGER_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                return {"success": True, "slug": slug, "composite": cells[1], "phase": cells[2]}
+        return {"error": f"{slug} not found in ledger"}
+    except OSError as exc:
+        return {"error": str(exc)}
+
+
+TOOL_SPEC_UPDATE = {
+    "name": "update_opportunity",
+    "description": (
+        "Update an existing opportunity's ledger row after a deep-dive re-scores it. "
+        "ALWAYS call this at the end of a deep-dive with the revised composite and set "
+        "phase to 'deepdived' so the Opportunity Board shows the evidence-based score, "
+        "not the first-pass scout score. Only pass the fields you are changing."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "slug": {"type": "string", "description": "The opportunity slug exactly as in the ledger."},
+            "composite": {"type": "number", "description": "Revised composite score 0-100."},
+            "phase": {"type": "string", "description": "e.g. 'deepdived', 'graded', 'building'."},
+            "est_rev_mo": {"type": "string", "description": "Estimated monthly revenue, if newly estimated."},
+            "status": {"type": "string", "description": "e.g. 'deepdived', 'rejected', 'promoted'."},
+        },
+        "required": ["slug"],
+    },
+}
+
+
 TOOL_SPEC_GRADE = {
     "name": "grade_poc",
     "description": (

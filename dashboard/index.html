@@ -1363,14 +1363,22 @@ async function renderTonyStocks() {
       const status = (s.Status || "").toLowerCase();
       const sc = status.includes("valid") ? "var(--green)" : status.includes("weak") ? "var(--orange)" : "var(--muted)";
       const tc = s.tier === "persistent" ? "var(--green)" : "var(--cyan)";
+      const conv = s.conviction != null ? s.conviction : "—";
+      const convColor = s.conviction >= 80 ? "var(--green)" : s.conviction >= 60 ? "var(--orange)" : "var(--muted)";
+      const price = s.price != null ? "$" + s.price : "—";
+      const pl = s.pl != null ? (s.pl >= 0 ? "+" : "") + s.pl + "%" : "—";
+      const plColor = s.pl == null ? "var(--muted)" : s.pl >= 0 ? "var(--green)" : "var(--red)";
       return `<tr>
         <td style="font-family:monospace;color:var(--cyan);font-weight:600">${s.Ticker || "?"}</td>
         <td>${s["Days Active"] || "—"}</td>
         <td>${s["Setup Type"] || "—"}</td>
+        <td style="color:${convColor};font-weight:600">${conv}</td>
+        <td style="font-family:monospace">${price}</td>
+        <td style="font-family:monospace;color:${plColor}">${pl}</td>
         <td style="color:${tc};font-size:8px;text-transform:uppercase">${s.tier}</td>
         <td style="color:${sc}">${s.Status || "—"}</td>
       </tr>`;
-    }).join("") : `<tr><td colspan="5" style="color:var(--muted)">No active signals.</td></tr>`;
+    }).join("") : `<tr><td colspan="8" style="color:var(--muted)">No active signals.</td></tr>`;
     const sectorHtml = sectors.length ? sectors.map(s =>
       `<div class="pod-row"><span class="pr-label" style="color:var(--cyan)">${s.Sector || ""}</span><span class="pr-when">${s.Tickers || ""}</span></div>`
     ).join("") : `<div class="pod-muted">No sector clusters.</div>`;
@@ -1387,9 +1395,10 @@ async function renderTonyStocks() {
       </div>
       <div class="section-title">Tracked Signals</div>
       <table class="crm-table">
-        <thead><tr><th>Ticker</th><th>Days</th><th>Setup</th><th>Tier</th><th>Status</th></tr></thead>
+        <thead><tr><th>Ticker</th><th>Days</th><th>Setup</th><th>Conv</th><th>Price</th><th>P/L</th><th>Tier</th><th>Status</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
+      <div style="font-size:8px;color:var(--muted);margin-top:4px">${d.price_note || ""}</div>
       <div class="section-title" style="margin-top:10px">Sector Clusters</div>
       <div class="pod-list">${sectorHtml}</div>
     `;
