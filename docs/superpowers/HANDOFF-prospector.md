@@ -18,8 +18,20 @@ Use the **superpowers:subagent-driven-development** skill — one fresh subagent
 - **Budgets:** `opportunity_pod` = $10/day, $2/PoC. Global guardrails (no real external sends, no broker trades, budget stop) still apply.
 - **PoC sandbox:** PoC code runs only under `workspace/poc/<slug>/` via `poc_runner` (cwd-confined). No real sends/signups/deploys.
 
-## Efficiency (operator priority)
-Model selection is **config-driven per phase** — see the `task_models:` block added to `config/agents.yaml` in Task 4. Each phase auto-uses its most efficient model every run (Flash for scout/spec/grade, Pro only for deep-dive of top candidates). To tune cost later, edit that YAML block and restart the runner — no code change. Forge's PoC build stays on its role default (kimi-k2.5, cheap long-generation).
+## Efficiency — TWO separate cost levers
+
+### (A) Implementation cost — the model that BUILDS this (operator's priority)
+Use the **cheapest capable Claude model per task, auto-switched by complexity** — do NOT use Opus to execute this plan. The plan already contains the exact code + tests for every task, so most tasks are transcribe-and-verify work.
+
+- **Start the session on Sonnet** (cheap orchestration/review between tasks).
+- **Dispatch each implementation subagent with `model: "haiku"` by default** (Agent tool `model` param) — tasks 1, 2, 3, 4, 5, 7, 8, 9, 10, 12, 13, 14 are mechanical (exact code given) and fit Haiku.
+- **Use `model: "sonnet"`** only for the judgment tasks: **Task 6** (dashboard — must read `dashboard/server.py` to find the broadcast payload and integrate) and **Task 11/15** if anything needs investigation.
+- **Escalate a task to Sonnet only if** its tests fail unexpectedly and a Haiku subagent can't resolve it in one pass. Never escalate to Opus for execution.
+
+This keeps implementation usage minimal while preserving quality, since the hard thinking is already done in the plan.
+
+### (B) Runtime cost — the models the DEPLOYED agents use (bonus, already wired)
+Separately, Prospector/Forge model selection is config-driven per phase via the `task_models:` block added to `config/agents.yaml` in Task 4 (Flash for scout/spec/grade, Pro only for deep-dive; Forge PoC build on kimi-k2.5). Tune that YAML + restart the runner — no code change. This is NOT the same as (A); it only affects live agent runs, not the cost of building the feature.
 
 ## Known limitations (documented in the plan, not bugs)
 - Per-PoC $2 cap is operationally bounded (pod cap + prompt guidance), not a hard mid-run cutoff — the runner only checks budget between tasks. The `per_poc_limit_usd` config value exists for future mid-run enforcement.
