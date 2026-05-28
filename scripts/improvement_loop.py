@@ -8,12 +8,13 @@ Run manually: python scripts/improvement_loop.py
 Runs automatically: systemd improvement-loop.timer at 2 AM daily
 """
 import logging
+import os
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
-import anthropic
+from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,14 +28,12 @@ AGENTS_DIR = ROOT / "agents"
 
 _AGENTS_TO_REVIEW = [
     "manager",
-    "social_media_worker",
-    "digital_product_worker",
-    "content_worker",
-    "marketing_worker",
+    "outreach_worker",
+    "market_research_worker",
 ]
 
 _IMPROVEMENT_SYSTEM = """\
-You are the improvement engine for ThePromptVaultUS AI Operations Command Center.
+You are the improvement engine for the AI Operations Command Center.
 Your job: analyze today's agent session data and improve agent prompt files that underperformed.
 
 Rules:
@@ -159,22 +158,27 @@ def run() -> None:
         + "\n".join(f"### {n}\n{c}" for n, c in agent_contents.items())
     )
 
-    client = anthropic.Anthropic()
+    client = OpenAI(
+        api_key=os.environ.get("GOOGLE_AI_API_KEY", ""),
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+    )
     try:
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+        response = client.chat.completions.create(
+            model="gemini-2.5-flash",
             max_tokens=8192,
-            system=_IMPROVEMENT_SYSTEM,
-            messages=[{"role": "user", "content": user_prompt}],
+            messages=[
+                {"role": "system", "content": _IMPROVEMENT_SYSTEM},
+                {"role": "user", "content": user_prompt},
+            ],
         )
-    except anthropic.APIError as exc:
-        log.error("Claude API call failed: %s", exc)
+    except Exception as exc:
+        log.error("Gemini API call failed: %s", exc)
         return
 
-    if not response.content:
-        log.error("Empty response content from Claude")
+    output = response.choices[0].message.content or ""
+    if not output:
+        log.error("Empty response from Gemini")
         return
-    output = response.content[0].text
     log.info("Improvement response received (%d chars)", len(output))
 
     updates, summary = _parse_updates(output)

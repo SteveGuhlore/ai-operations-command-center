@@ -1,16 +1,61 @@
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
 
+log = logging.getLogger(__name__)
+
 TASKS_DIR = Path(__file__).parent.parent.parent / "workspace" / "tasks"
+BLOCKED_LOG = TASKS_DIR.parent / "blocked-tasks.log"
 
 VALID_AGENTS = [
     "manager",
     "social_media_worker", "content_worker", "digital_product_worker",
     "marketing_worker", "media_worker", "audio_worker",
     "heavy_worker", "debug_worker", "budget_worker", "guard_worker",
-    "market_research_worker",
+    "market_research_worker", "outreach_worker", "builder", "librarian",
 ]
+
+# Self-perpetuating repair loop: agents kept spawning audit/revise tasks against
+# the read_inbox tool every cycle (50+ in 36h) without ever fixing anything.
+# Prompt directives didn't hold, so block these at the spawn point regardless of
+# which agent/model emits them. Outreach (pitch-continuous-outreach) is unaffected:
+# it has no "read inbox" subject and no meta-work verb.
+_META_VERB = r"(audit|revis|refin|confirm|verif|inspect|investigat|fix|correct|accura|misclass|misiden|false[\s_-]*posit|incorrect|root[\s_-]*cause)"
+_INBOX_SUBJECT = r"read[\s_-]*inbox|inbox[\s_-]*tool|inbox[\s_-]*reader"
+_LOOP_BLOCK_RE = re.compile(_META_VERB, re.IGNORECASE)
+_INBOX_RE = re.compile(_INBOX_SUBJECT, re.IGNORECASE)
+
+
+def _is_blocked_loop_task(title: str, body: str) -> bool:
+    haystack = f"{title}\n{body[:500]}"
+    return bool(_INBOX_RE.search(haystack) and _LOOP_BLOCK_RE.search(haystack))
+
+
+def _log_blocked(title: str, assigned_agent: str) -> None:
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"{ts}\tNEEDS_HUMAN\t{assigned_agent}\t{title}\n"
+    try:
+        with BLOCKED_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(line)
+    except OSError as exc:
+        log.error("Could not write blocked-tasks log: %s", exc)
+    log.warning("Blocked read_inbox repair-loop task from %s: %s", assigned_agent, title)
+
+
+def _has_pending_task(assigned_agent: str, task_type: str) -> bool:
+    for folder in ("todo",):
+        d = TASKS_DIR / folder
+        if not d.exists():
+            continue
+        for f in d.glob("*.md"):
+            try:
+                content = f.read_text(encoding="utf-8")
+                if f"assigned_agent: {assigned_agent}" in content and f"task_type: {task_type}" in content:
+                    return True
+            except OSError:
+                pass
+    return False
 
 
 def create_task(
@@ -24,6 +69,13 @@ def create_task(
 ) -> dict:
     if assigned_agent not in VALID_AGENTS:
         return {"error": f"Unknown agent: {assigned_agent}. Valid: {VALID_AGENTS}"}
+
+    if _is_blocked_loop_task(title, body):
+        _log_blocked(title, assigned_agent)
+        return {"skipped": True, "reason": "read_inbox audit/revise tasks are disabled — logged to blocked-tasks.log for human review. Do not retry; this is intentional."}
+
+    if _has_pending_task(assigned_agent, task_type):
+        return {"skipped": True, "reason": f"A pending {task_type} task for {assigned_agent} already exists — not creating a duplicate."}
 
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     auto_id = not task_id
@@ -98,7 +150,8 @@ TOOL_SPEC = {
                 "description": "Revenue pod this task belongs to.",
                 "enum": [
                     "social_media_pod", "digital_products_pod", "affiliate_pod",
-                    "short_form_video_pod", "lead_gen_pod", "management", "general",
+                    "short_form_video_pod", "lead_gen_pod", "local_outreach_pod",
+                    "management", "general",
                 ],
             },
             "priority": {

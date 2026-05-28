@@ -25,44 +25,60 @@ from runner.tools.web import TOOL_SPEC as WEB_TOOL_SPEC
 from runner.tools.files import TOOL_SPEC as FILE_TOOL_SPEC
 from runner.tools.video import TOOL_SPEC as VIDEO_TOOL_SPEC
 from runner.tools.task_creator import TOOL_SPEC as TASK_CREATOR_TOOL_SPEC
+from runner.tools.flag_issue import TOOL_SPEC as FLAG_ISSUE_TOOL_SPEC
 from runner.tools.tony_insights import TOOL_SPEC as TONY_INSIGHTS_TOOL_SPEC
 from runner.tools.vault_writer import write_vault_session
+from runner.tools.email_sender import TOOL_SPEC as EMAIL_TOOL_SPEC
+from runner.tools.places import TOOL_SPEC as PLACES_TOOL_SPEC
+from runner.tools.social_dm import TOOL_SPEC as SOCIAL_DM_TOOL_SPEC
+from runner.tools.vault_memory import auto_write_task_memory, WRITE_MEMORY_TOOL_SPEC as MEMORY_TOOL_SPEC
+from runner.tools.inbox_reader import TOOL_SPEC as INBOX_TOOL_SPEC
+from runner.tools.crm_dedup import dedup_crm
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
+# Slash-free IDs route to Google direct (GOOGLE_AI_API_KEY, $300 free credit).
+# Slash IDs route through OpenRouter (cheap third-party models).
+# Anthropic / OpenAI removed — too expensive for daily autonomous runs.
 MODELS: dict[str, str] = {
-    "manager":                "anthropic/claude-sonnet-4-6",  # atlas planning; opus was 25x pricier
-    "heavy_worker":           "moonshotai/kimi-k2.5",
-    "debug_worker":           "minimax/minimax-m2.5",
-    "content_worker":         "minimax/minimax-m2.5",
+    "manager":                "gemini-2.5-pro",            # Atlas — best reasoning for spawning + routing
+    "heavy_worker":           "moonshotai/kimi-k2.5",      # OpenRouter — cheap for long generation
+    "debug_worker":           "gemini-2.5-flash",
+    "content_worker":         "gemini-2.5-flash",
     "media_worker":           "moonshotai/kimi-k2.5",
-    "audio_worker":           "minimax/minimax-m2.5",
-    "guard_worker":           "minimax/minimax-m2.5",
-    "budget_worker":          "minimax/minimax-m2.5",
+    "audio_worker":           "gemini-2.5-flash",
+    "guard_worker":           "gemini-2.5-flash",
+    "budget_worker":          "gemini-2.5-flash",
     "digital_product_worker": "moonshotai/kimi-k2.5",
-    "marketing_worker":       "minimax/minimax-m2.5",
+    "marketing_worker":       "gemini-2.5-flash",
     "social_media_worker":    "moonshotai/kimi-k2.5",
-    "market_research_worker": "moonshotai/kimi-k2.5",
+    "market_research_worker": "gemini-2.5-pro",            # Tony Stocks — needs sharp analysis for daily brief
+    "outreach_worker":        "gemini-2.5-flash",          # Pitch — fast cheap prospect research
+    "librarian":              "gemini-2.5-flash",
+    "builder":                "gemini-2.5-flash",          # Clay — site generation
 }
 
 MAX_CONCURRENT = 4
-LOW_WATER_MARK = 0  # set to 0 to disable Atlas auto-spawn; raise when content pods are active again
+LOW_WATER_MARK = 2  # Atlas auto-spawns when fewer than this many tasks remain in queue (lowered for tighter outreach cadence)
 
 # Tools each role is allowed to call
 ROLE_TOOLS: dict[str, list[dict]] = {
-    "social_media_worker":    [TOOL_SPEC_SAVE, IMAGE_TOOL_SPEC, AUDIO_TOOL_SPEC, VIDEO_TOOL_SPEC],
-    "media_worker":           [IMAGE_TOOL_SPEC, FILE_TOOL_SPEC],
-    "audio_worker":           [AUDIO_TOOL_SPEC, FILE_TOOL_SPEC],
-    "digital_product_worker": [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC],
-    "content_worker":         [FILE_TOOL_SPEC],
-    "debug_worker":           [WEB_TOOL_SPEC, FILE_TOOL_SPEC],
-    "market_research_worker": [WEB_TOOL_SPEC, FILE_TOOL_SPEC, TONY_INSIGHTS_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC],
-    "marketing_worker":       [ETSY_TOOL_SPEC, FILE_TOOL_SPEC],
-    "manager":                [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC],
-    "heavy_worker":           [FILE_TOOL_SPEC],
+    "social_media_worker":    [TOOL_SPEC_SAVE, IMAGE_TOOL_SPEC, AUDIO_TOOL_SPEC, VIDEO_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "media_worker":           [IMAGE_TOOL_SPEC, FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "audio_worker":           [AUDIO_TOOL_SPEC, FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "digital_product_worker": [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "content_worker":         [FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "debug_worker":           [WEB_TOOL_SPEC, FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "market_research_worker": [WEB_TOOL_SPEC, FILE_TOOL_SPEC, TONY_INSIGHTS_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "outreach_worker":        [PLACES_TOOL_SPEC, WEB_TOOL_SPEC, EMAIL_TOOL_SPEC, SOCIAL_DM_TOOL_SPEC, FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, INBOX_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "marketing_worker":       [ETSY_TOOL_SPEC, FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "manager":                [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "heavy_worker":           [FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "guard_worker":           [],
     "budget_worker":          [],
+    "librarian":              [FILE_TOOL_SPEC],
+    "builder":                [FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
 }
 
 
@@ -93,67 +109,165 @@ def _sync_vault() -> None:
 _ATLAS_SPAWN_BODY = """\
 ## Your Job
 
-The task queue is running low. Use the `create_task` tool to spawn **6–8 new revenue-generating tasks** right now.
+The task queue is low. Your number-one priority is keeping **Easy Simple Sites** (the local-outreach revenue pod) running continuously. You MUST call `create_task` at least once unless there is already a `prospect_research` task queued for outreach_worker.
 
-## Brand Context
+## ACTIVE Revenue Streams (only spawn for these)
 
-- **Shop:** ThePromptVaultUS — AI prompt packs for creators, freelancers, and small business owners
-- **Products:** PDF prompt packs, $6–$14, instant download
-- **Social:** TikTok (manual upload), Instagram Reels (auto), Facebook Reels (auto), YouTube Shorts (auto)
-- **Revenue model:** Views/CPM from organic video + TikTok Shop affiliate commissions + digital product sales
+**Stream 1 — Easy Simple Sites (local Massachusetts web design)**
+- Pitch (outreach_worker) finds no-website MA businesses, sends pitches → interested replies → Clay (builder) builds the site
+- Brand: Easy Simple Sites — easysimplesites.org — signed "Stephen"
+- Tiers: Starter $299, Pro $499, Premium $799
+- **DEFAULT BEHAVIOR**: If no `prospect_research` task is queued for outreach_worker, spawn ONE now. Do not wait 24 hours — Pitch is allowed to run multiple times per day. The only reason to skip is "a prospect_research task is already queued".
 
-## Available Agents
+**Stream 2 — Stock Research (Tony Stocks)**
+- Tony Stocks (market_research_worker) produces a daily trading brief
+- Triggered by the trading bot bridge — Atlas should NOT spawn Tony tasks unless explicitly told to
 
-| Agent | role_id | What they do |
-|---|---|---|
-| Spark | social_media_worker | Writes scripts, generates audio + images + assembles MP4 — full video pipeline |
-| Muse | content_worker | Captions, written content, blog-style posts |
-| Maker | digital_product_worker | Creates PDF prompt packs |
-| Market | marketing_worker | Offer positioning, hooks, listing copy |
-| Frame | media_worker | Standalone image generation |
-| Echo | audio_worker | Standalone audio/voiceover generation |
-| Scout | debug_worker | Reports, validations |
+## DISABLED — Do NOT spawn tasks for these agents
 
-## Task Priorities
+The following pods are currently dormant. **NEVER call `create_task` for them**:
+- Spark (social_media_worker) — video production OFF
+- Muse (content_worker) — content drafting OFF
+- Maker (digital_product_worker) — PDF products OFF
+- Market (marketing_worker) — listing copy OFF
+- Frame (media_worker) — images OFF
+- Echo (audio_worker) — audio OFF
 
-**Always spawn at least 3 video_production tasks for Spark.** These are the highest-ROI tasks (each MP4 can generate views/CPM across 4 platforms).
+If you spawn a task for any disabled agent it will burn API money for nothing.
 
-Good video topic ideas for Spark:
-- "5 ChatGPT prompts that save freelancers 10 hours a week"
-- "The one prompt that writes all my emails in 30 seconds"
-- "POV: You finally stopped undercharging (AI helped)"
-- "How I use AI to batch a month of content in one day"
-- "Rate my ChatGPT setup vs. a beginner's"
-- "TikTok Shop finds for creators who use AI"
-- "Stop writing captions from scratch — use this prompt"
-- "The AI workflow that replaced my content team"
+## What you CAN spawn
 
-Good Maker tasks: Create a new prompt pack PDF (30–50 prompts) on a specific topic (email marketing prompts, freelancer pricing prompts, content repurposing prompts, etc.)
+| When | Spawn |
+|------|-------|
+| **No outreach_worker task in the queue** | ONE `prospect_research` task for outreach_worker (this is the default — do this almost every cycle) |
+| Builder has a pending intake and no current task | ONE `site_build` task for builder |
 
-Good Market tasks: Write Etsy listing copy + title + tags for a specific prompt pack product.
+## Pitch task body template (use this exactly when spawning)
 
-## Already Done (don't duplicate these)
+```
+title: "Pitch: Daily Outreach"
+task_type: prospect_research
+assigned_agent: outreach_worker
+pod: local_outreach_pod
+priority: high
+body: |
+  Run the standard outreach workflow for Easy Simple Sites (easysimplesites.org).
+
+  GEO ROTATION — work through these in order, picking cities not used in the last 3 runs.
+  Check your memory for recently covered cities and skip them.
+
+  MASSACHUSETTS (primary — exhaust these first):
+  Boston, Worcester, Springfield, Cambridge, Lowell, Brockton, Quincy, Lynn,
+  New Bedford, Fall River, Newton, Somerville, Framingham, Haverhill, Waltham,
+  Salem, Medford, Everett, Lawrence, Malden, Revere, Weymouth, Peabody, Taunton,
+  Attleboro, Fitchburg, Leominster, Chicopee, Holyoke, Pittsfield, Westfield,
+  Agawam, Northampton, Amherst, Gloucester, Plymouth, Barnstable, Methuen,
+  Chelsea, Amesbury, Andover, Beverly, Billerica, Burlington, Chelmsford,
+  Dracut, Marlborough, Milford, Natick, Norwood, Randolph, Stoughton, Tewksbury,
+  Watertown, Woburn, Dedham, Lexington, Needham, Milton, Canton, Mansfield
+
+  STALENESS RULE — if you find fewer than 5 new unique prospects across 2+ MA city
+  searches in this run, MA inventory is getting thin. Add one city from a neighboring
+  state to your search for this run and note it in memory.
+
+  NEIGHBORING STATES (use when MA is getting stale):
+  Rhode Island: Providence, Cranston, Warwick, Pawtucket, Woonsocket, East Providence
+  Connecticut: Hartford, New Haven, Bridgeport, Stamford, Waterbury, New Britain, Norwich
+  New Hampshire: Manchester, Nashua, Concord, Dover, Portsmouth, Rochester
+  Maine: Portland, Lewiston, Bangor, Auburn, Augusta
+  Vermont: Burlington, Rutland, South Burlington, Barre
+
+  CATEGORIES — rotate broadly, pick ones not used in the last 2 runs:
+  hair salons, barbershops, nail salons, beauty salons, eyelash studios, spas,
+  auto repair shops, car washes, auto detailing,
+  restaurants, food trucks, bakeries, cafes, catering services,
+  plumbers, electricians, HVAC contractors, roofers, painters, handymen, general contractors,
+  cleaning services, carpet cleaners, pest control,
+  landscaping services, lawn care, tree services,
+  dog groomers, pet shops, boarding kennels,
+  daycares, after-school programs, tutoring centers,
+  martial arts studios, yoga studios, fitness studios, personal trainers,
+  tattoo shops, massage therapists,
+  florists, photographers, videographers,
+  dry cleaners, laundromats, tailors,
+  moving companies, junk removal,
+  accountants, notaries, insurance agents
+
+  CONTACT LOOKUP — after find_prospects, for each no-website business call web_research
+  (action=search, query="[Business Name] [City] MA contact email OR instagram") ONCE per
+  prospect. If email found → send_email + status email_sent. If IG handle found →
+  send_instagram_dm + status dm_queued. If nothing found → status call_queued (phone only).
+  Limit to 1 web_research call per prospect — do not retry.
+
+  Sign all pitches as Stephen, easysimplesites.org. Never reference any other brand.
+```
+
+## Already Done (don't duplicate)
 
 {done_summary}
 
 ## Instructions
 
-Call `create_task` once per task. Spawn 6–8 tasks total. Prefer high-priority video production tasks.
-For video_production tasks assigned to social_media_worker, write a detailed brief including:
-- The hook (first 1–2 seconds)
-- Target audience
-- Key message/tip to deliver
-- CTA to use
-- Suggested voice: nova (energetic) or onyx (deep)
+The only acceptable reason to call `create_task` zero times is: a `prospect_research` task for outreach_worker is ALREADY in the queue. Otherwise, you MUST spawn one using the template above. Idle queues kill the revenue pipeline.
+"""
 
-Do not stop until you have called create_task at least 6 times.
+
+def _pitch_is_alive() -> bool:
+    """Return True if outreach_worker has a task in todo or in_progress."""
+    tasks_root = Path(__file__).parent.parent / "workspace" / "tasks"
+    for folder in ("todo", "in_progress"):
+        d = tasks_root / folder
+        if not d.exists():
+            continue
+        for f in d.glob("*.md"):
+            try:
+                content = f.read_text(encoding="utf-8")
+                if "assigned_agent: outreach_worker" in content:
+                    return True
+            except OSError:
+                pass
+    return False
+
+
+_PITCH_TASK_BODY = """\
+Easy Simple Sites outreach. Find Massachusetts local businesses with NO website.
+
+- Search 3 cities, 1 category each. Pick cities/categories not used recently (check memory).
+- For each no-website business: call web_research once (query: "[Name] [City] MA contact email OR instagram") to find email/IG handle.
+- If email found → send_email immediately, status: email_sent. If IG found → send_instagram_dm, status: dm_queued. If nothing → status: call_queued.
+- Append new rows to vault/outreach/crm.md using file_editor action=append. NEVER use action=write.
+- Row format: | Business | Type | City, MA | contact | channel | status | YYYY-MM-DD | notes |
+- End: call create_task to queue next run, call write_memory to log cities/categories tried.
+
+Sign as Stephen, easysimplesites.org.
 """
 
 
 def _maybe_spawn_planning_task() -> None:
+    # Pitch is self-perpetuating (Step 10 of outreach_worker creates its own next task).
+    # Only intervene if the loop has died — create a Pitch task directly, no Atlas needed.
+    if not _pitch_is_alive():
+        from runner.tools.task_creator import create_task
+        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+        result = create_task(
+            title="Pitch: Continuous Outreach",
+            body=_PITCH_TASK_BODY,
+            assigned_agent="outreach_worker",
+            task_type="prospect_research",
+            pod="local_outreach_pod",
+            priority="high",
+        )
+        log.info("Pitch loop was dead — revived directly: %s", result.get("task_id", result))
+        return
+
+    # Atlas planning: only fire when a genuine strategic decision is needed.
+    # (New pods, builder intake, etc.) — NOT for routine Pitch re-queueing.
     remaining = read_todo_tasks()
-    has_planning = any(t.get("task_type") in ("planning",) for t in remaining)
-    if len(remaining) < LOW_WATER_MARK and not has_planning:
+    has_planning = any(t.get("task_type") == "planning" for t in remaining)
+    strategic_needed = any(
+        t.get("task_type") in ("site_build",) for t in remaining
+    )
+    if strategic_needed and not has_planning:
         from runner.tools.task_creator import create_task
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         body = _ATLAS_SPAWN_BODY.format(done_summary=_done_task_summary())
@@ -166,11 +280,7 @@ def _maybe_spawn_planning_task() -> None:
             priority="high",
             task_id=f"ATLAS-PLAN-{ts}",
         )
-        log.info(
-            "Queue low (%d tasks remaining) — spawned Atlas planning task: %s",
-            len(remaining),
-            result.get("task_id"),
-        )
+        log.info("Strategic task needed — spawned Atlas: %s", result.get("task_id"))
 
 
 def run_task(task: dict) -> dict:
@@ -190,13 +300,18 @@ def run_task(task: dict) -> dict:
         update_agent_state(role_id, "working", task_id)
         move_task(task_id, "todo", "in_progress")
 
-        model = MODELS.get(role_id, "claude-haiku-4-5")
+        model = MODELS.get(role_id, "gemini-2.5-flash-lite")
         tools = ROLE_TOOLS.get(role_id, [])
         agent = AgentBase(role_id, model, build_system_prompt(role_id), tools=tools)
         result = agent.run(task)
 
         write_task_output(task_id, result["output"], "in_progress")
         write_vault_session(task_id, role_id, result)
+        auto_write_task_memory(role_id, task_id, task.get("task_type", "unknown"), "success", result.get("output", ""))
+        if role_id == "outreach_worker":
+            removed = dedup_crm()
+            if removed:
+                log.info("CRM dedup removed %d duplicate row(s)", removed)
         move_task(task_id, "in_progress", "done")
         update_agent_state(role_id, "idle", "", f"completed {task_id}")
         log.info("%s completed %s ($%.4f)", role_id, task_id, result["cost_usd"])
@@ -205,6 +320,7 @@ def run_task(task: dict) -> dict:
     except Exception as exc:
         log.error("%s failed %s: %s", role_id, task_id, exc)
         write_vault_session(task_id, role_id, {"error": str(exc)})
+        auto_write_task_memory(role_id, task_id, task.get("task_type", "unknown"), "failure", str(exc))
         try:
             move_task(task_id, "in_progress", "failed")
         except Exception:
@@ -231,11 +347,24 @@ def run_cycle() -> None:
     batch = tasks[:MAX_CONCURRENT]
     log.info("Dispatching %d task(s)", len(batch))
 
+    TASK_TIMEOUT = 720  # 12 minutes hard cap per task
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_CONCURRENT) as executor:
-        futures = [executor.submit(run_task, t) for t in batch]
-        for future in concurrent.futures.as_completed(futures):
+        futures_map = {executor.submit(run_task, t): t for t in batch}
+        for future in concurrent.futures.as_completed(futures_map):
+            task = futures_map[future]
+            task_id = task.get("task_id", "unknown")
             try:
-                future.result()
+                future.result(timeout=TASK_TIMEOUT)
+            except concurrent.futures.TimeoutError:
+                log.error("Task %s exceeded %ds timeout — cleaning up", task_id, TASK_TIMEOUT)
+                try:
+                    move_task(task_id, "in_progress", "failed")
+                except Exception:
+                    pass
+                try:
+                    release_lock(task_id)
+                except Exception:
+                    pass
             except Exception as exc:
                 log.error("Unhandled task error: %s", exc)
 

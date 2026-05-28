@@ -69,6 +69,7 @@ async def websocket_endpoint(ws: WebSocket):
 
 import subprocess
 import sys
+import threading
 from datetime import datetime
 
 VAULT_DIR = Path(__file__).parent.parent / "vault"
@@ -80,6 +81,9 @@ _POD_MAP = {
     "atlas":         ("manager",             "planning",          "management"),
     "trend_scan":    ("debug_worker",        "research",          "general"),
     "full_pipeline": ("manager",             "planning",          "management"),
+    "outreach":      ("outreach_worker",     "prospect_research", "local_outreach_pod"),
+    "builder":       ("builder",             "site_build",        "local_outreach_pod"),
+    "sage":          ("librarian",           "memory_synthesis",  "management"),
 }
 
 
@@ -130,14 +134,135 @@ async def api_trigger(request: Request):
         title=f"Manual trigger: {pod}",
         body=(
             f"Manually triggered from dashboard at {datetime.now().isoformat()}. "
-            f"Run the standard {pod} workflow for ThePromptVaultUS."
+            f"Run your autonomous workflow for this pod. "
+            f"Use the brand and strategy configured in your system prompt."
         ),
         assigned_agent=role,
         task_type=task_type,
         pod=pod_name,
         priority="high",
     )
+
+    # Run a cycle immediately so the task executes now rather than waiting for the next cron tick
+    def _run():
+        try:
+            from runner.main import run_cycle
+            run_cycle()
+        except Exception:
+            pass
+
+    threading.Thread(target=_run, daemon=True).start()
     return result
+
+
+@app.get("/api/analytics/agents")
+async def api_analytics_agents():
+    done_dir   = TASKS_DIR / "done"
+    failed_dir = TASKS_DIR / "failed"
+    counts: dict[str, dict] = {}
+
+    def _tally(folder: Path, outcome: str):
+        if not folder.exists():
+            return
+        for f in folder.glob("*.md"):
+            text  = f.read_text(encoding="utf-8", errors="ignore")
+            agent = "unknown"
+            for line in text.split("\n"):
+                line = line.strip()
+                if line.startswith("assigned_agent:"):
+                    agent = line.split(":", 1)[1].strip()
+                    break
+            if agent not in counts:
+                counts[agent] = {"done": 0, "failed": 0}
+            counts[agent][outcome] += 1
+
+    _tally(done_dir,   "done")
+    _tally(failed_dir, "failed")
+
+    rows = []
+    for agent, c in sorted(counts.items()):
+        total       = c["done"] + c["failed"]
+        success_pct = round(c["done"] / total * 100) if total else 0
+        rows.append({"agent": agent, "done": c["done"], "failed": c["failed"],
+                     "total": total, "success_pct": success_pct})
+    rows.sort(key=lambda r: r["total"], reverse=True)
+    return {"agents": rows}
+
+
+@app.get("/api/outreach/stats")
+async def api_outreach_stats():
+    crm_file   = VAULT_DIR / "outreach" / "crm.md"
+    queue_file = VAULT_DIR / "outreach" / "dm-queue.md"
+    stats = {
+        "total": 0, "emailed": 0, "dm_sent": 0, "call_queued": 0,
+        "followed_up": 0, "replied": 0, "closed": 0, "no_interest": 0,
+        "dm_queue_count": 0, "conversion_pct": 0, "recent": [],
+    }
+
+    status_aliases = {
+        "email_sent": "emailed",
+        "dm_queued":  "dm_sent",
+    }
+    if crm_file.exists():
+        for line in crm_file.read_text(encoding="utf-8").split("\n"):
+            if not line.startswith("|") or "Business" in line or line.startswith("|---"):
+                continue
+            parts = [p.strip() for p in line.strip("|").split("|")]
+            if len(parts) < 7:
+                continue
+            status = parts[5].lower()
+            status = status_aliases.get(status, status)
+            stats["total"] += 1
+            if status in stats:
+                stats[status] += 1
+            stats["recent"].append({
+                    "business": parts[0], "type": parts[1], "city": parts[2],
+                    "contact": parts[3], "channel": parts[4],
+                    "status": parts[5], "date": parts[6],
+                    "notes": parts[7] if len(parts) > 7 else "",
+            })
+
+    if queue_file.exists():
+        for line in queue_file.read_text(encoding="utf-8").split("\n"):
+            if line.startswith("|") and "Business" not in line and not line.startswith("|---"):
+                stats["dm_queue_count"] += 1
+
+    if stats["total"]:
+        stats["conversion_pct"] = round(stats["closed"] / stats["total"] * 100)
+    return stats
+
+
+CALL_OUTCOMES = {"answered", "no_answer", "interested", "not_interested", "callback", "emailed", "dm_sent", "call_queued", "followed_up", "replied", "closed", "no_interest"}
+
+@app.post("/api/outreach/update-status")
+async def update_outreach_status(request: Request):
+    data = await request.json()
+    business = (data.get("business") or "").strip()
+    new_status = (data.get("status") or "").strip()
+    new_notes  = (data.get("notes")  or "").strip()
+    if not business:
+        return {"error": "business required"}
+    crm_file = VAULT_DIR / "outreach" / "crm.md"
+    if not crm_file.exists():
+        return {"error": "CRM not found"}
+    lines = crm_file.read_text(encoding="utf-8").split("\n")
+    for i, line in enumerate(lines):
+        if not line.startswith("|") or "Business" in line or line.startswith("|---"):
+            continue
+        parts = [p.strip() for p in line.strip("|").split("|")]
+        if len(parts) >= 6 and parts[0].lower() == business.lower():
+            if new_status:
+                parts[5] = new_status
+            if new_notes and len(parts) > 7:
+                parts[7] = new_notes
+            elif new_notes:
+                while len(parts) < 8:
+                    parts.append("")
+                parts[7] = new_notes
+            lines[i] = "| " + " | ".join(parts) + " |"
+            crm_file.write_text("\n".join(lines), encoding="utf-8")
+            return {"success": True}
+    return {"error": f"'{business}' not found in CRM"}
 
 
 def _friendly_label(task_id: str) -> str:
@@ -168,14 +293,19 @@ async def api_vault_feed():
     for f in sorted(session_dir.glob("*.md"), reverse=True)[:20]:
         text = f.read_text(encoding="utf-8")
         status = "done"
+        summary = ""
         for line in text.split("\n"):
-            if line.startswith("Status:"):
+            if line.startswith("status:"):
                 status = line.split(":", 1)[1].strip()
+            elif line.startswith("summary:"):
+                summary = line.split(":", 1)[1].strip()
+            elif line == "---" and summary:
                 break
         sessions.append({
             "task_id": f.stem,
             "label": _friendly_label(f.stem),
             "status": status,
+            "summary": summary,
         })
 
     return {"sessions": sessions, "date": today}

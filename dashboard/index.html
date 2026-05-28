@@ -148,7 +148,7 @@
   /* ─── MAIN LAYOUT ────────────────────────── */
   #main {
     display: grid;
-    grid-template-columns: 170px 1fr 230px;
+    grid-template-columns: 170px 1fr 320px;
     gap: 1px;
     flex: 1;
     overflow: hidden;
@@ -407,7 +407,7 @@
 
   .log-time  { color: var(--muted); flex-shrink: 0; font-size: 9px; padding-top: 1px; }
   .log-agent { color: var(--blue); flex-shrink: 0; min-width: 52px; font-size: 9px; padding-top: 1px; }
-  .log-msg   { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+  .log-msg   { color: var(--text); overflow: hidden; word-break: break-word; line-height: 1.4; font-size: 10px; }
   .log-entry.log-working .log-msg { color: var(--green); }
   .log-entry.log-error   .log-msg { color: var(--red); }
   .log-entry.log-done    .log-msg { color: rgba(0,245,160,0.6); }
@@ -501,15 +501,92 @@
 
   /* ─── VAULT FEED ─────────────────────────── */
   #vault-feed-wrap { margin-top: 10px; }
-  #vault-feed { font-size: 9px; line-height: 1.8; color: var(--muted); margin-top: 6px; }
+  #vault-feed { font-size: 11px; line-height: 1.8; color: var(--muted); margin-top: 6px; }
   .vault-entry {
-    padding: 2px 0;
+    padding: 3px 0;
     border-bottom: 1px solid rgba(26,37,64,0.4);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    word-break: break-word;
+    line-height: 1.5;
   }
   .vault-entry span { color: var(--cyan); margin-right: 6px; }
+
+  /* ─── TABS ───────────────────────────────── */
+  #tab-nav {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border2);
+  }
+  .tab-btn {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    padding: 6px 14px 8px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    text-transform: uppercase;
+    margin-bottom: -1px;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+
+  /* ─── CRM TAB ────────────────────────────── */
+  .funnel-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .funnel-card {
+    background: #080d18;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 8px;
+    text-align: center;
+  }
+  .funnel-card .f-num  { font-size: 22px; font-weight: bold; color: var(--text); display: block; line-height: 1.2; }
+  .funnel-card .f-label{ font-size: 8px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; margin-top: 3px; display: block; }
+  .funnel-card.green  .f-num { color: var(--green);  text-shadow: 0 0 10px rgba(0,245,160,0.4); }
+  .funnel-card.blue   .f-num { color: var(--blue); }
+  .funnel-card.orange .f-num { color: var(--orange); }
+  .funnel-card.cyan   .f-num { color: var(--cyan); }
+  .funnel-card.purple .f-num { color: var(--purple); }
+
+  .crm-table { width: 100%; border-collapse: collapse; font-size: 9px; margin-top: 10px; }
+  .crm-table th { color: var(--muted); letter-spacing: 1px; text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border2); font-weight: normal; text-transform: uppercase; }
+  .crm-table td { padding: 4px 6px; border-bottom: 1px solid rgba(26,37,64,0.5); color: var(--text); max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .crm-status { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 8px; letter-spacing: 0.5px; text-transform: uppercase; }
+  .crm-status.emailed     { background: rgba(77,159,255,0.15);  color: var(--blue); }
+  .crm-status.dm_sent     { background: rgba(168,85,247,0.15); color: var(--purple); }
+  .crm-status.replied     { background: rgba(0,245,160,0.15);  color: var(--green); }
+  .crm-status.closed      { background: rgba(0,245,160,0.2);   color: var(--green); font-weight: bold; }
+  .crm-status.call_queued { background: rgba(255,179,64,0.15); color: var(--orange); }
+  .crm-status.followed_up { background: rgba(34,211,238,0.12); color: var(--cyan); }
+  .crm-status.no_interest { background: rgba(255,69,96,0.12);  color: var(--red); }
+  .crm-status.new         { background: rgba(74,90,128,0.2);   color: var(--muted); }
+  .crm-status.answered    { background: rgba(0,245,160,0.15);  color: var(--green); }
+  .crm-status.no_answer   { background: rgba(255,69,96,0.12);  color: var(--red); }
+  .crm-status.callback    { background: rgba(255,179,64,0.15); color: var(--orange); }
+  .crm-status.interested  { background: rgba(0,245,160,0.25);  color: var(--green); font-weight:bold; }
+  .call-select { background:rgba(74,90,128,0.4); color:var(--text); border:1px solid rgba(255,255,255,0.1); border-radius:4px; font-size:10px; padding:2px 4px; cursor:pointer; width:70px; }
+  .call-select:focus { outline:none; border-color:var(--cyan); }
+
+  /* ─── ANALYTICS TAB ──────────────────────── */
+  .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+  .stat-card { background: #080d18; border: 1px solid var(--border); border-radius: 6px; padding: 12px; }
+  .stat-card .s-title { font-size: 8px; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 5px; }
+  .agent-stat-row { display: grid; grid-template-columns: 1fr 36px 36px 44px; gap: 4px; align-items: center; padding: 4px 0; border-bottom: 1px solid rgba(26,37,64,0.4); font-size: 9px; }
+  .agent-stat-row:last-child { border-bottom: none; }
+  .ar-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ar-done { color: var(--green); text-align: center; }
+  .ar-fail { color: var(--red);   text-align: center; }
+  .ar-pct  { text-align: right; font-weight: bold; }
+  .pct-bar-wrap { height: 3px; background: var(--border2); border-radius: 2px; overflow: hidden; margin-top: 2px; }
+  .pct-bar      { height: 100%; border-radius: 2px; transition: width 0.8s; }
 </style>
 </head>
 <body>
@@ -562,21 +639,83 @@
 
   <!-- CENTER -->
   <div class="panel" id="center-panel">
-    <div id="agent-grid"></div>
-    <div id="detail-panel">
-      <hr class="divider">
-      <div id="detail-title"></div>
-      <div id="detail-content"></div>
-      <div id="detail-log"></div>
+
+    <!-- Tab Nav -->
+    <div id="tab-nav">
+      <button class="tab-btn active" onclick="switchTab('agents')">Agents</button>
+      <button class="tab-btn" onclick="switchTab('crm')">Outreach CRM</button>
+      <button class="tab-btn" onclick="switchTab('analytics')">Analytics</button>
     </div>
-    <div id="trigger-panel">
-      <hr class="divider">
-      <div class="section-title">Pod Triggers</div>
-      <div id="trigger-buttons">
-        <button class="trigger-btn" onclick="triggerPod('atlas')">▶ ATLAS</button>
-        <button class="trigger-btn" onclick="triggerPod('trend_scan')">▶ TREND SCAN</button>
+
+    <!-- Tab: Agents (default) -->
+    <div id="tab-agents">
+      <div id="agent-grid"></div>
+      <div id="detail-panel">
+        <hr class="divider">
+        <div id="detail-title"></div>
+        <div id="detail-content"></div>
+        <div id="detail-log"></div>
+      </div>
+      <div id="trigger-panel">
+        <hr class="divider">
+        <div class="section-title">Pod Triggers</div>
+        <div id="trigger-buttons">
+          <button class="trigger-btn" onclick="triggerPod('atlas')">▶ ATLAS</button>
+          <button class="trigger-btn" onclick="triggerPod('trend_scan')">▶ TREND SCAN</button>
+          <button class="trigger-btn" onclick="triggerPod('outreach')">▶ PITCH</button>
+          <button class="trigger-btn" onclick="triggerPod('builder')">▶ CLAY</button>
+          <button class="trigger-btn" onclick="triggerPod('sage')">▶ SAGE</button>
+        </div>
       </div>
     </div>
+
+    <!-- Tab: Outreach CRM -->
+    <div id="tab-crm" style="display:none">
+      <div class="section-title" style="margin-bottom:12px">Outreach Funnel</div>
+      <div class="funnel-row">
+        <div class="funnel-card blue">  <span class="f-num" id="crm-total">—</span><span class="f-label">Total</span></div>
+        <div class="funnel-card orange"><span class="f-num" id="crm-contacted">—</span><span class="f-label">Contacted</span></div>
+        <div class="funnel-card cyan">  <span class="f-num" id="crm-replied">—</span><span class="f-label">Replied</span></div>
+        <div class="funnel-card green"> <span class="f-num" id="crm-closed">—</span><span class="f-label">Closed</span></div>
+      </div>
+      <div class="funnel-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:10px">
+        <div class="funnel-card purple"><span class="f-num" id="crm-dm-queue">—</span><span class="f-label">DM Queue</span></div>
+        <div class="funnel-card orange"><span class="f-num" id="crm-call-q">—</span><span class="f-label">Call Queue</span></div>
+        <div class="funnel-card green"> <span class="f-num" id="crm-conv-pct">—%</span><span class="f-label">Conversion</span></div>
+      </div>
+      <div class="section-title">Recent Outreach</div>
+      <table class="crm-table">
+        <thead><tr><th>Business</th><th>Type</th><th>City</th><th>Phone / Contact</th><th>Ch</th><th>Status</th><th>Date</th><th>Log Call</th></tr></thead>
+        <tbody id="crm-recent"></tbody>
+      </table>
+      <div style="margin-top:10px;font-size:9px;color:var(--muted)" id="crm-empty">Loading outreach data…</div>
+    </div>
+
+    <!-- Tab: Analytics -->
+    <div id="tab-analytics" style="display:none">
+      <div class="section-title" style="margin-bottom:12px">Agent Performance</div>
+      <div class="analytics-grid">
+        <div class="stat-card">
+          <div class="s-title">Tasks by Agent</div>
+          <div style="display:grid;grid-template-columns:1fr 36px 36px 44px;font-size:8px;color:var(--muted);padding:2px 0;letter-spacing:1px;">
+            <span>AGENT</span><span style="text-align:center">✓</span><span style="text-align:center">✗</span><span style="text-align:right">RATE</span>
+          </div>
+          <div id="analytics-agent-rows">Loading…</div>
+        </div>
+        <div class="stat-card">
+          <div class="s-title">System Totals</div>
+          <div class="queue-row"><span>Tasks completed</span><span class="queue-count done" id="an-total-done">—</span></div>
+          <div class="queue-row"><span>Tasks failed</span><span class="queue-count failed" id="an-total-fail">—</span></div>
+          <div class="queue-row"><span>Overall success</span><span class="queue-count active" id="an-total-pct">—%</span></div>
+          <hr class="divider">
+          <div class="section-title">Outreach Summary</div>
+          <div class="queue-row"><span>Pitches sent</span><span class="queue-count done" id="an-pitches">—</span></div>
+          <div class="queue-row"><span>Replies received</span><span class="queue-count active" id="an-replies">—</span></div>
+          <div class="queue-row"><span>DM queue</span><span class="queue-count review" id="an-dmq">—</span></div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- RIGHT -->
@@ -595,7 +734,7 @@
 <!-- TICKER -->
 <div id="ticker-wrap">
   <div id="ticker">
-    <span>SYSTEM ONLINE</span> &nbsp;·&nbsp; ThePromptVaultUS AI Operations &nbsp;·&nbsp;
+    <span>SYSTEM ONLINE</span> &nbsp;·&nbsp; AI Operations Command Center &nbsp;·&nbsp; Easy Simple Sites + Tony Stocks &nbsp;·&nbsp;
     <span>ATLAS</span> orchestrating &nbsp;·&nbsp;
     <span>MUSE</span> content engine &nbsp;·&nbsp;
     <span>MAKER</span> digital products &nbsp;·&nbsp;
@@ -607,6 +746,7 @@
     <span>GUARD</span> compliance &nbsp;·&nbsp;
     <span>TONY STOCKS</span> market bridge &nbsp;·&nbsp;
     <span>SPARK</span> social media &nbsp;·&nbsp;
+    <span>PITCH</span> local outreach &nbsp;·&nbsp;
     <span>FORGE</span> heavy impl &nbsp;·&nbsp; Level 2 Automation &nbsp;·&nbsp;
   </div>
 </div>
@@ -625,6 +765,9 @@ const AGENTS = [
   { role: "marketing_worker",       display: "Market",      name: "MARKETING" },
   { role: "market_research_worker", display: "Tony Stocks", name: "MKT RES" },
   { role: "social_media_worker",   display: "Spark",       name: "SOCIAL" },
+  { role: "outreach_worker",       display: "Pitch",       name: "OUTREACH" },
+  { role: "builder",               display: "Clay",        name: "BUILDER" },
+  { role: "librarian",             display: "Sage",        name: "LIBRARIAN" },
 ];
 
 const PODS = [
@@ -896,16 +1039,141 @@ async function refreshVaultFeed() {
     el.innerHTML = d.sessions.map(s => {
       const dot = s.status === 'failed' ? '✗' : '✓';
       const color = s.status === 'failed' ? 'var(--red)' : 'var(--green)';
-      return `<div class="vault-entry"><span style="color:${color}">${dot}</span>${s.label || s.task_id}</div>`;
+      return `<div class="vault-entry"><span style="color:${color}">${dot}</span>${s.summary || s.label || s.task_id}</div>`;
     }).join("");
   } catch {}
 }
 setInterval(refreshVaultFeed, 30000);
 refreshVaultFeed();
 
+// ── Tab switching ─────────────────────────────────────────────
+function switchTab(name) {
+  ["agents","crm","analytics"].forEach(t => {
+    document.getElementById(`tab-${t}`).style.display = t === name ? "" : "none";
+  });
+  document.querySelectorAll(".tab-btn").forEach((btn, i) => {
+    btn.classList.toggle("active", ["agents","crm","analytics"][i] === name);
+  });
+  if (name === "crm")       refreshCRM();
+  if (name === "analytics") refreshAnalytics();
+}
+
+// ── Outreach CRM ──────────────────────────────────────────────
+async function refreshCRM() {
+  try {
+    const d = await fetch("/api/outreach/stats").then(r => r.json());
+    document.getElementById("crm-total").textContent     = d.total            ?? 0;
+    document.getElementById("crm-contacted").textContent = (d.emailed??0) + (d.dm_sent??0);
+    document.getElementById("crm-replied").textContent   = d.replied          ?? 0;
+    document.getElementById("crm-closed").textContent    = d.closed           ?? 0;
+    document.getElementById("crm-dm-queue").textContent  = d.dm_queue_count   ?? 0;
+    document.getElementById("crm-call-q").textContent    = d.call_queued      ?? 0;
+    document.getElementById("crm-conv-pct").textContent  = (d.conversion_pct??0) + "%";
+
+    const tbody  = document.getElementById("crm-recent");
+    const empty  = document.getElementById("crm-empty");
+    const recent = d.recent ?? [];
+    if (!recent.length) {
+      tbody.innerHTML = "";
+      empty.textContent = d.total === 0 ? "No outreach sent yet. Run the Pitch agent to start." : "No recent entries.";
+      return;
+    }
+    empty.textContent = "";
+    tbody.innerHTML = recent.map(r => {
+      const cls = (r.status||"new").toLowerCase().replace(/\s+/g,"_");
+      const phone = r.contact || "—";
+      const noteTip = r.notes ? r.notes : "";
+      const statusLabels = {
+        call_queued:"📞 Call Queue", emailed:"✉ Emailed", dm_sent:"💬 DM Sent",
+        replied:"↩ Replied", closed:"✅ Closed", no_interest:"🚫 Not Int.",
+        followed_up:"🔄 Follow-up", interested:"⭐ Interested",
+        answered:"✓ Answered", no_answer:"✗ No Answer", callback:"↩ Callback", new:"New"
+      };
+      const statusLabel = statusLabels[cls] || r.status;
+      const showActions = ["call_queued","no_answer","callback","answered","new","emailed","dm_sent"].includes(cls);
+      const biz = r.business.replace(/'/g,"\\'").replace(/"/g,"&quot;");
+      const actions = showActions ? `
+        <select class="call-select" onchange="logCall('${biz}',this.value);this.value=''">
+          <option value="" disabled selected>Log…</option>
+          <option value="answered">✓ Answered</option>
+          <option value="interested">⭐ Interested</option>
+          <option value="no_answer">✗ No Answer</option>
+          <option value="callback">↩ Callback</option>
+          <option value="closed">✅ Closed</option>
+          <option value="no_interest">🚫 Not Interested</option>
+        </select>
+      ` : `<span style="color:var(--muted);font-size:9px">—</span>`;
+      return `<tr title="${noteTip}">
+        <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis" title="${r.business}">${r.business}</td>
+        <td>${r.type}</td><td>${r.city}</td>
+        <td style="font-family:monospace;color:var(--cyan);white-space:nowrap">${phone}</td>
+        <td>${r.channel}</td>
+        <td><span class="crm-status ${cls}">${statusLabel}</span></td>
+        <td>${r.date}</td>
+        <td style="white-space:nowrap">${actions}</td>
+      </tr>`;
+    }).join("");
+  } catch { document.getElementById("crm-empty").textContent = "Error loading CRM data."; }
+}
+
+async function logCall(business, status) {
+  try {
+    const notes = "";
+    await fetch("/api/outreach/update-status", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({business, status, notes})
+    });
+    refreshCRM();
+  } catch(e) { console.error("logCall failed", e); }
+}
+
+// ── Agent Analytics ───────────────────────────────────────────
+async function refreshAnalytics() {
+  try {
+    const [ag, crm] = await Promise.all([
+      fetch("/api/analytics/agents").then(r => r.json()),
+      fetch("/api/outreach/stats").then(r => r.json()),
+    ]);
+    const rows = ag.agents ?? [];
+    let totalDone = 0, totalFail = 0;
+    const rowsEl = document.getElementById("analytics-agent-rows");
+
+    if (!rows.length) {
+      rowsEl.innerHTML = `<div style="color:var(--muted);font-size:9px;padding:8px 0">No completed tasks yet.</div>`;
+    } else {
+      rowsEl.innerHTML = rows.map(r => {
+        totalDone += r.done; totalFail += r.failed;
+        const pct   = r.success_pct;
+        const color = pct >= 80 ? "var(--green)" : pct >= 50 ? "var(--orange)" : "var(--red)";
+        const label = r.agent.replace("_worker","").replace(/_/g," ");
+        return `<div class="agent-stat-row"><div class="ar-name" title="${r.agent}">${label}</div><div class="ar-done">${r.done}</div><div class="ar-fail">${r.failed}</div><div class="ar-pct" style="color:${color}">${pct}%</div></div><div class="pct-bar-wrap" style="margin-bottom:2px"><div class="pct-bar" style="width:${pct}%;background:${color}"></div></div>`;
+      }).join("");
+    }
+
+    const gt = totalDone + totalFail;
+    document.getElementById("an-total-done").textContent = totalDone;
+    document.getElementById("an-total-fail").textContent = totalFail;
+    document.getElementById("an-total-pct").textContent  = (gt ? Math.round(totalDone/gt*100) : 0) + "%";
+    document.getElementById("an-pitches").textContent    = (crm.emailed??0) + (crm.dm_sent??0);
+    document.getElementById("an-replies").textContent    = crm.replied ?? 0;
+    document.getElementById("an-dmq").textContent        = crm.dm_queue_count ?? 0;
+  } catch { document.getElementById("analytics-agent-rows").textContent = "Error loading analytics."; }
+}
+
+// ── Auto-refresh CRM + Analytics every 15s ────────────────────
+// Keeps the dashboard live without the user having to click the tab.
+setInterval(() => {
+  refreshCRM();
+  refreshAnalytics();
+}, 15000);
+refreshCRM();
+refreshAnalytics();
+
 // ── Boot ──────────────────────────────────────────────────────
 addLog("system", "AI Ops Command Center online", "done");
 addLog("system", "Tony Stocks bridge active — awaiting trading reports", "");
+addLog("system", "Pitch (outreach_worker) ready — awaiting prospect tasks", "");
 connect();
 </script>
 </body>

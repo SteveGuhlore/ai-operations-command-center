@@ -1,6 +1,7 @@
 from pathlib import Path
 from runner.config import load_agents
 from runner.plugins.loader import build_agent_skills_prompt
+from runner.tools.vault_memory import load_agent_memory
 
 BASE_DIR = Path(__file__).parent.parent.parent
 
@@ -17,6 +18,9 @@ _ROLE_MD_FILES = {
     "marketing_worker":       "agents/marketing_worker.md",
     "market_research_worker": "agents/market_research_worker.md",
     "social_media_worker":    "agents/social_media_worker.md",
+    "outreach_worker":        "agents/outreach_worker.md",
+    "librarian":              "agents/librarian.md",
+    "builder":                "agents/builder.md",
 }
 
 
@@ -60,8 +64,30 @@ def build_system_prompt(role_id: str) -> str:
         "Begin immediately — do not explain what you are about to do, just do it."
     )
 
+    if role_id == "outreach_worker":
+        parts.append(
+            "\n\nCRITICAL RULES — NON-NEGOTIABLE:\n"
+            "1. You MUST call file_editor (action=append) to add new prospects to vault/outreach/crm.md. "
+            "NEVER use action=write on the CRM — it overwrites and destroys existing rows. "
+            "Append only new pipe-delimited rows, one per line. Do NOT read the file first unless checking for dupes. "
+            "Skipping the CRM append is a failure.\n"
+            "2. STATUS DISCIPLINE: When adding a NEW prospect where you only found a phone number (no actual "
+            "contact was made), status MUST be `call_queued`. NEVER write `interested`, `replied`, `closed`, "
+            "or `no_interest` for a prospect you have not actually contacted. Those statuses are only valid "
+            "after a real human interaction.\n"
+            "3. DEDUP: Before writing, compare every new prospect name against the existing CRM rows. If the "
+            "business name already appears (any status), SKIP IT — do not add a duplicate row.\n"
+            "4. NO WEB_RESEARCH FOR CONTACT LOOKUP: web_research hits CAPTCHA on every contact lookup and "
+            "will consume your entire time budget. Use ONLY what find_prospects returns. Phone number alone "
+            "is sufficient — set status to call_queued and move on. Never call web_research to find emails."
+        )
+
     skills_content = build_agent_skills_prompt(role_id)
     if skills_content:
         parts.append(f"\n## Workflow Skills\n\n{skills_content}")
+
+    memory = load_agent_memory(role_id)
+    if memory:
+        parts.append(f"\n---\n\n{memory}")
 
     return "\n\n".join(parts)

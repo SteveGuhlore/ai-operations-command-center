@@ -250,6 +250,27 @@ agents:
       - affiliate link changes
     notes: Spark scripts and coordinates. Echo voices. Frame visuals. Output lands in workspace/social/ ready to edit and post. Posting automation via Meta Graph API and YouTube Data API when keys are set.
 
+  - role_id: outreach_worker
+    display_name: Pitch
+    enabled: true
+    purpose: Finds local businesses without websites, composes personalized pitches for tiered website packages, sends outreach via email and Instagram DM, and tracks all contacts in the CRM.
+    allowed_task_types:
+      - prospect_research
+      - outreach_compose
+      - outreach_send
+      - outreach_followup
+    forbidden_task_types:
+      - live_trade_execution
+      - direct_publishing
+      - budget_override
+    default_model_label: kimi-class outreach strategist
+    max_retries: 2
+    requires_human_approval_for:
+      - sending bulk emails above 50/day
+      - changing pitch templates
+      - spending money on paid outreach
+    notes: Autonomous outreach agent. Requires SENDGRID_API_KEY and OUTREACH_AUTOMATION=true to send live emails. Gracefully queues without those env vars.
+
   - role_id: market_research_worker
     display_name: Tony Stocks
     enabled: true
@@ -274,3 +295,32 @@ agents:
       - enabling_broker_or_project_integrations
       - spending_money
     notes: Placeholder specialist agent. Not connected until a real project profile and tool permissions are added.
+
+  - role_id: builder
+    display_name: Clay
+    purpose: Builds complete static HTML/CSS websites from client intake data and saves them to workspace/sites/ ready for Netlify deployment.
+    allowed_task_types:
+      - site_build
+      - site_revision
+    forbidden_task_types:
+      - direct_publishing
+      - real_account_actions
+      - budget_override
+    default_model_label: gemini-direct builder
+    max_retries: 2
+    notes: Uses Google AI (Gemini 1.5 Flash) directly — tracks against $300 Google credit, not OpenRouter. Delivers Starter ($199), Pro ($499), Premium ($799) sites. Output saved to workspace/sites/{slug}/.
+
+  - role_id: librarian
+    display_name: Sage
+    purpose: Weekly memory synthesis — reads all agent memory logs, distills learned rules per agent, and writes cross-agent insights to vault/synthesis/.
+    allowed_task_types:
+      - memory_synthesis
+      - rule_distillation
+    forbidden_task_types:
+      - direct_publishing
+      - real_account_actions
+      - budget_override
+      - live_trade_execution
+    default_model_label: kimi-class synthesizer
+    max_retries: 1
+    notes: Runs weekly (Sunday night). Reads vault/agents/*/memory.md, writes learned_rules.md per agent and vault/synthesis/cross_agent_insights.md. No external API calls needed.
