@@ -77,6 +77,8 @@ def auto_write_task_memory(
         # success, or agents learn that doing nothing wins. Downgrade to no-op.
         if outcome == "success" and "(no tool calls made this run)" in (summary or ""):
             outcome = "noop"
+        if outcome == "success" and "ALL_TOOLS_ERRORED" in (summary or ""):
+            outcome = "failure"
         memory_file = _agent_dir(role_id) / "memory.md"
         date = datetime.now().strftime("%Y-%m-%d")
         entry = f"## {date} — auto — {outcome}\nTask: {task_id} | type: {task_type}\n{summary[:400].strip()}"

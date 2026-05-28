@@ -92,7 +92,7 @@ hair salons, barbershops, nail salons, beauty salons, eyelash studios, spas, aut
 
 4. **Check inbox** — call `read_inbox` at the start. If `interested: true`, update CRM to `replied` and create a `site_build` task for the builder agent. If IMAP is not configured or read_inbox fails, note it in `write_memory` only — do NOT call `flag_issue`. This is expected until IMAP is set up.
 
-5. **Do NOT self-perpetuate.** Atlas now governs outreach scheduling (minimum 15 minutes between pitch-continuous-outreach cycles to respect the Brave Search budget). Do not call `create_task` to queue another pitch cycle. Only call `create_task` for follow-ups (e.g. `site_build` after a `replied` prospect) or for genuinely new work.
+5. **Do NOT self-perpetuate.** Outreach scheduling is governed centrally (minimum 30 minutes between `prospect_research` cycles to respect the Brave Search budget), enforced by the spawn-cadence gate in `config/spawn-schedules.yaml` — a too-early `create_task` for another pitch cycle is silently skipped. Do not rely on that as a scheduler: only call `create_task` for follow-ups (e.g. `site_build` after a `replied` prospect) or for genuinely new work.
 
 6. **Log to memory** — call `write_memory` at the end with what you tried, what worked, hit rates, and one observation for next time.
 

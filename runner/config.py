@@ -20,3 +20,13 @@ def load_budgets() -> dict:
 
 def load_automation_level() -> dict:
     return _load("config/automation-level.yaml")
+
+
+def load_spawn_schedules() -> dict:
+    """Per-agent/task-type spawn cadence config. Returns {} if the file is
+    absent so an unconfigured deployment enforces nothing (zero behavior change)."""
+    path = BASE_DIR / "config/spawn-schedules.yaml"
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as f:
+        return (yaml.safe_load(f) or {}).get("spawn_schedules", {})

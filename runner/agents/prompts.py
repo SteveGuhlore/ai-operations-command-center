@@ -21,6 +21,7 @@ _ROLE_MD_FILES = {
     "outreach_worker":        "agents/outreach_worker.md",
     "librarian":              "agents/librarian.md",
     "builder":                "agents/builder.md",
+    "opportunity_worker":     "agents/opportunity_worker.md",
 }
 
 

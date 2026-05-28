@@ -10,7 +10,7 @@ load_dotenv()
 
 from runner.agents.base import AgentBase
 from runner.agents.prompts import build_system_prompt
-from runner.ledger.budget import is_budget_exceeded
+from runner.ledger.budget import is_budget_exceeded, is_pod_budget_exceeded
 from runner.state.writer import update_agent_state
 from runner.tasks.locker import acquire_lock, release_lock
 from runner.tasks.reader import read_todo_tasks
@@ -34,6 +34,14 @@ from runner.tools.social_dm import TOOL_SPEC as SOCIAL_DM_TOOL_SPEC
 from runner.tools.vault_memory import auto_write_task_memory, WRITE_MEMORY_TOOL_SPEC as MEMORY_TOOL_SPEC
 from runner.tools.inbox_reader import TOOL_SPEC as INBOX_TOOL_SPEC
 from runner.tools.crm_dedup import dedup_crm
+from runner.tools.opportunity import TOOL_SPEC_LOG as OPP_LOG_TOOL_SPEC, TOOL_SPEC_GRADE as OPP_GRADE_TOOL_SPEC
+from runner.tools.code import TOOL_SPEC as CODE_TOOL_SPEC
+from runner.tools.poc_sandbox import TOOL_SPEC as POC_RUNNER_TOOL_SPEC
+from runner.scheduler.daily_jobs import (
+    scout_due, mark_scout_ran,
+    daily_learning_due, mark_learning_ran,
+    weekly_sage_due, mark_sage_ran,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -57,7 +65,19 @@ MODELS: dict[str, str] = {
     "outreach_worker":        "gemini-2.5-flash",          # Pitch — fast cheap prospect research
     "librarian":              "gemini-2.5-flash",
     "builder":                "gemini-2.5-flash",          # Clay — site generation
+    "opportunity_worker":     "gemini-2.5-flash",          # Prospector — scout default; deep-dive overridden to Pro
 }
+
+
+def _load_task_models() -> dict[str, str]:
+    """Per-task-type model overrides from config/agents.yaml `task_models:`.
+    Lets every phase auto-use its most efficient model, tunable without code changes."""
+    from runner.config import load_agents
+    return load_agents().get("task_models", {}) or {}
+
+
+# Resolved once at import; restart the runner to pick up config edits.
+TASK_MODEL_OVERRIDES: dict[str, str] = _load_task_models()
 
 MAX_CONCURRENT = 4
 LOW_WATER_MARK = 2  # Atlas auto-spawns when fewer than this many tasks remain in queue (lowered for tighter outreach cadence)
@@ -74,7 +94,8 @@ ROLE_TOOLS: dict[str, list[dict]] = {
     "outreach_worker":        [PLACES_TOOL_SPEC, WEB_TOOL_SPEC, EMAIL_TOOL_SPEC, SOCIAL_DM_TOOL_SPEC, FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, INBOX_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "marketing_worker":       [ETSY_TOOL_SPEC, FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "manager":                [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, MEMORY_TOOL_SPEC],
-    "heavy_worker":           [FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "heavy_worker":           [FILE_TOOL_SPEC, CODE_TOOL_SPEC, POC_RUNNER_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "opportunity_worker":     [WEB_TOOL_SPEC, FILE_TOOL_SPEC, OPP_LOG_TOOL_SPEC, OPP_GRADE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "guard_worker":           [],
     "budget_worker":          [],
     "librarian":              [FILE_TOOL_SPEC],
@@ -283,6 +304,57 @@ def _maybe_spawn_planning_task() -> None:
         log.info("Strategic task needed — spawned Atlas: %s", result.get("task_id"))
 
 
+_SCOUT_TASK_BODY = """\
+Run the Prospector opportunity scout for opportunity_pod.
+
+1. Read vault/opportunities/ledger.md first — skip slugs already present.
+2. Web-research current AI-agent business ideas. Produce 15-20 candidates.
+3. Score each new idea (six dimensions 0-10) and call log_opportunity.
+4. For each idea with composite >= 75, create an opportunity_deepdive task (opportunity_worker, opportunity_pod).
+5. write_memory(entry_type=metric) with counts scouted / >=75.
+"""
+
+
+def _maybe_spawn_scout() -> None:
+    if not scout_due(interval_hours=2):
+        return
+    from runner.tools.task_creator import create_task
+    if is_pod_budget_exceeded("opportunity_pod"):
+        return
+    result = create_task(
+        title="Prospector: Opportunity Scout",
+        body=_SCOUT_TASK_BODY,
+        assigned_agent="opportunity_worker",
+        task_type="opportunity_scout",
+        pod="opportunity_pod",
+        priority="low",
+    )
+    if result.get("success") or result.get("skipped"):
+        mark_scout_ran()
+    log.info("Scout trigger: %s", result.get("task_id", result))
+
+
+def _maybe_run_learning() -> None:
+    if not daily_learning_due(hour_after=2):
+        return
+    root = Path(__file__).parent.parent
+    log.info("Daily learning hook firing — improvement_loop + opportunity_synthesis")
+    subprocess.run([sys.executable, str(root / "scripts" / "improvement_loop.py")], cwd=root, check=False)
+    syn = root / "scripts" / "opportunity_synthesis.py"
+    if syn.exists():
+        subprocess.run([sys.executable, str(syn)], cwd=root, check=False)
+    if weekly_sage_due():
+        from runner.tools.task_creator import create_task
+        create_task(
+            title="Sage: Weekly Memory Synthesis",
+            body="Run the full librarian synthesis workflow across all agent memory logs.",
+            assigned_agent="librarian", task_type="memory_synthesis",
+            pod="management", priority="low",
+        )
+        mark_sage_ran()
+    mark_learning_ran()
+
+
 def run_task(task: dict) -> dict:
     task_id = task["task_id"]
     role_id = route_task(task)
@@ -296,11 +368,17 @@ def run_task(task: dict) -> dict:
         log.warning("Budget cap reached — skipping %s", task_id)
         return {"skipped": True, "task_id": task_id}
 
+    pod = task.get("pod")
+    if pod and is_pod_budget_exceeded(pod):
+        release_lock(task_id)
+        log.warning("Pod budget cap reached for %s — skipping %s", pod, task_id)
+        return {"skipped": True, "task_id": task_id, "reason": f"{pod} daily cap reached"}
+
     try:
         update_agent_state(role_id, "working", task_id)
         move_task(task_id, "todo", "in_progress")
 
-        model = MODELS.get(role_id, "gemini-2.5-flash-lite")
+        model = TASK_MODEL_OVERRIDES.get(task.get("task_type")) or MODELS.get(role_id, "gemini-2.5-flash-lite")
         tools = ROLE_TOOLS.get(role_id, [])
         agent = AgentBase(role_id, model, build_system_prompt(role_id), tools=tools)
         result = agent.run(task)
@@ -369,6 +447,8 @@ def run_cycle() -> None:
                 log.error("Unhandled task error: %s", exc)
 
     _maybe_spawn_planning_task()
+    _maybe_spawn_scout()
+    _maybe_run_learning()
     _sync_vault()
 
 

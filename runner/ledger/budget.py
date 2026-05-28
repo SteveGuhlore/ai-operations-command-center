@@ -53,6 +53,28 @@ def get_pod_cap(pod: str) -> float:
     return float(pod_cfg.get("daily_spend_limit_usd", float("inf")))
 
 
+def get_poc_cap(pod: str = "opportunity_pod") -> float:
+    """Hard per-PoC dollar envelope. Reads
+    per_pod_limits.<pod>.per_poc_limit_usd from budgets.yaml; falls back to
+    $2 if unset so a PoC can never run uncapped."""
+    from runner.config import load_budgets
+    limits = load_budgets()["budgets"].get("per_pod_limits", {})
+    cap = (limits.get(pod) or {}).get("per_poc_limit_usd")
+    return float(cap) if cap is not None else 2.0
+
+
+def get_poc_run_cost(pod: str = "opportunity_pod") -> float:
+    """Cost charged to a PoC's envelope per subprocess invocation. A PowerShell
+    PoC run has no directly-measurable API cost, so we charge a flat estimate to
+    keep the meter monotonic — that is what makes the cap a real ceiling on a
+    runaway loop rather than an unbounded number of free runs. Configurable via
+    per_pod_limits.<pod>.per_poc_run_cost_usd; defaults to $0.05 (~40 runs/$2)."""
+    from runner.config import load_budgets
+    limits = load_budgets()["budgets"].get("per_pod_limits", {})
+    cost = (limits.get(pod) or {}).get("per_poc_run_cost_usd")
+    return float(cost) if cost is not None else 0.05
+
+
 def is_budget_exceeded() -> bool:
     return get_daily_spend() >= get_daily_cap()
 

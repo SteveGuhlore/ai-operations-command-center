@@ -251,6 +251,31 @@ Findings after a few days of live running — concrete gaps to close:
 - **False-success pollution.** `auto_write_task_memory` logged the hallucinated Tony run as "success." No-op/empty runs (no tool calls) should log as failure or be skipped, so agents don't learn that doing nothing wins.
 - **Obsidian graph:** vault knowledge (tickers/sectors/setups) is already wikilinked, but `vault/agents/*` memory is siloed. Add backlinks so learned rules connect to the entities they reference.
 
+## Per-Agent Spawn Schedules (implemented)
+
+Recurring tasks are re-spawned through `create_task`, which now passes through a
+central cadence gate (`runner/scheduler/spawn_gate.py`) before writing the task.
+The gate reads `config/spawn-schedules.yaml` and enforces a minimum interval (and
+optional daily cap / jitter / quiet hours) per key. State persists in
+`workspace/ledger/spawn-history.json`, so cooldowns survive runner restarts.
+
+Only keys listed in the config are throttled — unlisted (agent, task_type)
+combinations spawn freely, so one-off follow-ups (e.g. `site_build`) are never
+blocked. This replaced the unenforced "15 minutes" prompt directive for outreach
+with a real 30-minute floor on `prospect_research`.
+
+**To add a timer for another agent/task-type:** edit `config/spawn-schedules.yaml`
+and add an entry under the most appropriate map (most specific wins):
+- `by_pair["<agent>:<task_type>"]` — one agent's one task type
+- `by_task_type["<task_type>"]` — shared across every agent emitting that type
+- `by_agent["<agent>"]` — all of that agent's task types
+
+Each entry may set `min_interval_minutes`, `max_per_day`, `jitter_minutes`, and
+`quiet_hours: {start, end}`; anything omitted is inherited from `defaults`. No
+code change is needed — the next runner cycle re-reads the file. The gate's
+`describe()` helper returns a live snapshot (interval, spawns today, next-allowed)
+for future dashboard surfacing.
+
 ## Obsidian Cleanup Plan (planned, NO file moves)
 
 The vault is already organized by domain (`vault/tickers`, `vault/tony-stocks`, `vault/outreach`, `vault/agents/<role>`). Folder paths are hardcoded across the code (`load_agent_memory`, Tony's prompt, etc.), so **physically moving vault folders would break the running system — do NOT do it.** Improve the graph instead, via links/tags, which is zero-risk.

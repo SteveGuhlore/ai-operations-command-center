@@ -59,3 +59,22 @@ def test_log_opportunity_dedup(tmp_path, monkeypatch):
     assert res2.get("skipped") is True
     ledger = opp.LEDGER_FILE.read_text(encoding="utf-8")
     assert ledger.count("| dup-idea |") == 1
+
+
+def test_grade_poc_updates_ledger_and_page(tmp_path, monkeypatch):
+    opp = _fresh(tmp_path, monkeypatch)
+    opp.log_opportunity(slug="g1", one_liner="x", problem="p", who_pays="w",
+                        willingness_to_pay=8, revenue_potential=8, problem_severity=8,
+                        buildability=8, system_fit=8, novelty=8)
+    res = opp.grade_poc(slug="g1", verdict="promising", reason="Demo produced correct reply drafts.")
+    assert res["success"] is True
+    ledger = opp.LEDGER_FILE.read_text(encoding="utf-8")
+    assert "| g1 |" in ledger and "promis" in ledger
+    page = (opp.OPP_DIR / "g1.md").read_text(encoding="utf-8")
+    assert "promising" in page and "correct reply drafts" in page
+
+
+def test_grade_poc_rejects_unknown_verdict(tmp_path, monkeypatch):
+    opp = _fresh(tmp_path, monkeypatch)
+    res = opp.grade_poc(slug="g2", verdict="awesome", reason="x")
+    assert res.get("error")

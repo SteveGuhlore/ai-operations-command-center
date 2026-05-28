@@ -265,6 +265,70 @@ async def update_outreach_status(request: Request):
     return {"error": f"'{business}' not found in CRM"}
 
 
+@app.post("/api/outreach/followup-sweep")
+async def outreach_followup_sweep():
+    """Queue one outreach_worker task to follow up every replied/interested lead
+    that is not yet closed. Backs the CRM 'Queue Follow-up Sweep' button."""
+    from runner.tools.task_creator import create_task
+
+    result = create_task(
+        title="Follow up warm outreach leads",
+        body=(
+            "Review vault/outreach/crm.md. For every lead whose status is "
+            "'replied', 'interested', or 'callback' and is NOT already 'closed' "
+            "or 'no_interest', send a follow-up via the lead's original channel "
+            "(email or DM). Update each lead's status/notes in the CRM afterward. "
+            "Use the Easy Simple Sites pitch and pricing from your system prompt."
+        ),
+        assigned_agent="outreach_worker",
+        task_type="prospect_research",
+        pod="local_outreach_pod",
+        priority="high",
+    )
+    return result
+
+
+def read_opportunities() -> list[dict]:
+    """Parse vault/opportunities/ledger.md into rows for the Opportunity Board."""
+    ledger = VAULT_DIR / "opportunities" / "ledger.md"
+    if not ledger.exists():
+        return []
+    rows = []
+    for line in ledger.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line.startswith("|") or line.startswith("| slug") or set(line) <= set("|- "):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 9:
+            continue
+        rows.append({
+            "slug": cells[0], "composite": cells[1], "phase": cells[2],
+            "poc": cells[3], "system_fit": cells[4], "est_rev_mo": cells[5],
+            "status": cells[6], "pod": cells[7], "updated": cells[8],
+        })
+    rows.sort(key=lambda r: float(r["composite"]) if r["composite"].replace(".", "").isdigit() else 0, reverse=True)
+    return rows
+
+
+def read_pod_spend(pod: str = "opportunity_pod") -> dict:
+    """Real spend + cap for the opportunity pod."""
+    from runner.ledger.budget import get_pod_spend, get_pod_cap
+    cap = get_pod_cap(pod)
+    return {"spent": round(get_pod_spend(pod), 2), "cap": (None if cap == float("inf") else cap)}
+
+
+@app.get("/api/opportunities")
+async def api_opportunities():
+    return {"opportunities": read_opportunities(), "opportunity_spend": read_pod_spend()}
+
+
+@app.get("/api/spawn-gate")
+async def api_spawn_gate():
+    """Per-scope-key spawn-cadence state + summary + recent gate decisions."""
+    from runner.scheduler.spawn_gate import gate_snapshot
+    return gate_snapshot()
+
+
 def _friendly_label(task_id: str) -> str:
     p = task_id.split("-")
     if task_id.startswith("TONY-DAILY-BRIEF-") and len(p) >= 4:
@@ -309,3 +373,165 @@ async def api_vault_feed():
         })
 
     return {"sessions": sessions, "date": today}
+
+
+# ── Per-pod dashboards ────────────────────────────────────────────
+# Active pods that lacked a dedicated view. outreach (CRM tab) and
+# opportunity_pod/Prospector (Opportunity Board) already have theirs;
+# dormant agents (Spark/Muse/Maker/Market/Frame/Echo) and infra roles
+# (Scout/Guard/Ledger) are intentionally omitted.
+POD_REGISTRY = {
+    "forge": {"role": "heavy_worker",            "pod": "opportunity_pod"},
+    "atlas": {"role": "manager",                 "pod": "management"},
+    "sage":  {"role": "librarian",               "pod": "management"},
+    "tony":  {"role": "market_research_worker",  "pod": "market_research_pod"},
+}
+
+
+def _agent_meta(role_id: str) -> dict:
+    from runner.config import load_agents
+    for a in load_agents().get("agents", []):
+        if a.get("role_id") == role_id:
+            return {
+                "display_name": a.get("display_name", role_id),
+                "purpose": a.get("purpose", ""),
+                "task_types": a.get("allowed_task_types", []),
+            }
+    return {"display_name": role_id, "purpose": "", "task_types": []}
+
+
+def _pod_budget(role_id: str, pod: str) -> dict:
+    from runner.ledger.budget import get_pod_spend, get_pod_cap, _load_spend
+    from runner.config import load_budgets
+    pod_cap = get_pod_cap(pod)
+    if pod_cap != float("inf"):
+        return {"spent": round(get_pod_spend(pod), 2), "cap": pod_cap, "basis": "pod"}
+    role_limits = load_budgets()["budgets"].get("per_role_limits", {})
+    cap = (role_limits.get(role_id) or {}).get("daily_spend_limit_usd")
+    spent = _load_spend().get("by_role", {}).get(role_id, 0.0)
+    return {"spent": round(spent, 2), "cap": cap, "basis": "role"}
+
+
+def _pod_activity(role_id: str, limit: int = 8) -> dict:
+    counts = {"done": 0, "failed": 0, "todo": 0}
+    recent = []
+    for sub in ("done", "failed", "todo"):
+        folder = TASKS_DIR / sub
+        if not folder.exists():
+            continue
+        for f in folder.glob("*.md"):
+            text = f.read_text(encoding="utf-8", errors="ignore")
+            agent, created, title = "", "", f.stem
+            for line in text.split("\n"):
+                s = line.strip()
+                if s.startswith("assigned_agent:"):
+                    agent = s.split(":", 1)[1].strip()
+                elif s.startswith("created_at:"):
+                    created = s.split(":", 1)[1].strip()
+                elif s.startswith("# "):
+                    title = s[2:].strip()
+                    break
+            if agent != role_id:
+                continue
+            counts[sub] += 1
+            recent.append({"label": title[:60], "status": sub, "when": created})
+    recent.sort(key=lambda r: r["when"], reverse=True)
+    return {**counts, "recent": recent[:limit]}
+
+
+def _pod_status(budget: dict, activity: dict) -> str:
+    cap, spent = budget.get("cap"), budget.get("spent", 0)
+    pct = (spent / cap * 100) if cap else 0
+    last3 = activity.get("recent", [])[:3]
+    if pct >= 95 or (last3 and all(r["status"] == "failed" for r in last3)):
+        return "red"
+    if pct >= 70 or activity.get("failed", 0) > activity.get("done", 0):
+        return "yellow"
+    return "green"
+
+
+def _forge_artifacts() -> dict:
+    items = []
+    poc_root = Path(__file__).parent.parent / "workspace" / "poc"
+    if poc_root.exists():
+        for d in sorted(poc_root.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+            if d.is_dir():
+                items.append({"label": d.name, "value": "built"})
+    for r in read_opportunities():
+        grade = (r.get("poc") or "").strip()
+        if grade and grade not in ("—", "-"):
+            items.append({"label": r["slug"], "value": grade})
+    return {"title": "Proof-of-Concepts & Grades", "items": items[:12],
+            "empty": "No PoCs built or graded yet."}
+
+
+def _atlas_artifacts() -> dict:
+    items, files = [], []
+    sessions_root = VAULT_DIR / "sessions"
+    if sessions_root.exists():
+        for day in sessions_root.iterdir():
+            if day.is_dir():
+                files.extend(day.glob("ATLAS*.md"))
+    for f in sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)[:10]:
+        items.append({"label": _friendly_label(f.stem), "value": ""})
+    return {"title": "Recent Planning / Routing", "items": items,
+            "empty": "No Atlas plans recorded yet."}
+
+
+def _sage_artifacts() -> dict:
+    items = []
+    syn = VAULT_DIR / "synthesis" / "cross_agent_insights.md"
+    if syn.exists():
+        mt = datetime.fromtimestamp(syn.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+        items.append({"label": "cross_agent_insights.md", "value": f"updated {mt}"})
+    agents_root = VAULT_DIR / "agents"
+    if agents_root.exists():
+        n = len(list(agents_root.glob("*/learned_rules.md")))
+        if n:
+            items.append({"label": "learned_rules.md", "value": f"{n} agents"})
+    return {"title": "Memory Synthesis", "items": items,
+            "empty": "No synthesis yet — Sage runs weekly (Sunday night)."}
+
+
+def _tony_artifacts() -> dict:
+    items = []
+    try:
+        from runner.tools.tony_insights import INSIGHTS_FILE
+        if INSIGHTS_FILE.exists():
+            data = json.loads(INSIGHTS_FILE.read_text(encoding="utf-8"))
+            entries = data if isinstance(data, list) else data.get("insights", [])
+            for e in list(entries)[-8:][::-1]:
+                if isinstance(e, dict):
+                    items.append({"label": e.get("category", "insight"),
+                                  "value": (e.get("insight") or "")[:80]})
+    except (json.JSONDecodeError, OSError, ImportError):
+        pass
+    return {"title": "Trading Research Insights", "items": items,
+            "empty": "No Tony insights yet (TradingBotAgentProject bridge inactive)."}
+
+
+_POD_ARTIFACTS = {
+    "forge": _forge_artifacts, "atlas": _atlas_artifacts,
+    "sage": _sage_artifacts,   "tony": _tony_artifacts,
+}
+
+
+@app.get("/api/pod/{key}")
+async def api_pod(key: str):
+    reg = POD_REGISTRY.get(key)
+    if not reg:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            {"error": f"Unknown pod '{key}'. Valid: {list(POD_REGISTRY)}"}, status_code=404
+        )
+    role, pod = reg["role"], reg["pod"]
+    meta = _agent_meta(role)
+    budget = _pod_budget(role, pod)
+    activity = _pod_activity(role)
+    return {
+        "key": key, "name": meta["display_name"], "agent": role, "pod": pod,
+        "purpose": meta["purpose"], "task_types": meta["task_types"],
+        "budget": budget, "activity": activity,
+        "artifacts": _POD_ARTIFACTS[key](),
+        "status": _pod_status(budget, activity),
+    }

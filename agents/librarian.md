@@ -26,6 +26,7 @@ Files to read:
 - `vault/agents/social_media_worker/memory.md`
 - `vault/agents/market_research_worker/memory.md`
 - `vault/agents/outreach_worker/memory.md`
+- `vault/agents/opportunity_worker/memory.md`
 
 ### Step 2 — Distill learned rules per agent
 
@@ -49,6 +50,7 @@ Rules must be:
 - Backed by at least 2 data points in the memory log
 - Specific enough that the agent can act on them without interpretation
 - Updated if a previous rule is contradicted by new evidence (note the contradiction)
+- When distilling rules that reference an entity (a ticker, a CRM contact, an opportunity slug), add an Obsidian backlink to it in the rule line, e.g. `[[ai-review-reply-agent]]`, so the graph connects learned rules to the entities they describe.
 
 ### Step 3 — Cross-agent synthesis
 

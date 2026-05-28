@@ -126,6 +126,8 @@ class AgentBase:
 
         max_steps = 25 if self.role_id == "outreach_worker" else 50
         step = 0
+        tool_calls_total = 0
+        tool_calls_errored = 0
         while step < max_steps:
             if self._use_vertex:
                 self.client.api_key = _vertex_token()
@@ -158,6 +160,9 @@ class AgentBase:
                 for tc in msg.tool_calls:
                     tool_input = json.loads(tc.function.arguments)
                     result = dispatch_tool(tc.function.name, tool_input)
+                    tool_calls_total += 1
+                    if isinstance(result, dict) and result.get("error"):
+                        tool_calls_errored += 1
                     try:
                         content = json.dumps(result, default=str)
                     except (TypeError, ValueError):
@@ -207,6 +212,8 @@ class AgentBase:
 
             break
 
+        all_tools_errored = tool_calls_total > 0 and tool_calls_errored == tool_calls_total
+
         # Gemini often returns empty content after tool calls — build summary from actual data
         if not output_text.strip():
             tool_names = [
@@ -215,9 +222,12 @@ class AgentBase:
                 for tc in (m.get("tool_calls") or [])
             ]
             if tool_names:
-                output_text = f"Run completed via tool calls: {', '.join(dict.fromkeys(tool_names))}. Check CRM for new entries."
+                tail = "ALL_TOOLS_ERRORED" if all_tools_errored else "Check CRM for new entries."
+                output_text = f"Run completed via tool calls: {', '.join(dict.fromkeys(tool_names))}. {tail}"
             else:
                 output_text = "(no tool calls made this run)"
+        elif all_tools_errored and "ALL_TOOLS_ERRORED" not in output_text:
+            output_text = output_text.rstrip() + "\n\nALL_TOOLS_ERRORED"
 
         cost = calculate_cost(self.model, total_input, total_output)
         record_spend(self.role_id, cost, pod=task.get("pod"))
