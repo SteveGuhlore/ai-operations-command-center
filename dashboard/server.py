@@ -84,6 +84,7 @@ _POD_MAP = {
     "outreach":      ("outreach_worker",     "prospect_research", "local_outreach_pod"),
     "builder":       ("builder",             "site_build",        "local_outreach_pod"),
     "sage":          ("librarian",           "memory_synthesis",  "management"),
+    "prospector":    ("opportunity_worker",  "opportunity_scout", "opportunity_pod"),
 }
 
 
