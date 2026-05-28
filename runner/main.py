@@ -10,7 +10,7 @@ load_dotenv()
 
 from runner.agents.base import AgentBase
 from runner.agents.prompts import build_system_prompt
-from runner.ledger.budget import is_budget_exceeded
+from runner.ledger.budget import is_budget_exceeded, is_pod_budget_exceeded
 from runner.state.writer import update_agent_state
 from runner.tasks.locker import acquire_lock, release_lock
 from runner.tasks.reader import read_todo_tasks
@@ -310,6 +310,12 @@ def run_task(task: dict) -> dict:
         release_lock(task_id)
         log.warning("Budget cap reached — skipping %s", task_id)
         return {"skipped": True, "task_id": task_id}
+
+    pod = task.get("pod")
+    if pod and is_pod_budget_exceeded(pod):
+        release_lock(task_id)
+        log.warning("Pod budget cap reached for %s — skipping %s", pod, task_id)
+        return {"skipped": True, "task_id": task_id, "reason": f"{pod} daily cap reached"}
 
     try:
         update_agent_state(role_id, "working", task_id)

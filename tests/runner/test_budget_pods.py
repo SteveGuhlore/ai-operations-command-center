@@ -57,3 +57,20 @@ def test_agentbase_passes_pod(monkeypatch):
 
     agent.run({"task_id": "T1", "body": "hi", "pod": "opportunity_pod"})
     assert calls and calls[0][1] == "opportunity_pod"
+
+
+def test_run_task_skips_when_pod_budget_exceeded(monkeypatch):
+    import runner.main as main
+    monkeypatch.setattr(main, "route_task", lambda t: "opportunity_worker")
+    monkeypatch.setattr(main, "acquire_lock", lambda *a: True)
+    monkeypatch.setattr(main, "release_lock", lambda *a: None)
+    monkeypatch.setattr(main, "is_budget_exceeded", lambda: False)
+    monkeypatch.setattr(main, "is_pod_budget_exceeded", lambda pod: True)
+    called = {"ran": False}
+    def _should_not_run(*a, **k):
+        called["ran"] = True
+    monkeypatch.setattr(main, "move_task", _should_not_run)
+
+    result = main.run_task({"task_id": "T1", "pod": "opportunity_pod"})
+    assert result.get("skipped") is True
+    assert called["ran"] is False
