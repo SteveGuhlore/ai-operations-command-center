@@ -1,5 +1,5 @@
 {
-  "updated_at": 1779967302.00584,
+  "updated_at": 1779986738.3775935,
   "agents": {
     "debug_worker": {
       "state": "idle",
@@ -10,19 +10,19 @@
     "outreach_worker": {
       "state": "idle",
       "task_id": "",
-      "last_action": "completed AUTO-20260528-070330-continuous-outreach",
-      "updated_at": 1779967302.0054998
+      "last_action": "completed AUTO-20260528-122658-continuous-outreach",
+      "updated_at": 1779986738.377205
     }
   },
   "tasks": {
-    "todo": 1,
+    "todo": 0,
     "in_progress": 0,
     "review": 0,
-    "done": 360,
-    "failed": 59
+    "done": 376,
+    "failed": 60
   },
   "budget": {
-    "spent_usd": 26.885313,
+    "spent_usd": 40.573821,
     "cap_usd": 40.0
   }
 }
