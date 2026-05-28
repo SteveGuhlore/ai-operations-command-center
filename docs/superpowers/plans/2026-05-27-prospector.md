@@ -580,15 +580,30 @@ In the `MODELS` dict, add:
     "opportunity_worker":     "gemini-2.5-flash",   # Prospector — scout default; deep-dive overridden to Pro
 ```
 
-Immediately AFTER the `MODELS` dict, add:
+Add a config-driven per-task model map to `config/agents.yaml` as a NEW top-level key (sibling of `agents:`), so the cheapest viable model for each phase is applied automatically every run and is tunable in one place:
+
+```yaml
+# Efficient model per phase — auto-applied by run_task on every task.
+# Cheapest model that does each job well. Tune here; no code change needed.
+task_models:
+  opportunity_scout:    gemini-2.5-flash       # bulk idea generation + first-pass scoring
+  opportunity_deepdive: gemini-2.5-pro          # the one place depth pays off (top candidates only)
+  opportunity_spec:     gemini-2.5-flash        # drafting from already-researched deep-dive
+  poc_grade:            gemini-2.5-flash        # structured verdict vs. the spec
+  # poc_build is routed to heavy_worker (Forge); its model stays the role default (kimi-k2.5)
+```
+
+Immediately AFTER the `MODELS` dict in `runner/main.py`, load that map (config-driven so it auto-switches per phase every run and the operator can tune efficiency without touching code):
 
 ```python
-# Per-task-type model overrides win over the role default in run_task.
-TASK_MODEL_OVERRIDES: dict[str, str] = {
-    "opportunity_deepdive": "gemini-2.5-pro",
-    "opportunity_spec":     "gemini-2.5-pro",
-    "poc_grade":            "gemini-2.5-pro",
-}
+def _load_task_models() -> dict[str, str]:
+    """Per-task-type model overrides from config/agents.yaml `task_models:`.
+    Lets every phase auto-use its most efficient model, tunable without code changes."""
+    from runner.config import load_agents
+    return load_agents().get("task_models", {}) or {}
+
+# Resolved once at import; restart the runner to pick up config edits.
+TASK_MODEL_OVERRIDES: dict[str, str] = _load_task_models()
 ```
 
 In the `ROLE_TOOLS` dict, add Prospector and extend Forge. Add:
