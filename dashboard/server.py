@@ -143,6 +143,7 @@ async def api_trigger(request: Request):
         task_type=task_type,
         pod=pod_name,
         priority="high",
+        force=True,
     )
 
     # Run a cycle immediately so the task executes now rather than waiting for the next cron tick

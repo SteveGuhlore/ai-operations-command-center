@@ -116,6 +116,16 @@ def _log_decision(agent: str, task_type: str, key: str | None,
         LEDGER_DIR.mkdir(parents=True, exist_ok=True)
         path = LEDGER_DIR / DECISIONS_NAME
         lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        # Skip a denial identical to the previous one for this key, so a throttled
+        # self-perpetuating loop (e.g. outreach every cycle) doesn't spam the feed.
+        if not allowed and lines:
+            try:
+                prev = json.loads(lines[-1])
+                if (prev.get("key") == key and prev.get("allowed") is False
+                        and prev.get("reason") == reason):
+                    return
+            except json.JSONDecodeError:
+                pass
         lines.append(entry)
         if len(lines) > MAX_DECISIONS:
             lines = lines[-MAX_DECISIONS:]

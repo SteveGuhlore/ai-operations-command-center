@@ -315,26 +315,66 @@ Run the Prospector opportunity scout for opportunity_pod.
 """
 
 
-def _maybe_spawn_scout() -> None:
-    from runner.config import load_spawn_schedules
-    scout_cfg = (load_spawn_schedules() or {}).get("scout", {}) or {}
-    interval_hours = scout_cfg.get("min_interval_minutes", 120) / 60
-    if not scout_due(interval_hours=interval_hours):
-        return
-    from runner.tools.task_creator import create_task
+def _advance_opportunity_pipeline() -> None:
+    """Keep Prospector perpetually working. Each cycle, if no opportunity task is
+    already queued, spawn the next pipeline step so he flows scout -> deep-dive
+    (every idea, not just >=75) -> PoC build -> fresh scout, never idling. The
+    opportunity_pod daily cap is the only guardrail."""
+    from runner.tools.task_creator import create_task, _has_pending_task
+    from runner.tools.opportunity import read_ledger
+
     if is_pod_budget_exceeded("opportunity_pod"):
+        log.info("Pipeline: opportunity_pod budget reached — pausing Prospector.")
         return
+
+    # If any opportunity work is already queued, let the 10-min cycle run it.
+    for agent, tt in (("opportunity_worker", "opportunity_scout"),
+                      ("opportunity_worker", "opportunity_deepdive"),
+                      ("heavy_worker", "poc_build"),
+                      ("opportunity_worker", "poc_grade")):
+        if _has_pending_task(agent, tt):
+            return
+
+    rows = read_ledger()
+
+    # 1) Deep-dive the highest-scored idea not yet researched.
+    scouted = [r for r in rows if r.get("phase") == "scouted"]
+    if scouted:
+        top = max(scouted, key=lambda r: r["composite"])
+        create_task(
+            title=f"Deep-dive: {top['slug']}",
+            body=(f"Deep-dive the opportunity [[{top['slug']}]]. Research market size, "
+                  f"competitors, who pays, and pricing. Re-score with evidence, then call "
+                  f"update_opportunity(slug, composite=<new>, phase='deepdived') and append "
+                  f"a Build Spec to vault/opportunities/{top['slug']}.md."),
+            assigned_agent="opportunity_worker", task_type="opportunity_deepdive",
+            pod="opportunity_pod", priority="normal")
+        log.info("Pipeline: deep-dive %s", top["slug"])
+        return
+
+    # 2) Build a PoC for the best researched idea that doesn't have one yet.
+    buildable = [r for r in rows if r.get("phase") == "deepdived"
+                 and r.get("poc", "—") in ("—", "-", "") and r["composite"] >= 70]
+    if buildable:
+        top = max(buildable, key=lambda r: r["composite"])
+        create_task(
+            title=f"PoC build: {top['slug']}",
+            body=(f"Build a minimal sandboxed proof-of-concept for [[{top['slug']}]] following "
+                  f"its Build Spec in vault/opportunities/{top['slug']}.md. Produce a runnable "
+                  f"artifact under workspace/poc/{top['slug']}/ that demonstrates the core value."),
+            assigned_agent="heavy_worker", task_type="poc_build",
+            pod="opportunity_pod", priority="normal")
+        log.info("Pipeline: PoC build %s", top["slug"])
+        return
+
+    # 3) Everything processed — scout a fresh batch of ideas.
     result = create_task(
-        title="Prospector: Opportunity Scout",
-        body=_SCOUT_TASK_BODY,
-        assigned_agent="opportunity_worker",
-        task_type="opportunity_scout",
-        pod="opportunity_pod",
-        priority="low",
-    )
+        title="Prospector: Opportunity Scout", body=_SCOUT_TASK_BODY,
+        assigned_agent="opportunity_worker", task_type="opportunity_scout",
+        pod="opportunity_pod", priority="low")
     if result.get("success") or result.get("skipped"):
         mark_scout_ran()
-    log.info("Scout trigger: %s", result.get("task_id", result))
+    log.info("Pipeline: fresh scout batch — %s", result.get("task_id", result))
 
 
 def _maybe_run_learning() -> None:
@@ -423,6 +463,7 @@ def run_cycle() -> None:
     if not tasks:
         log.info("No tasks in queue.")
         _maybe_spawn_planning_task()
+        _advance_opportunity_pipeline()
         return
 
     batch = tasks[:MAX_CONCURRENT]
@@ -450,7 +491,7 @@ def run_cycle() -> None:
                 log.error("Unhandled task error: %s", exc)
 
     _maybe_spawn_planning_task()
-    _maybe_spawn_scout()
+    _advance_opportunity_pipeline()
     _maybe_run_learning()
     _sync_vault()
 

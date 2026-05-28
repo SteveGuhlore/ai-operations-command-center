@@ -49,6 +49,28 @@ def _slug_in_ledger(ledger: str, slug: str) -> bool:
     return f"| {slug} |" in ledger
 
 
+def read_ledger() -> list[dict]:
+    """Parse ledger.md rows so the runner can drive the opportunity pipeline."""
+    if not LEDGER_FILE.exists():
+        return []
+    rows = []
+    for line in LEDGER_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line.startswith("|") or line.startswith("| slug") or set(line) <= set("|- "):
+            continue
+        c = [x.strip() for x in line.strip("|").split("|")]
+        if len(c) < 9:
+            continue
+        try:
+            comp = float(c[1])
+        except ValueError:
+            comp = 0.0
+        rows.append({"slug": c[0], "composite": comp, "phase": c[2], "poc": c[3],
+                     "system_fit": c[4], "est_rev_mo": c[5], "status": c[6],
+                     "pod": c[7], "updated": c[8]})
+    return rows
+
+
 def log_opportunity(
     slug: str, one_liner: str, problem: str, who_pays: str,
     willingness_to_pay: float, revenue_potential: float, problem_severity: float,

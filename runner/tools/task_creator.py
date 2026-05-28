@@ -69,6 +69,7 @@ def create_task(
     pod: str = "general",
     priority: str = "normal",
     task_id: str = "",
+    force: bool = False,
 ) -> dict:
     if assigned_agent not in VALID_AGENTS:
         return {"error": f"Unknown agent: {assigned_agent}. Valid: {VALID_AGENTS}"}
@@ -80,10 +81,11 @@ def create_task(
     if _has_pending_task(assigned_agent, task_type):
         return {"skipped": True, "reason": f"A pending {task_type} task for {assigned_agent} already exists — not creating a duplicate."}
 
-    allowed, reason = spawn_allowed(assigned_agent, task_type)
-    if not allowed:
-        log.info("Spawn cadence gate: %s", reason)
-        return {"skipped": True, "reason": reason}
+    if not force:
+        allowed, reason = spawn_allowed(assigned_agent, task_type)
+        if not allowed:
+            log.info("Spawn cadence gate: %s", reason)
+            return {"skipped": True, "reason": reason}
 
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     auto_id = not task_id
@@ -117,7 +119,8 @@ def create_task(
 
     path = todo_dir / filename
     path.write_text(content, encoding="utf-8")
-    record_spawn(assigned_agent, task_type)
+    if not force:
+        record_spawn(assigned_agent, task_type)
     return {"success": True, "task_id": task_id, "path": str(path)}
 
 
