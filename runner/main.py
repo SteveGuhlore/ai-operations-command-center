@@ -36,6 +36,11 @@ from runner.tools.inbox_reader import TOOL_SPEC as INBOX_TOOL_SPEC
 from runner.tools.crm_dedup import dedup_crm
 from runner.tools.opportunity import TOOL_SPEC_LOG as OPP_LOG_TOOL_SPEC
 from runner.tools.code import TOOL_SPEC as CODE_TOOL_SPEC
+from runner.scheduler.daily_jobs import (
+    scout_due, mark_scout_ran,
+    daily_learning_due, mark_learning_ran,
+    weekly_sage_due, mark_sage_ran,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -298,6 +303,57 @@ def _maybe_spawn_planning_task() -> None:
         log.info("Strategic task needed — spawned Atlas: %s", result.get("task_id"))
 
 
+_SCOUT_TASK_BODY = """\
+Run the Prospector opportunity scout for opportunity_pod.
+
+1. Read vault/opportunities/ledger.md first — skip slugs already present.
+2. Web-research current AI-agent business ideas. Produce 15-20 candidates.
+3. Score each new idea (six dimensions 0-10) and call log_opportunity.
+4. For each idea with composite >= 75, create an opportunity_deepdive task (opportunity_worker, opportunity_pod).
+5. write_memory(entry_type=metric) with counts scouted / >=75.
+"""
+
+
+def _maybe_spawn_scout() -> None:
+    if not scout_due(interval_hours=2):
+        return
+    from runner.tools.task_creator import create_task
+    if is_pod_budget_exceeded("opportunity_pod"):
+        return
+    result = create_task(
+        title="Prospector: Opportunity Scout",
+        body=_SCOUT_TASK_BODY,
+        assigned_agent="opportunity_worker",
+        task_type="opportunity_scout",
+        pod="opportunity_pod",
+        priority="low",
+    )
+    if result.get("success") or result.get("skipped"):
+        mark_scout_ran()
+    log.info("Scout trigger: %s", result.get("task_id", result))
+
+
+def _maybe_run_learning() -> None:
+    if not daily_learning_due(hour_after=2):
+        return
+    root = Path(__file__).parent.parent
+    log.info("Daily learning hook firing — improvement_loop + opportunity_synthesis")
+    subprocess.run([sys.executable, str(root / "scripts" / "improvement_loop.py")], cwd=root, check=False)
+    syn = root / "scripts" / "opportunity_synthesis.py"
+    if syn.exists():
+        subprocess.run([sys.executable, str(syn)], cwd=root, check=False)
+    if weekly_sage_due():
+        from runner.tools.task_creator import create_task
+        create_task(
+            title="Sage: Weekly Memory Synthesis",
+            body="Run the full librarian synthesis workflow across all agent memory logs.",
+            assigned_agent="librarian", task_type="memory_synthesis",
+            pod="management", priority="low",
+        )
+        mark_sage_ran()
+    mark_learning_ran()
+
+
 def run_task(task: dict) -> dict:
     task_id = task["task_id"]
     role_id = route_task(task)
@@ -390,6 +446,8 @@ def run_cycle() -> None:
                 log.error("Unhandled task error: %s", exc)
 
     _maybe_spawn_planning_task()
+    _maybe_spawn_scout()
+    _maybe_run_learning()
     _sync_vault()
 
 
