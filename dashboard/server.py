@@ -299,6 +299,13 @@ async def api_opportunities():
     return {"opportunities": read_opportunities(), "opportunity_spend": read_pod_spend()}
 
 
+@app.get("/api/spawn-gate")
+async def api_spawn_gate():
+    """Per-scope-key spawn-cadence state + summary + recent gate decisions."""
+    from runner.scheduler.spawn_gate import gate_snapshot
+    return gate_snapshot()
+
+
 def _friendly_label(task_id: str) -> str:
     p = task_id.split("-")
     if task_id.startswith("TONY-DAILY-BRIEF-") and len(p) >= 4:

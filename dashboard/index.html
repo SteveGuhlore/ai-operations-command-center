@@ -593,6 +593,44 @@
   .opp-table { width:100%; border-collapse:collapse; font-size:10px; }
   .opp-table th { color:var(--muted); text-align:left; font-weight:normal; padding:4px 6px; border-bottom:1px solid var(--border2); text-transform:uppercase; letter-spacing:1px; font-size:8px; }
   .opp-table td { padding:4px 6px; border-top:1px solid var(--border); color:var(--text); }
+
+  /* ─── SPAWN GATE ─────────────────────────── */
+  .sg-summary { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:14px; }
+  .sg-stat { background:#080d18; border:1px solid var(--border); border-radius:6px; padding:8px 10px; text-align:center; }
+  .sg-stat .v { font-size:18px; font-weight:bold; line-height:1.1; }
+  .sg-stat .l { font-size:7px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; margin-top:3px; }
+  .sg-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .sg-card { background:#080d18; border:1px solid var(--border); border-left-width:3px; border-radius:6px; padding:10px 12px; }
+  .sg-card.ready    { border-left-color:var(--green); }
+  .sg-card.cooldown { border-left-color:var(--orange); }
+  .sg-card.cap      { border-left-color:var(--red); }
+  .sg-card.quiet    { border-left-color:var(--muted); }
+  .sg-card-head { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+  .sg-key { font-size:11px; color:var(--text); font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sg-scope { font-size:7px; letter-spacing:1px; color:var(--muted); text-transform:uppercase; }
+  .sg-badge { font-size:8px; letter-spacing:0.5px; text-transform:uppercase; padding:2px 7px; border-radius:10px; white-space:nowrap; display:flex; align-items:center; gap:4px; }
+  .sg-badge .dot { width:6px; height:6px; border-radius:50%; }
+  .sg-badge.ready    { background:var(--green-glow);  color:var(--green); }
+  .sg-badge.ready .dot    { background:var(--green); box-shadow:0 0 5px var(--green); }
+  .sg-badge.cooldown { background:var(--orange-glow); color:var(--orange); }
+  .sg-badge.cooldown .dot { background:var(--orange); }
+  .sg-badge.cap      { background:var(--red-glow);    color:var(--red); }
+  .sg-badge.cap .dot      { background:var(--red); box-shadow:0 0 5px var(--red); }
+  .sg-badge.quiet    { background:rgba(74,90,128,0.2); color:var(--muted); }
+  .sg-badge.quiet .dot    { background:var(--muted); }
+  .sg-countdown { font-size:13px; font-family:monospace; margin:6px 0 4px; }
+  .sg-countdown .abs { font-size:9px; color:var(--muted); margin-left:6px; font-family:inherit; }
+  .sg-meta { display:flex; flex-wrap:wrap; gap:4px 12px; font-size:9px; color:var(--muted); margin-top:4px; }
+  .sg-meta b { color:var(--text); font-weight:normal; }
+  .sg-cap-bar { height:3px; background:var(--border2); border-radius:2px; overflow:hidden; margin-top:6px; }
+  .sg-cap-fill { height:100%; border-radius:2px; transition:width 0.6s; }
+  .sg-reason { font-size:8px; color:var(--muted); margin-top:5px; font-style:italic; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .sg-unconfigured { opacity:0.7; }
+  .sg-act-row { display:grid; grid-template-columns:58px 14px 1fr; gap:6px; align-items:baseline; font-size:9px; padding:2px 0; border-bottom:1px solid rgba(26,37,64,0.4); }
+  .sg-act-row:last-child { border-bottom:none; }
+  .sg-act-time { color:var(--muted); font-family:monospace; font-size:8px; }
+  .sg-act-icon.allow { color:var(--green); } .sg-act-icon.deny { color:var(--red); }
+  .sg-act-text { color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 </style>
 </head>
 <body>
@@ -652,6 +690,7 @@
       <button class="tab-btn" onclick="switchTab('crm')">Outreach CRM</button>
       <button class="tab-btn" onclick="switchTab('opportunities')">Opportunities</button>
       <button class="tab-btn" onclick="switchTab('analytics')">Analytics</button>
+      <button class="tab-btn" onclick="switchTab('spawn')">Spawn Gate</button>
     </div>
 
     <!-- Tab: Agents (default) -->
@@ -736,6 +775,23 @@
         <tbody id="opp-rows"></tbody>
       </table>
       <div style="margin-top:10px;font-size:9px;color:var(--muted)" id="opp-empty">No opportunities scouted yet. Prospector runs on its scout interval.</div>
+    </div>
+
+    <!-- Tab: Spawn Gate -->
+    <div id="tab-spawn" style="display:none">
+      <div class="section-title" style="margin-bottom:12px">Spawn Gate <span id="sg-now" style="font-size:8px;color:var(--muted);letter-spacing:0;text-transform:none"></span></div>
+      <div class="sg-summary">
+        <div class="sg-stat"><div class="v" style="color:var(--green)" id="sg-spawns">—</div><div class="l">Spawns Today</div></div>
+        <div class="sg-stat"><div class="v" style="color:var(--red)" id="sg-denials">—</div><div class="l">Denials Today</div></div>
+        <div class="sg-stat"><div class="v" style="color:var(--orange)" id="sg-cooldown">—</div><div class="l">In Cooldown</div></div>
+        <div class="sg-stat"><div class="v" style="color:var(--red)" id="sg-atcap">—</div><div class="l">At Cap</div></div>
+        <div class="sg-stat"><div class="v" style="color:var(--green)" id="sg-ready">—</div><div class="l">Ready</div></div>
+      </div>
+      <div class="sg-grid" id="sg-cards"></div>
+      <div style="margin:8px 0 6px;font-size:9px;color:var(--muted)" id="sg-empty">No cadence-controlled keys. Add rules in config/spawn-schedules.yaml.</div>
+      <hr class="divider">
+      <div class="section-title" style="margin-bottom:8px">Recent Activity</div>
+      <div id="sg-activity"><div style="font-size:9px;color:var(--muted)">No gate decisions logged yet.</div></div>
     </div>
 
   </div>
@@ -1070,15 +1126,16 @@ refreshVaultFeed();
 
 // ── Tab switching ─────────────────────────────────────────────
 function switchTab(name) {
-  ["agents","crm","opportunities","analytics"].forEach(t => {
+  ["agents","crm","opportunities","analytics","spawn"].forEach(t => {
     document.getElementById(`tab-${t}`).style.display = t === name ? "" : "none";
   });
   document.querySelectorAll(".tab-btn").forEach((btn, i) => {
-    btn.classList.toggle("active", ["agents","crm","opportunities","analytics"][i] === name);
+    btn.classList.toggle("active", ["agents","crm","opportunities","analytics","spawn"][i] === name);
   });
   if (name === "crm")           refreshCRM();
   if (name === "opportunities") refreshOpportunities();
   if (name === "analytics")     refreshAnalytics();
+  if (name === "spawn")         refreshSpawnGate();
 }
 
 // ── Outreach CRM ──────────────────────────────────────────────
@@ -1215,16 +1272,134 @@ async function refreshOpportunities() {
   } catch { document.getElementById("opp-empty").textContent = "Error loading opportunities."; }
 }
 
-// ── Auto-refresh CRM + Opportunities + Analytics every 15s ─────
+// ── Spawn Gate ────────────────────────────────────────────────
+// Cache the last snapshot + a server↔client clock offset so the cooldown
+// countdowns can tick every second locally without re-fetching.
+let _sgRows = [];
+let _sgClockOffset = 0;   // serverNowMs - clientNowMs at fetch time
+
+function _fmtCountdown(secs) {
+  if (secs <= 0) return "ready";
+  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${String(s).padStart(2,"0")}s`;
+  return `${s}s`;
+}
+function _fmtClock(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return isNaN(d) ? iso : d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+}
+
+async function refreshSpawnGate() {
+  try {
+    const d = await fetch("/api/spawn-gate").then(r => r.json());
+    _sgRows = d.keys || [];
+    _sgClockOffset = (new Date(d.now).getTime()) - Date.now();
+    const s = d.summary || {};
+    document.getElementById("sg-now").textContent = "· server " + _fmtClock(d.now);
+    document.getElementById("sg-spawns").textContent   = s.spawns_today ?? 0;
+    document.getElementById("sg-denials").textContent  = s.denials_today ?? 0;
+    document.getElementById("sg-cooldown").textContent = s.in_cooldown ?? 0;
+    document.getElementById("sg-atcap").textContent    = s.at_cap ?? 0;
+    document.getElementById("sg-ready").textContent    = s.ready ?? 0;
+
+    const empty = document.getElementById("sg-empty");
+    empty.style.display = _sgRows.length ? "none" : "block";
+    renderSpawnCards();
+
+    // Recent Activity feed
+    const act = document.getElementById("sg-activity");
+    const recent = d.recent || [];
+    if (!recent.length) {
+      act.innerHTML = `<div style="font-size:9px;color:var(--muted)">No gate decisions logged yet.</div>`;
+    } else {
+      act.innerHTML = recent.map(r => {
+        const allow = r.allowed;
+        const label = (r.key || `${r.agent||"?"}:${r.task_type||"?"}`);
+        const txt = allow ? `allowed ${label}` : (r.reason || `denied ${label}`);
+        return `<div class="sg-act-row" title="${(r.reason||"").replace(/"/g,"&quot;")}">
+          <span class="sg-act-time">${_fmtClock(r.ts)}</span>
+          <span class="sg-act-icon ${allow?"allow":"deny"}">${allow?"✓":"✕"}</span>
+          <span class="sg-act-text">${txt}</span>
+        </div>`;
+      }).join("");
+    }
+  } catch { document.getElementById("sg-empty").textContent = "Error loading spawn gate data."; document.getElementById("sg-empty").style.display = "block"; }
+}
+
+// Re-render cards from cache; called by the 1s ticker so countdowns stay live.
+function renderSpawnCards() {
+  const wrap = document.getElementById("sg-cards");
+  if (!wrap) return;
+  const serverNow = Date.now() + _sgClockOffset;
+  wrap.innerHTML = _sgRows.map(r => {
+    let status = r.status, remain = null;
+    if (r.next_allowed) {
+      const naMs = new Date(r.next_allowed).getTime();
+      const left = Math.round((naMs - serverNow) / 1000);
+      // A cooldown that has elapsed since the last fetch shows as ready until
+      // the next snapshot confirms it (cap/quiet are not time-elapsing here).
+      if (status === "cooldown") { remain = left; if (left <= 0) status = "ready"; }
+    }
+    const badgeText = {ready:"Ready", cooldown:"Cooldown", cap:"At Cap", quiet:"Quiet Hours"}[status] || status;
+    let countdown = "";
+    if (status === "cooldown") {
+      countdown = `<div class="sg-countdown" style="color:var(--orange)">ready in ${_fmtCountdown(Math.max(0,remain))}<span class="abs">at ${_fmtClock(r.next_allowed)}</span></div>`;
+    } else if (status === "cap") {
+      countdown = `<div class="sg-countdown" style="color:var(--red)">daily cap reached<span class="abs">resets midnight</span></div>`;
+    } else if (status === "quiet") {
+      const q = r.quiet_hours || {};
+      countdown = `<div class="sg-countdown" style="color:var(--muted)">quiet ${q.start}:00–${q.end}:00</div>`;
+    } else {
+      countdown = `<div class="sg-countdown" style="color:var(--green)">ready now</div>`;
+    }
+    const interval = r.min_interval_minutes != null ? `${r.min_interval_minutes}m` : "—";
+    const jitter = r.jitter_minutes ? ` +${r.jitter_minutes}m` : "";
+    const cap = r.max_per_day != null ? r.max_per_day : "∞";
+    let capBar = "";
+    if (r.max_per_day != null) {
+      const pct = Math.min(100, Math.round((r.spawns_today / r.max_per_day) * 100));
+      const c = pct >= 100 ? "var(--red)" : (pct >= 75 ? "var(--orange)" : "var(--green)");
+      capBar = `<div class="sg-cap-bar"><div class="sg-cap-fill" style="width:${pct}%;background:${c}"></div></div>`;
+    }
+    const reason = r.last_reason ? `<div class="sg-reason" title="${r.last_reason.replace(/"/g,"&quot;")}">last: ${r.last_reason}</div>` : "";
+    const unconf = r.configured ? "" : " sg-unconfigured";
+    const scopeLabel = r.configured ? r.scope : (r.scope + " · history only");
+    return `<div class="sg-card ${status}${unconf}">
+      <div class="sg-card-head">
+        <div style="min-width:0">
+          <div class="sg-key" title="${r.key}">${r.key}</div>
+          <div class="sg-scope">${scopeLabel}</div>
+        </div>
+        <span class="sg-badge ${status}"><span class="dot"></span>${badgeText}</span>
+      </div>
+      ${countdown}
+      <div class="sg-meta">
+        <span>interval <b>${interval}${jitter}</b></span>
+        <span>today <b>${r.spawns_today}/${cap}</b></span>
+        <span>last spawn <b>${_fmtClock(r.last_spawn)}</b></span>
+      </div>
+      ${capBar}
+      ${reason}
+    </div>`;
+  }).join("");
+}
+// 1s ticker keeps cooldown countdowns live between 15s fetches.
+setInterval(() => { if (document.getElementById("tab-spawn").style.display !== "none") renderSpawnCards(); }, 1000);
+
+// ── Auto-refresh CRM + Opportunities + Analytics + Spawn Gate every 15s ─────
 // Keeps the dashboard live without the user having to click the tab.
 setInterval(() => {
   refreshCRM();
   refreshOpportunities();
   refreshAnalytics();
+  refreshSpawnGate();
 }, 15000);
 refreshCRM();
 refreshOpportunities();
 refreshAnalytics();
+refreshSpawnGate();
 
 // ── Boot ──────────────────────────────────────────────────────
 addLog("system", "AI Ops Command Center online", "done");
