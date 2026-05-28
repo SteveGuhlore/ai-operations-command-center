@@ -498,6 +498,9 @@
   }
   .trigger-btn:active { transform: scale(0.97); }
   .trigger-btn.fired { color: var(--green); border-color: var(--green); }
+  .trigger-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .trigger-btn:disabled:hover { transform: none; }
+  #crm-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 
   /* ─── VAULT FEED ─────────────────────────── */
   #vault-feed-wrap { margin-top: 10px; }
@@ -728,6 +731,14 @@
         <div class="funnel-card purple"><span class="f-num" id="crm-dm-queue">—</span><span class="f-label">DM Queue</span></div>
         <div class="funnel-card orange"><span class="f-num" id="crm-call-q">—</span><span class="f-label">Call Queue</span></div>
         <div class="funnel-card green"> <span class="f-num" id="crm-conv-pct">—%</span><span class="f-label">Conversion</span></div>
+      </div>
+      <div class="section-title" style="margin-bottom:6px">Revenue Pod Actions</div>
+      <div id="crm-actions">
+        <button class="trigger-btn" onclick="triggerPod('outreach')">▶ Run Pitch Agent</button>
+        <button class="trigger-btn" onclick="triggerPod('builder')">▶ Run Site Builder</button>
+        <button class="trigger-btn" onclick="followupSweep(this)">➕ Queue Follow-up Sweep</button>
+        <button class="trigger-btn" disabled
+                title="P5 — revenue ledger not built yet. See docs/superpowers/specs/2026-05-28-prospector-phase5-pnl.md (log_revenue tool).">💰 Log Revenue</button>
       </div>
       <div class="section-title">Recent Outreach</div>
       <table class="crm-table">
@@ -1206,6 +1217,21 @@ async function logCall(business, status) {
     });
     refreshCRM();
   } catch(e) { console.error("logCall failed", e); }
+}
+
+async function followupSweep(btn) {
+  try {
+    const r = await fetch("/api/outreach/followup-sweep", { method: "POST" });
+    const d = await r.json();
+    if (d.task_id) {
+      btn.classList.add("fired"); setTimeout(() => btn.classList.remove("fired"), 2000);
+      addLog("outreach", `follow-up sweep queued → ${d.task_id}`, "done");
+    } else if (d.skipped) {
+      addLog("outreach", `follow-up sweep skipped: ${d.reason || "duplicate/cadence"}`, "");
+    } else {
+      addLog("outreach", `follow-up sweep failed: ${d.error || "unknown"}`, "error");
+    }
+  } catch (e) { addLog("outreach", `follow-up sweep error: ${e}`, "error"); }
 }
 
 // ── Agent Analytics ───────────────────────────────────────────

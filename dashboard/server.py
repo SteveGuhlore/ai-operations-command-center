@@ -265,6 +265,29 @@ async def update_outreach_status(request: Request):
     return {"error": f"'{business}' not found in CRM"}
 
 
+@app.post("/api/outreach/followup-sweep")
+async def outreach_followup_sweep():
+    """Queue one outreach_worker task to follow up every replied/interested lead
+    that is not yet closed. Backs the CRM 'Queue Follow-up Sweep' button."""
+    from runner.tools.task_creator import create_task
+
+    result = create_task(
+        title="Follow up warm outreach leads",
+        body=(
+            "Review vault/outreach/crm.md. For every lead whose status is "
+            "'replied', 'interested', or 'callback' and is NOT already 'closed' "
+            "or 'no_interest', send a follow-up via the lead's original channel "
+            "(email or DM). Update each lead's status/notes in the CRM afterward. "
+            "Use the Easy Simple Sites pitch and pricing from your system prompt."
+        ),
+        assigned_agent="outreach_worker",
+        task_type="prospect_research",
+        pod="local_outreach_pod",
+        priority="high",
+    )
+    return result
+
+
 def read_opportunities() -> list[dict]:
     """Parse vault/opportunities/ledger.md into rows for the Opportunity Board."""
     ledger = VAULT_DIR / "opportunities" / "ledger.md"

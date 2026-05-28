@@ -52,3 +52,27 @@ def test_get_state_returns_empty_when_file_missing(tmp_path):
     resp = client.get("/state")
     assert resp.status_code == 200
     assert resp.json() == {}
+
+
+def test_followup_sweep_creates_outreach_task(state_file, tmp_path, monkeypatch):
+    import runner.tools.task_creator as tc
+    from importlib import reload
+    reload(tc)
+    monkeypatch.setattr(tc, "TASKS_DIR", tmp_path / "tasks")
+    monkeypatch.setattr(tc, "_has_pending_task", lambda *a, **k: False)
+    monkeypatch.setattr(tc, "spawn_allowed", lambda *a, **k: (True, ""))
+    monkeypatch.setattr(tc, "record_spawn", lambda *a, **k: None)
+
+    client = _make_client(state_file)
+    resp = client.post("/api/outreach/followup-sweep")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data.get("success") is True
+    assert data["task_id"].startswith("AUTO-")
+
+    todo = tmp_path / "tasks" / "todo"
+    files = list(todo.glob("*.md"))
+    assert len(files) == 1
+    body = files[0].read_text(encoding="utf-8")
+    assert "assigned_agent: outreach_worker" in body
+    assert "pod: local_outreach_pod" in body
