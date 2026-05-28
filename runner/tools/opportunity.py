@@ -123,3 +123,58 @@ TOOL_SPEC_LOG = {
         ],
     },
 }
+
+
+_VALID_VERDICTS = {"promising", "weak", "dead"}
+
+
+def grade_poc(slug: str, verdict: str, reason: str) -> dict:
+    if verdict not in _VALID_VERDICTS:
+        return {"error": f"verdict must be one of {sorted(_VALID_VERDICTS)}"}
+    try:
+        page = OPP_DIR / f"{slug}.md"
+        if page.exists():
+            text = page.read_text(encoding="utf-8")
+            today = datetime.now().strftime("%Y-%m-%d")
+            graded = text.replace(
+                "## PoC Grade\n_pending (P3)_",
+                f"## PoC Grade\n**{verdict}** ({today}) — {reason}",
+            )
+            if graded == text:  # already graded before; append
+                graded = text + f"\n\n## PoC Grade ({today})\n**{verdict}** — {reason}\n"
+            page.write_text(graded, encoding="utf-8")
+        if LEDGER_FILE.exists():
+            lines = LEDGER_FILE.read_text(encoding="utf-8").splitlines()
+            for i, line in enumerate(lines):
+                if line.startswith(f"| {slug} |"):
+                    cells = [c.strip() for c in line.strip("|").split("|")]
+                    if len(cells) >= 9:
+                        cells[2] = "graded"   # phase
+                        cells[3] = verdict     # poc
+                        cells[6] = "graded"    # status
+                        cells[8] = datetime.now().strftime("%Y-%m-%d")
+                        lines[i] = "| " + " | ".join(cells) + " |"
+                    break
+            LEDGER_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return {"success": True, "slug": slug, "verdict": verdict}
+    except OSError as exc:
+        return {"error": str(exc)}
+
+
+TOOL_SPEC_GRADE = {
+    "name": "grade_poc",
+    "description": (
+        "Grade a proof-of-concept after reviewing its output under workspace/poc/<slug>/. "
+        "verdict: promising = demo works and is worth scaling; weak = partial/unconvincing; "
+        "dead = failed or no path. Updates the ledger and the opportunity page."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "slug": {"type": "string"},
+            "verdict": {"type": "string", "enum": ["promising", "weak", "dead"]},
+            "reason": {"type": "string", "description": "One paragraph justifying the verdict, citing the PoC output."},
+        },
+        "required": ["slug", "verdict", "reason"],
+    },
+}

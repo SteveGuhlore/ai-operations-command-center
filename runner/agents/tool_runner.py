@@ -20,6 +20,8 @@ def dispatch_tool(tool_name: str, tool_input: dict) -> Any:
 from runner.tools.files import file_editor
 from runner.tools.web import web_research
 from runner.tools.code import code_runner
+from runner.tools.poc_sandbox import poc_runner
+from runner.tools.opportunity import log_opportunity, grade_poc
 from runner.tools.image import image_generation
 from runner.tools.audio import audio_generation
 from runner.tools.etsy import etsy_listing
@@ -37,6 +39,9 @@ from runner.tools.flag_issue import flag_issue
 register_tool("file_editor",        file_editor)
 register_tool("web_research",       web_research)
 register_tool("code_runner",        code_runner)
+register_tool("poc_runner",          poc_runner)
+register_tool("log_opportunity",     log_opportunity)
+register_tool("grade_poc",           grade_poc)
 register_tool("image_generation",   image_generation)
 register_tool("audio_generation",   audio_generation)
 register_tool("etsy_listing",       etsy_listing)

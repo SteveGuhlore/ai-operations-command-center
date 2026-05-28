@@ -34,8 +34,9 @@ from runner.tools.social_dm import TOOL_SPEC as SOCIAL_DM_TOOL_SPEC
 from runner.tools.vault_memory import auto_write_task_memory, WRITE_MEMORY_TOOL_SPEC as MEMORY_TOOL_SPEC
 from runner.tools.inbox_reader import TOOL_SPEC as INBOX_TOOL_SPEC
 from runner.tools.crm_dedup import dedup_crm
-from runner.tools.opportunity import TOOL_SPEC_LOG as OPP_LOG_TOOL_SPEC
+from runner.tools.opportunity import TOOL_SPEC_LOG as OPP_LOG_TOOL_SPEC, TOOL_SPEC_GRADE as OPP_GRADE_TOOL_SPEC
 from runner.tools.code import TOOL_SPEC as CODE_TOOL_SPEC
+from runner.tools.poc_sandbox import TOOL_SPEC as POC_RUNNER_TOOL_SPEC
 from runner.scheduler.daily_jobs import (
     scout_due, mark_scout_ran,
     daily_learning_due, mark_learning_ran,
@@ -93,8 +94,8 @@ ROLE_TOOLS: dict[str, list[dict]] = {
     "outreach_worker":        [PLACES_TOOL_SPEC, WEB_TOOL_SPEC, EMAIL_TOOL_SPEC, SOCIAL_DM_TOOL_SPEC, FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, INBOX_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "marketing_worker":       [ETSY_TOOL_SPEC, FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "manager":                [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, MEMORY_TOOL_SPEC],
-    "heavy_worker":           [FILE_TOOL_SPEC, CODE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, MEMORY_TOOL_SPEC],
-    "opportunity_worker":     [WEB_TOOL_SPEC, FILE_TOOL_SPEC, OPP_LOG_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "heavy_worker":           [FILE_TOOL_SPEC, CODE_TOOL_SPEC, POC_RUNNER_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "opportunity_worker":     [WEB_TOOL_SPEC, FILE_TOOL_SPEC, OPP_LOG_TOOL_SPEC, OPP_GRADE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "guard_worker":           [],
     "budget_worker":          [],
     "librarian":              [FILE_TOOL_SPEC],
