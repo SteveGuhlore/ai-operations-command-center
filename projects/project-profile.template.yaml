@@ -1,0 +1,27 @@
+project_name: PROJECT_NAME
+project_path: PLACEHOLDER_PROJECT_PATH
+
+read_first:
+  - README.md
+  - CURRENT_STATUS.md
+  - ROADMAP.md
+
+test_commands:
+  - .\scripts\doctor.ps1
+
+smoke_commands:
+  - .\scripts\status.ps1
+
+forbidden_changes:
+  - .env
+  - "**/.env"
+  - "**/*secret*"
+  - "**/*key*"
+  - external production systems
+  - destructive filesystem commands
+  - unmanaged credential storage
+
+autonomy_level: 0
+max_worker_retries: 1
+max_parallel_workers: 1
+lock_expiry_minutes: 60

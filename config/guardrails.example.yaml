@@ -1,0 +1,64 @@
+guardrails:
+  - rule_id: no_secrets_in_files
+    description: No secrets, tokens, API keys, or credentials may be stored in tracked files.
+    enforcement: block_and_escalate
+    applies_to_roles:
+      - manager
+      - heavy_worker
+      - debug_worker
+      - content_worker
+      - media_worker
+      - audio_worker
+      - guard_worker
+      - budget_worker
+
+  - rule_id: no_external_posting_without_approval
+    description: No content or media may be posted externally without explicit human approval.
+    enforcement: block_until_approved
+    applies_to_roles:
+      - manager
+      - content_worker
+      - media_worker
+      - audio_worker
+      - budget_worker
+
+  - rule_id: no_spending_above_budget_without_approval
+    description: Do not exceed configured budget thresholds without explicit human approval.
+    enforcement: block_until_approved
+    applies_to_roles:
+      - manager
+      - heavy_worker
+      - debug_worker
+      - content_worker
+      - media_worker
+      - audio_worker
+      - budget_worker
+
+  - rule_id: no_destructive_file_operations_without_approval
+    description: Destructive file actions require explicit human approval.
+    enforcement: block_until_approved
+    applies_to_roles:
+      - manager
+      - heavy_worker
+      - debug_worker
+      - guard_worker
+
+  - rule_id: no_real_account_actions_without_approval
+    description: No real account actions, purchases, postings, or system changes without explicit approval.
+    enforcement: block_until_approved
+    applies_to_roles:
+      - manager
+      - content_worker
+      - media_worker
+      - audio_worker
+      - budget_worker
+
+  - rule_id: moderation_required_for_publishable_media_content
+    description: Publishable content and media must pass moderation before any release action.
+    enforcement: require_moderation_pass
+    applies_to_roles:
+      - manager
+      - content_worker
+      - media_worker
+      - audio_worker
+      - guard_worker

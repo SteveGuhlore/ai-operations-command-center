@@ -1,0 +1,28 @@
+{
+  "updated_at": 1779967302.00584,
+  "agents": {
+    "debug_worker": {
+      "state": "idle",
+      "task_id": "",
+      "last_action": "completed AUTO-20260527-220054-revise-read-inbox-tool-for-acc",
+      "updated_at": 1779936927.928259
+    },
+    "outreach_worker": {
+      "state": "idle",
+      "task_id": "",
+      "last_action": "completed AUTO-20260528-070330-continuous-outreach",
+      "updated_at": 1779967302.0054998
+    }
+  },
+  "tasks": {
+    "todo": 1,
+    "in_progress": 0,
+    "review": 0,
+    "done": 360,
+    "failed": 59
+  },
+  "budget": {
+    "spent_usd": 26.885313,
+    "cap_usd": 40.0
+  }
+}

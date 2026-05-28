@@ -1,0 +1,73 @@
+dashboard:
+  shell_name: Star Office UI
+  mode: read_only_status_layer
+  source_of_truth: command_center
+
+  visual_agents:
+    - role_id: manager
+      display_name: Atlas
+      panel_label: Manager
+    - role_id: heavy_worker
+      display_name: Forge
+      panel_label: Heavy Worker
+    - role_id: debug_worker
+      display_name: Scout
+      panel_label: Debug Worker
+    - role_id: content_worker
+      display_name: Muse
+      panel_label: Content Worker
+    - role_id: media_worker
+      display_name: Frame
+      panel_label: Image and Video Worker
+    - role_id: audio_worker
+      display_name: Echo
+      panel_label: Audio Worker
+    - role_id: guard_worker
+      display_name: Guard
+      panel_label: Moderation Worker
+    - role_id: budget_worker
+      display_name: Ledger
+      panel_label: Budget and Audit Worker
+    - role_id: digital_product_worker
+      display_name: Maker
+      panel_label: Digital Product Worker
+    - role_id: marketing_worker
+      display_name: Market
+      panel_label: Marketing and Sales Strategist
+
+  optional_visual_agents:
+    - role_id: market_research_worker
+      display_name: Tony Stocks
+      panel_label: Market Research Specialist
+      enabled: false
+      notes: Future optional office agent only. Not part of the core required team.
+
+  status_mapping:
+    todo: idle
+    in_progress: executing
+    review: syncing
+    done: idle
+    failed: error
+    research_task: researching
+    writing_task: writing
+
+  receives:
+    - agent_status
+    - task_status
+    - run_summaries
+    - report_summaries
+    - budget_posture
+    - guardrail_alerts
+
+  forbidden_capabilities:
+    - task_decision_making
+    - worker_spawning
+    - spending_money
+    - editing_files
+
+  future_stack_notes:
+    - Antigravity/Codex can be used as a dev manager workspace.
+    - OpenClaw-style runtime can inspire long-running worker loops later.
+    - NotebookLM-style knowledge base can generate prompts and context later.
+    - OpenRouter can route models later.
+    - Star Office UI is the preferred visual shell for now.

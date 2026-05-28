@@ -1,0 +1,327 @@
+revenue_pods:
+  - pod_id: etsy_store_pod
+    display_name: Etsy Store Pod
+    monetization_model: marketplace_product_sales
+    primary_goal: Create and improve a small catalog of sellable listings and store assets.
+    assigned_agents:
+      - manager
+      - content_worker
+      - media_worker
+      - guard_worker
+      - budget_worker
+    required_tools:
+      - file_editor
+      - image_generation
+      - moderation_checker
+      - cost_tracker
+    allowed_task_types:
+      - listing_copy
+      - image_asset_prep
+      - product_bundle_outline
+      - store_report
+      - keyword_research_summary
+    forbidden_task_types:
+      - external_posting_without_approval
+      - account_purchase
+      - budget_override
+      - secrets_or_api_key_handling
+    approval_required_for:
+      - publishing_listings
+      - paid_asset_generation_above_budget
+      - store_policy_changes
+    success_metrics:
+      - listings_prepared
+      - approved_assets_ready
+      - conversion_hypotheses_logged
+    risk_notes: Brand quality, policy compliance, and overspending on creative generation should be watched closely.
+    first_safe_tasks:
+      - Draft listing copy packs
+      - Prepare visual asset prompts
+      - Build a low-risk catalog tracker
+
+  - pod_id: dropshipping_pod
+    display_name: Dropshipping Pod
+    monetization_model: margin_on_fulfilled_product_sales
+    primary_goal: Prepare product research, store copy, and creative testing plans for a fulfillment-backed storefront.
+    assigned_agents:
+      - manager
+      - content_worker
+      - media_worker
+      - guard_worker
+      - budget_worker
+    required_tools:
+      - file_editor
+      - web_research
+      - image_generation
+      - cost_tracker
+      - moderation_checker
+    allowed_task_types:
+      - product_research_summary
+      - landing_copy
+      - ad_concept_outline
+      - offer_comparison
+      - store_report
+    forbidden_task_types:
+      - real_order_placement
+      - external_posting_without_approval
+      - budget_override
+      - secrets_or_api_key_handling
+    approval_required_for:
+      - connecting storefronts
+      - paid campaign launch
+      - supplier or fulfillment actions
+    success_metrics:
+      - product_candidates_reviewed
+      - offers_documented
+      - creative_tests_prepared
+    risk_notes: Product claims, ad compliance, and fulfillment assumptions need human review before activation.
+    first_safe_tasks:
+      - Summarize candidate products
+      - Draft landing page copy
+      - Build a test matrix for offers and creatives
+
+  - pod_id: affiliate_content_pod
+    display_name: Affiliate Content Pod
+    monetization_model: affiliate_referral_commissions
+    primary_goal: Produce useful content packages that can later support approved affiliate distribution.
+    assigned_agents:
+      - manager
+      - content_worker
+      - debug_worker
+      - guard_worker
+      - budget_worker
+    required_tools:
+      - file_editor
+      - web_research
+      - moderation_checker
+      - cost_tracker
+    allowed_task_types:
+      - article_outline
+      - comparison_summary
+      - content_calendar
+      - seo_brief
+      - report
+    forbidden_task_types:
+      - external_posting_without_approval
+      - undisclosed_recommendation
+      - budget_override
+      - secrets_or_api_key_handling
+    approval_required_for:
+      - publishing content
+      - adding affiliate disclosures policy
+      - paid content distribution
+    success_metrics:
+      - content_pieces_prepared
+      - briefs_completed
+      - compliant_calls_to_action_reviewed
+    risk_notes: Disclosure compliance and recommendation quality must be reviewed before anything is published.
+    first_safe_tasks:
+      - Draft comparison outlines
+      - Build a keyword and topic map
+      - Summarize affiliate content opportunities
+
+  - pod_id: short_form_video_pod
+    display_name: Short-Form Video Pod
+    monetization_model: sponsored_media_and_attention_capture
+    primary_goal: Plan short-form video concepts, captions, and content batches for future approved publication.
+    assigned_agents:
+      - manager
+      - media_worker
+      - content_worker
+      - audio_worker
+      - guard_worker
+      - budget_worker
+    required_tools:
+      - video_generation
+      - image_generation
+      - audio_generation
+      - moderation_checker
+      - cost_tracker
+    allowed_task_types:
+      - video_concept
+      - caption_pack
+      - shot_list
+      - hook_testing_plan
+      - content_batch_report
+    forbidden_task_types:
+      - external_posting_without_approval
+      - paid_media_launch
+      - budget_override
+      - secrets_or_api_key_handling
+    approval_required_for:
+      - publishing videos
+      - using paid generation above budget
+      - brand-facing media release
+    success_metrics:
+      - concept_batches_prepared
+      - scripts_and_captions_ready
+      - moderation_passes_completed
+    risk_notes: Content moderation, rights concerns, and overspend on generation should be tightly controlled.
+    first_safe_tasks:
+      - Draft concept banks
+      - Create caption sets
+      - Assemble a weekly content batch plan
+
+  - pod_id: digital_products_pod
+    display_name: Digital Products Pod
+    monetization_model: digital_download_sales
+    primary_goal: Develop sellable digital product concepts, packaging, and launch prep materials.
+    assigned_agents:
+      - manager
+      - content_worker
+      - media_worker
+      - heavy_worker
+      - guard_worker
+      - budget_worker
+    required_tools:
+      - file_editor
+      - image_generation
+      - moderation_checker
+      - cost_tracker
+    allowed_task_types:
+      - product_outline
+      - package_design_brief
+      - launch_copy
+      - worksheet_or_template_prep
+      - sales_page_outline
+    forbidden_task_types:
+      - external_posting_without_approval
+      - paid_launch_without_approval
+      - budget_override
+      - secrets_or_api_key_handling
+    approval_required_for:
+      - publishing products
+      - charging money
+      - platform integration
+    success_metrics:
+      - product_concepts_ready
+      - assets_packaged
+      - launch_materials_reviewed
+    risk_notes: Product quality and customer-facing claims should be reviewed before any sale path exists.
+    first_safe_tasks:
+      - Outline digital product ideas
+      - Create product packaging briefs
+      - Draft launch page structures
+
+  - pod_id: lead_gen_pod
+    display_name: Lead Gen Pod
+    monetization_model: qualified_lead_generation
+    primary_goal: Build lead magnets, outreach copy, and workflow planning for future approved acquisition programs.
+    assigned_agents:
+      - manager
+      - content_worker
+      - debug_worker
+      - guard_worker
+      - budget_worker
+    required_tools:
+      - file_editor
+      - web_research
+      - moderation_checker
+      - cost_tracker
+    allowed_task_types:
+      - lead_magnet_outline
+      - outreach_copy
+      - funnel_map
+      - qualification_report
+      - followup_sequence
+    forbidden_task_types:
+      - external_posting_without_approval
+      - sending_real_outreach
+      - budget_override
+      - secrets_or_api_key_handling
+    approval_required_for:
+      - sending campaigns
+      - connecting CRM_or_email_tools
+      - paid acquisition launch
+    success_metrics:
+      - sequences_prepared
+      - lead_magnets_drafted
+      - qualification_rules_documented
+    risk_notes: Compliance, outreach quality, and contact handling must stay behind human approval.
+    first_safe_tasks:
+      - Draft lead magnet structures
+      - Build follow-up sequence copy
+      - Document qualification criteria
+
+  - pod_id: stock_research_pod
+    display_name: Stock Research Pod
+    monetization_model: research_and_paper_trade_insights
+    primary_goal: Organize scanner summaries, watchlist notes, and paper-trade research workflows for future approved use.
+    assigned_agents:
+      - manager
+      - debug_worker
+      - budget_worker
+      - guard_worker
+      - market_research_worker
+    required_tools:
+      - file_editor
+      - web_research
+      - moderation_checker
+      - cost_tracker
+    allowed_task_types:
+      - market_scan_summary
+      - watchlist_review
+      - scanner_result_report
+      - paper_trade_journal_summary
+      - research_note
+    forbidden_task_types:
+      - live_trade_execution
+      - broker_order_placement
+      - real_money_decision
+      - secrets_or_api_key_handling
+    approval_required_for:
+      - publishing_recommendations
+      - changing_strategy_rules
+      - enabling_broker_or_project_integrations
+      - spending_money
+    success_metrics:
+      - research_notes_prepared
+      - watchlists_reviewed
+      - paper_trade_summaries_logged
+    risk_notes: Keep this pod research-only and disconnected from real-money systems unless explicitly approved later.
+    first_safe_tasks:
+      - Summarize scanner output formats
+      - Draft watchlist review templates
+      - Prepare paper-trade journal summary structure
+
+  - pod_id: app_saas_pod
+    display_name: App SaaS Pod
+    monetization_model: subscription_software_revenue
+    primary_goal: Define and improve a small software product workflow, positioning, and launch prep.
+    assigned_agents:
+      - manager
+      - heavy_worker
+      - debug_worker
+      - content_worker
+      - budget_worker
+      - guard_worker
+    required_tools:
+      - code_runner
+      - file_editor
+      - web_research
+      - cost_tracker
+      - moderation_checker
+    allowed_task_types:
+      - feature_spec
+      - bug_fix
+      - onboarding_copy
+      - pricing_page_outline
+      - product_report
+    forbidden_task_types:
+      - charging_real_customers_without_approval
+      - production_deploy_without_approval
+      - budget_override
+      - secrets_or_api_key_handling
+    approval_required_for:
+      - production_release
+      - billing_integration
+      - paid_distribution
+    success_metrics:
+      - feature_specs_ready
+      - product_issues_resolved
+      - onboarding_assets_prepared
+    risk_notes: Billing, deployment, and customer-facing claims must remain gated until explicit approval exists.
+    first_safe_tasks:
+      - Draft feature specifications
+      - Summarize product bugs and fixes
+      - Outline onboarding and pricing materials

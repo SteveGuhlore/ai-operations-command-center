@@ -41,8 +41,10 @@ class CronRunner:
 
     def _loop(self) -> None:
         while not self._stop_event.is_set():
+            self._stop_event.wait(timeout=self._interval)
+            if self._stop_event.is_set():
+                break
             try:
                 self._callback()
             except Exception as exc:
                 log.error("CronRunner callback error: %s", exc)
-            self._stop_event.wait(timeout=self._interval)

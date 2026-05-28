@@ -21,8 +21,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from dotenv import load_dotenv
 load_dotenv()
 
-REQUIRED_KEYS = ["ANTHROPIC_API_KEY"]
-OPTIONAL_KEYS = ["OPENAI_API_KEY", "ETSY_API_KEY", "ETSY_SHOP_ID"]
+REQUIRED_KEYS = ["GOOGLE_AI_API_KEY"]
+OPTIONAL_KEYS = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ETSY_API_KEY", "ETSY_SHOP_ID"]
 DASHBOARD_URL = "http://127.0.0.1:8765"
 
 
@@ -50,9 +50,26 @@ def start_dashboard():
     return proc
 
 
+def cleanup_stale_tasks():
+    """Move orphaned in_progress tasks to failed and clear stale locks on startup."""
+    root = Path(__file__).parent.parent / "workspace"
+    in_progress = root / "tasks" / "in_progress"
+    failed = root / "tasks" / "failed"
+    locks = root / "locks"
+    failed.mkdir(parents=True, exist_ok=True)
+    count = 0
+    for f in in_progress.glob("*.md"):
+        f.rename(failed / f.name)
+        count += 1
+    for f in locks.glob("*.lock"):
+        f.unlink(missing_ok=True)
+    if count:
+        print(f"Startup cleanup: moved {count} stale task(s) to failed/, cleared locks.")
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--interval", type=int, default=3600, help="Seconds between cycles (default: 3600)")
+    parser.add_argument("--interval", type=int, default=120, help="Seconds between cycles (default: 120 = 2 min)")
     parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
     args = parser.parse_args()
 
@@ -61,6 +78,7 @@ def main():
     print("="*50 + "\n")
 
     check_keys()
+    cleanup_stale_tasks()
 
     dashboard_proc = start_dashboard()
 

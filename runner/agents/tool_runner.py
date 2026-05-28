@@ -27,6 +27,12 @@ from runner.tools.social import save_video_package, post_to_instagram, post_to_f
 from runner.tools.video import assemble_video
 from runner.tools.task_creator import create_task
 from runner.tools.tony_insights import write_tony_insight
+from runner.tools.email_sender import send_email
+from runner.tools.places import find_prospects
+from runner.tools.social_dm import send_instagram_dm
+from runner.tools.vault_memory import write_memory
+from runner.tools.inbox_reader import read_inbox
+from runner.tools.flag_issue import flag_issue
 
 register_tool("file_editor",        file_editor)
 register_tool("web_research",       web_research)
@@ -41,3 +47,10 @@ register_tool("post_to_youtube",    post_to_youtube)
 register_tool("assemble_video",     assemble_video)
 register_tool("create_task",        create_task)
 register_tool("write_tony_insight", write_tony_insight)
+register_tool("send_email",         send_email)
+register_tool("find_prospects",     find_prospects)
+register_tool("send_instagram_dm",  send_instagram_dm)
+register_tool("write_memory",       write_memory)
+register_tool("read_inbox",         read_inbox)
+register_tool("flag_issue",         flag_issue)
+register_tool("flag_issue",         flag_issue)

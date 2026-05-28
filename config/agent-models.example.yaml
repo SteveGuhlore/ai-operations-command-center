@@ -1,0 +1,175 @@
+agents:
+  - role_id: manager
+    display_name: Atlas
+    default_model_label: codex-class reviewer
+    allowed_task_types:
+      - planning
+      - review
+      - risk_assessment
+      - batch_reporting
+    max_retries: 1
+    cost_tier: high
+    notes: Stable coordinating reviewer role. Keep the role ID fixed even if the backing model changes later.
+
+  - role_id: heavy_worker
+    display_name: Forge
+    default_model_label: kimi-class builder
+    allowed_task_types:
+      - implementation
+      - refactor
+      - test_repair
+      - larger_code_change
+    max_retries: 2
+    cost_tier: medium_high
+    notes: Stronger coding role for heavier tasks. This can later map to Kimi or another stronger coding model.
+
+  - role_id: debug_worker
+    display_name: Scout
+    default_model_label: minimax-class debugger
+    allowed_task_types:
+      - validation
+      - debugging
+      - docs
+      - reporting
+      - cleanup
+    max_retries: 2
+    cost_tier: low_medium
+    notes: Low-cost debugging and reporting role. Suitable for future A/B tests between MiniMax-class and Haiku-level models.
+
+  - role_id: content_worker
+    display_name: Muse
+    default_model_label: haiku-class writer
+    primary_model: haiku-class writer
+    fallback_model: sonnet-class writer
+    fallback_usage: manual_emergency_only
+    allowed_task_types:
+      - content_drafting
+      - caption_writing
+      - copy_editing
+      - content_packaging
+    max_retries: 2
+    cost_tier: low_medium
+    notes: Primary for drafts and copy variants. Fallback is not routine routing.
+
+  - role_id: media_worker
+    display_name: Frame
+    default_model_label: multimodal media model
+    primary_model: multimodal media model
+    fallback_model: image-prompt-class model
+    fallback_usage: manual_emergency_only
+    allowed_task_types:
+      - image_prompting
+      - video_prompting
+      - media_packaging
+      - asset_iteration
+    max_retries: 2
+    cost_tier: medium
+    notes: Primary for media concepting and packaging. Fallback is manual emergency only.
+
+  - role_id: audio_worker
+    display_name: Echo
+    default_model_label: speech-class generator
+    primary_model: speech-class generator
+    fallback_model: haiku-class script writer
+    fallback_usage: manual_emergency_only
+    allowed_task_types:
+      - audio_prompting
+      - script_prep
+      - transcript_cleanup
+      - audio_packaging
+    max_retries: 2
+    cost_tier: medium
+    notes: Primary for audio scripts and packaging. Fallback is manual emergency only.
+
+  - role_id: guard_worker
+    display_name: Guard
+    default_model_label: safety-class reviewer
+    primary_model: safety-class reviewer
+    fallback_model: codex-class reviewer
+    fallback_usage: manual_emergency_only
+    allowed_task_types:
+      - moderation
+      - policy_check
+      - safety_review
+      - approval_gate_review
+    max_retries: 1
+    cost_tier: medium
+    notes: Conservative safety reviewer. Fallback is manual emergency only.
+
+  - role_id: budget_worker
+    display_name: Ledger
+    default_model_label: lightweight accounting model
+    primary_model: lightweight accounting model
+    fallback_model: haiku-class summarizer
+    fallback_usage: manual_emergency_only
+    allowed_task_types:
+      - cost_tracking
+      - budget_reporting
+      - threshold_alerting
+      - usage_summary
+    max_retries: 1
+    cost_tier: low
+    notes: Observability and budget enforcement. Fallback is manual emergency only.
+
+  - role_id: digital_product_worker
+    display_name: Maker
+    default_model_label: longform-product-class writer
+    primary_model: longform-product-class writer
+    fallback_model: sonnet-class product writer
+    fallback_usage: manual_emergency_only
+    allowed_task_types:
+      - product_research
+      - digital_product_outline
+      - guide_creation
+      - template_pack_prep
+      - checklist_creation
+      - sop_drafting
+      - mini_ebook_outline
+      - downloadable_resource_prep
+    max_retries: 2
+    cost_tier: medium
+    notes: Optimized for long-form structure, research synthesis, and product-quality writing. Not responsible for go-to-market campaigns.
+
+  - role_id: marketing_worker
+    display_name: Market
+    default_model_label: strategic-campaign-class writer
+    primary_model: strategic-campaign-class writer
+    fallback_model: sonnet-class strategist
+    fallback_usage: manual_emergency_only
+    allowed_task_types:
+      - offer_positioning
+      - listing_strategy
+      - hook_development
+      - launch_plan
+      - audience_strategy
+      - promotional_campaign
+      - content_repurposing
+      - campaign_brief
+      - lead_gen_offer_packaging
+      - affiliate_content_packaging
+      - etsy_listing_strategy
+      - dropshipping_offer_plan
+      - short_form_campaign_plan
+      - stock_newsletter_packaging
+      - saas_positioning
+      - offer_improvement
+    max_retries: 2
+    cost_tier: medium_high
+    notes: Optimized for persuasive writing, strategy, audience analysis, and reusable campaign planning across all agents and revenue pods.
+
+  - role_id: market_research_worker
+    display_name: Tony Stocks
+    default_model_label: configurable_market_research_model
+    primary_model: configurable_market_research_model
+    fallback_model: haiku-class summarizer
+    fallback_usage: manual_emergency_only
+    enabled: false
+    allowed_task_types:
+      - market_scan_summary
+      - watchlist_review
+      - scanner_result_report
+      - paper_trade_journal_summary
+      - research_note
+    max_retries: 1
+    cost_tier: low_medium
+    notes: Optional specialist. Market packages research for audiences; Tony does not replace Market.

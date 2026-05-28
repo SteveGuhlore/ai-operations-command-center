@@ -1,11 +1,18 @@
-shop_name: ThePromptVaultUS
-platform: Etsy
-audience: general — creators, freelancers, and small business owners
-tagline: "Ready-to-use AI prompt packs. Better results from ChatGPT and Claude, instantly."
-tone: practical, friendly, no fluff — like advice from a smart friend
-price_range: "$6–$14"
-format: PDF — copy-paste ready prompts with instructions
-works_with: "ChatGPT (free and Plus), Claude, Gemini"
+# Legacy brand file — kept for backward compatibility only.
+# Per-pod brands now live in config/revenue-pods.yaml.
+# ThePromptVaultUS (Etsy prompt packs) was scrapped 2026-05-23.
+# Active revenue pods:
+#   - local_outreach_pod  -> Easy Simple Sites (easysimplesites.org)
+#   - market_research_pod -> Tony Stocks (newsletter brand TBD)
+
+shop_name: Easy Simple Sites
+platform: easysimplesites.org
+audience: local Massachusetts businesses without websites
+tagline: "Professional websites for local businesses, starting at $199, live in 24 hours."
+tone: friendly, direct, no fluff — small-business owner talking to small-business owner
+price_range: "$199–$799"
+format: Static HTML/CSS site (Starter / Pro / Premium)
+works_with: "any local business — restaurants, salons, auto shops, etc."
 
 product_formula:
   - a tight use case (email writing, content calendar, job search, etc.)

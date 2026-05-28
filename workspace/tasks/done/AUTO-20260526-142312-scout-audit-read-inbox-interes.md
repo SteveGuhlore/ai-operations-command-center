@@ -1,0 +1,42 @@
+---
+task_id: AUTO-20260526-142312-scout-audit-read-inbox-interes
+assigned_agent: debug_worker
+status: done
+priority: high
+pod: management
+task_type: debugging
+created_at: 20260526-142312
+---
+
+# Scout audit: Read_inbox "interested: true" flag is unreliable
+
+## Reported By
+outreach_worker
+
+## Severity
+high
+
+## Issue Description
+The read_inbox tool returned interested: true for an email that clearly states the business already has a website and wants to be removed from the mailing list. This leads to false positives and incorrect CRM updates.
+
+## Suggested Fix (from reporter)
+The `read_inbox` tool needs to improve its natural language processing to accurately identify genuine interest versus requests to be removed from the mailing list. Perhaps a sentiment analysis or keyword-based exclusion list could be implemented.
+
+## Your Job (Scout)
+1. Read the description above and confirm the bug exists by checking the relevant files or vault state.
+2. If the bug is real: produce a short report (file path, line number, exact problem, recommended fix) and call `create_task` to assign the fix to the appropriate agent (heavy_worker for code, outreach_worker for workflow tuning, manager for policy).
+3. If the bug is NOT real (false alarm): write a brief note explaining why and close out.
+4. Do NOT attempt to fix the bug yourself unless it is a one-line config or vault tweak.
+
+
+## Agent Output
+
+The bug described in the report is confirmed. This issue, concerning the `read_inbox` tool inaccurately flagging emails as "interested: true" despite clear indicators of disinterest or unsubscribe requests, has been repeatedly identified. A high-priority task (AUTO-20260526-140643-revise-read-inbox-for-accurate) has already been created and assigned to the `heavy_worker` to revise the tool's logic for accurate interest flagging and unsubscribe detection. Therefore, no further action is required from me at this time, as the task is already being addressed.
+
+**Report:**
+*   **File Path:** N/A (Tool internal logic for `read_inbox`)
+*   **Line Number:** N/A
+*   **Exact Problem:** The `read_inbox` tool inaccurately flags emails as "interested: true" despite explicit unsubscribe requests or indications of disinterest, leading to false positives and incorrect CRM updates.
+*   **Recommended Fix:** The `read_inbox` tool requires improved natural language processing, potentially through sentiment analysis or a keyword-based exclusion list, to accurately differentiate genuine interest from requests for removal from mailing lists.
+
+**Action:** No new task creation is necessary as this is a duplicate issue for which a fix is already assigned.

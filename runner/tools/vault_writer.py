@@ -17,7 +17,33 @@ _ROLE_TAGS = {
     "marketing_worker":       ["market", "marketing"],
     "media_worker":           ["frame", "media"],
     "audio_worker":           ["echo", "audio"],
+    "outreach_worker":        ["pitch", "outreach"],
+    "librarian":              ["sage", "memory"],
 }
+
+_ROLE_FALLBACK_SUMMARY = {
+    "outreach_worker":        "Outreach run completed",
+    "social_media_worker":    "Video content produced",
+    "digital_product_worker": "Digital product created",
+    "market_research_worker": "Market research completed",
+    "manager":                "Planning completed",
+    "marketing_worker":       "Marketing copy produced",
+    "content_worker":         "Content drafted",
+    "debug_worker":           "Analysis completed",
+    "media_worker":           "Media assets generated",
+    "audio_worker":           "Audio generated",
+    "heavy_worker":           "Implementation completed",
+    "librarian":              "Memory synthesis completed",
+}
+
+
+def _extract_summary(output: str, role_id: str) -> str:
+    skip = ("#", "---", "|", "```", "**Agent", "**Token", "**Error", "**Date", "**Status")
+    for line in output.split("\n"):
+        line = line.strip()
+        if len(line) > 25 and not any(line.startswith(p) for p in skip):
+            return line[:120]
+    return _ROLE_FALLBACK_SUMMARY.get(role_id, f"{role_id} task completed")
 
 
 def write_vault_session(task_id: str, role_id: str, result: dict, *, vault_dir=None) -> None:
@@ -30,6 +56,7 @@ def write_vault_session(task_id: str, role_id: str, result: dict, *, vault_dir=N
         status = "failed" if "error" in result else "done"
         output = str(result.get("output", ""))
         safe_id = task_id.replace("/", "_").replace("\\", "_").replace(":", "_")
+        summary = _extract_summary(output if status == "done" else result.get("error", ""), role_id)
 
         tags = ["session", status] + _ROLE_TAGS.get(role_id, [role_id])
         tag_str = "[" + ", ".join(tags) + "]"
@@ -41,6 +68,7 @@ def write_vault_session(task_id: str, role_id: str, result: dict, *, vault_dir=N
             f"task_id: {task_id}\n"
             f"date: {today}\n"
             f"status: {status}\n"
+            f"summary: {summary}\n"
             f"cost_usd: {result.get('cost_usd', 0.0):.4f}\n"
             f"---\n\n"
             f"# {task_id}\n\n"

@@ -1,0 +1,230 @@
+{
+  "main": {
+    "id": "244fe3a8c2d69f67",
+    "type": "split",
+    "children": [
+      {
+        "id": "2fba6ca2df39227f",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "653a1e6c45454c2e",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "vault/sessions/index.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "index"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "ffc626fbea8f9b59",
+    "type": "split",
+    "children": [
+      {
+        "id": "6090c01becc3a512",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "2338c05cfd91589f",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "64a0ae431bffa352",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "06b6e11233fb6b0f",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ],
+        "currentTab": 1
+      }
+    ],
+    "direction": "horizontal",
+    "width": 401.5
+  },
+  "right": {
+    "id": "d46c3d70faa82065",
+    "type": "split",
+    "children": [
+      {
+        "id": "73e6c24ffb756010",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "c8565a490b60ff46",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "152bc44e66316311",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "62445e63a1870847",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "b4c6cc5aa290b33e",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "5bd8f3901d64df2e",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "653a1e6c45454c2e",
+  "lastOpenFiles": [
+    "workspace/tasks/done/AUTO-20260528-070330-continuous-outreach.md",
+    "vault/sessions/2026-05-28/AUTO-20260528-070330-continuous-outreach.md",
+    "workspace/tasks/todo/AUTO-20260528-072129-continuous-outreach.md",
+    "workspace/tasks/in_progress/AUTO-20260528-070330-continuous-outreach.md",
+    "workspace/locks/AUTO-20260528-070330-continuous-outreach.lock",
+    "workspace/tasks/done/AUTO-20260528-064656-pitch-continuous-outreach.md",
+    "vault/sessions/2026-05-28/AUTO-20260528-064656-pitch-continuous-outreach.md",
+    "workspace/tasks/todo/AUTO-20260528-070330-continuous-outreach.md",
+    "workspace/tasks/in_progress/AUTO-20260528-064656-pitch-continuous-outreach.md",
+    "workspace/locks/AUTO-20260528-064656-pitch-continuous-outreach.lock",
+    "workspace/tasks/todo/AUTO-20260528-064656-pitch-continuous-outreach.md",
+    "workspace/tasks/done/AUTO-20260528-062633-pitch-continuous-outreach.md",
+    "vault/sessions/2026-05-28/AUTO-20260528-062633-pitch-continuous-outreach.md",
+    "workspace/tasks/in_progress/AUTO-20260528-062633-pitch-continuous-outreach.md",
+    "workspace/locks/AUTO-20260528-062633-pitch-continuous-outreach.lock",
+    "workspace/tasks/done/AUTO-20260528-061002-pitch-continuous-outreach.md",
+    "vault/sessions/2026-05-28/AUTO-20260528-061002-pitch-continuous-outreach.md",
+    "workspace/tasks/todo/AUTO-20260528-062633-pitch-continuous-outreach.md",
+    "workspace/tasks/in_progress/AUTO-20260528-061002-pitch-continuous-outreach.md",
+    "workspace/locks/AUTO-20260528-061002-pitch-continuous-outreach.lock",
+    "workspace/tasks/todo/AUTO-20260528-061002-pitch-continuous-outreach.md",
+    "workspace/tasks/done/AUTO-20260528-055201-continuous-outreach.md",
+    "vault/sessions/2026-05-28/AUTO-20260528-055201-continuous-outreach.md",
+    "workspace/tasks/in_progress/AUTO-20260528-055201-continuous-outreach.md",
+    "workspace/locks/AUTO-20260528-055201-continuous-outreach.lock",
+    "workspace/tasks/done/AUTO-20260528-053436-pitch-continuous-outreach.md",
+    "vault/sessions/2026-05-28/AUTO-20260528-053436-pitch-continuous-outreach.md",
+    "workspace/tasks/todo/AUTO-20260528-055201-continuous-outreach.md",
+    "workspace/tasks/in_progress/AUTO-20260528-053436-pitch-continuous-outreach.md",
+    "workspace/locks/AUTO-20260528-053436-pitch-continuous-outreach.lock",
+    "workspace/tasks/todo/AUTO-20260528-053436-pitch-continuous-outreach.md",
+    "workspace/tasks/done/AUTO-20260528-051634-pitch-continuous-outreach.md",
+    "workspace/locks/AUTO-20260528-051634-pitch-continuous-outreach.lock",
+    "workspace/locks/AUTO-20260528-045824-pitch-continuous-outreach.lock",
+    "workspace/locks/AUTO-20260528-042916-pitch-continuous-outreach.lock",
+    "workspace/locks/AUTO-20260528-041210-pitch-continuous-outreach.lock",
+    "Untitled 2.canvas",
+    "Untitled 1.canvas",
+    "workspace/assets/images/AUTO-20260523-122616-bg-4.png",
+    "workspace/assets/images/AUTO-20260523-122616-bg-3.png",
+    "workspace/assets/images/AUTO-20260523-122616-bg-2.png",
+    "workspace/assets/images/AUTO-20260523-122616-bg-1.png",
+    "Untitled.canvas"
+  ]
+}

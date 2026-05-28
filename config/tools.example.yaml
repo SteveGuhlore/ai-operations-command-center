@@ -1,0 +1,98 @@
+tools:
+  - tool_id: code_runner
+    purpose: Execute local code, checks, and validation commands in the workspace.
+    allowed_roles:
+      - manager
+      - heavy_worker
+      - debug_worker
+      - guard_worker
+      - budget_worker
+    requires_approval: conditional
+    risk_level: medium
+    notes: Approval should be required for destructive operations, external calls, or non-local side effects.
+
+  - tool_id: file_editor
+    purpose: Create and modify local files inside the approved workspace.
+    allowed_roles:
+      - manager
+      - heavy_worker
+      - debug_worker
+      - content_worker
+      - media_worker
+    requires_approval: conditional
+    risk_level: medium
+    notes: File ownership and forbidden-file rules still apply.
+
+  - tool_id: web_research
+    purpose: Gather current external information when browsing is explicitly allowed.
+    allowed_roles:
+      - manager
+      - debug_worker
+      - content_worker
+      - guard_worker
+      - budget_worker
+    requires_approval: conditional
+    risk_level: medium
+    notes: Use only when current information is needed and policy allows browsing.
+
+  - tool_id: image_generation
+    purpose: Generate or refine still-image concepts and assets.
+    allowed_roles:
+      - media_worker
+      - content_worker
+      - manager
+    requires_approval: conditional
+    risk_level: medium
+    notes: Publishable assets should pass moderation and human review before release.
+
+  - tool_id: audio_generation
+    purpose: Generate or refine audio clips, narration, and speech assets.
+    allowed_roles:
+      - audio_worker
+      - content_worker
+      - manager
+    requires_approval: conditional
+    risk_level: medium
+    notes: Approval is recommended for brand-facing or voice-sensitive outputs.
+
+  - tool_id: video_generation
+    purpose: Generate or refine video concepts and produced video assets.
+    allowed_roles:
+      - media_worker
+      - manager
+    requires_approval: conditional
+    risk_level: high
+    notes: This can be compute- and spend-heavy; require moderation before publishing.
+
+  - tool_id: social_scheduler
+    purpose: Queue content for external posting and scheduling.
+    allowed_roles:
+      - manager
+      - content_worker
+      - media_worker
+      - budget_worker
+    requires_approval: true
+    risk_level: high
+    notes: No external posting should happen without explicit approval.
+
+  - tool_id: cost_tracker
+    purpose: Record role usage, spend, retries, and budget thresholds.
+    allowed_roles:
+      - manager
+      - budget_worker
+      - guard_worker
+    requires_approval: false
+    risk_level: low
+    notes: Intended for observability and budget shutdown decisions.
+
+  - tool_id: moderation_checker
+    purpose: Evaluate whether content or media meets moderation and policy requirements.
+    allowed_roles:
+      - manager
+      - guard_worker
+      - content_worker
+      - media_worker
+      - audio_worker
+    requires_approval: false
+    risk_level: low
+    notes: Required for publishable media or externally visible content.

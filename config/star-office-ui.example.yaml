@@ -1,0 +1,93 @@
+star_office_ui:
+  shell_name: Star Office UI
+  mode: primary_visual_shell
+  backend_source_of_truth: command_center
+
+  delivery_modes:
+    - poll_dashboard_state_json
+    - push_updates_from_dashboard_push
+
+  dashboard_state_path: workspace/dashboard/dashboard-state.json
+
+  status_mapping:
+    todo: idle
+    in_progress: executing
+    review: syncing
+    done: idle
+    failed: error
+    research_task: researching
+    writing_task: writing
+
+  visual_agents:
+    - role_id: manager
+      display_name: Atlas
+      pod_assignment: core
+    - role_id: heavy_worker
+      display_name: Forge
+      pod_assignment: core
+    - role_id: debug_worker
+      display_name: Scout
+      pod_assignment: core
+    - role_id: content_worker
+      display_name: Muse
+      pod_assignment: core
+    - role_id: media_worker
+      display_name: Frame
+      pod_assignment: core
+    - role_id: audio_worker
+      display_name: Echo
+      pod_assignment: core
+    - role_id: guard_worker
+      display_name: Guard
+      pod_assignment: core
+    - role_id: budget_worker
+      display_name: Ledger
+      pod_assignment: core
+    - role_id: market_research_worker
+      display_name: Tony Stocks
+      pod_assignment: optional_specialist
+      enabled: false
+
+  visual_revenue_pods:
+    - pod_id: etsy_store_pod
+      display_name: Etsy
+    - pod_id: dropshipping_pod
+      display_name: Dropshipping
+    - pod_id: affiliate_content_pod
+      display_name: Affiliate
+    - pod_id: short_form_video_pod
+      display_name: Short Form Video
+    - pod_id: digital_products_pod
+      display_name: Digital Products
+    - pod_id: lead_gen_pod
+      display_name: Lead Gen
+    - pod_id: stock_research_pod
+      display_name: Stock Research
+    - pod_id: app_saas_pod
+      display_name: App/SaaS
+
+  required_dashboard_fields:
+    - agents
+    - statuses
+    - current_tasks
+    - task_counts
+    - locks
+    - recent_runs
+    - revenue_pods
+    - alerts
+    - daemon_state
+    - budget_state
+
+  future_integration_placeholders:
+    - OpenRouter
+    - Antigravity/Codex
+    - NotebookLM-style KB
+    - provider routing
+    - scheduler/daemon
+
+  forbidden_dashboard_capabilities:
+    - task_decision_making
+    - worker_spawning
+    - file_editing
+    - direct_budget_changes
+    - publishing_actions

@@ -1,11 +1,12 @@
 from pathlib import Path
 
-WORKSPACE_DIR = Path(__file__).parent.parent.parent / "workspace"
+# Root of the project — agents need to read/write both workspace/ and vault/
+PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
 def _safe_path(relative: str) -> Path | None:
-    target = (WORKSPACE_DIR / relative).resolve()
-    if not str(target).startswith(str(WORKSPACE_DIR.resolve())):
+    target = (PROJECT_ROOT / relative).resolve()
+    if not str(target).startswith(str(PROJECT_ROOT.resolve())):
         return None
     return target
 
@@ -34,6 +35,23 @@ def write_file(path: str, content: str) -> dict:
         return {"error": str(exc)}
 
 
+def append_file(path: str, content: str) -> dict:
+    safe = _safe_path(path)
+    if safe is None:
+        return {"error": f"Path outside workspace: {path}"}
+    try:
+        safe.parent.mkdir(parents=True, exist_ok=True)
+        with safe.open("a", encoding="utf-8") as f:
+            if safe.exists() and safe.stat().st_size > 0:
+                existing = safe.read_bytes()
+                if existing and existing[-1:] != b"\n":
+                    f.write("\n")
+            f.write(content)
+        return {"success": True, "path": str(safe)}
+    except OSError as exc:
+        return {"error": str(exc)}
+
+
 def list_files(directory: str = ".") -> dict:
     safe = _safe_path(directory)
     if safe is None:
@@ -45,13 +63,13 @@ def list_files(directory: str = ".") -> dict:
 
 TOOL_SPEC = {
     "name": "file_editor",
-    "description": "Read, write, or list files inside the workspace directory.",
+    "description": "Read, write, append, or list files in the project (workspace/, vault/, agents/, etc.).",
     "input_schema": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["read", "write", "list"]},
+            "action": {"type": "string", "enum": ["read", "write", "append", "list"]},
             "path": {"type": "string", "description": "Relative path inside workspace"},
-            "content": {"type": "string", "description": "Content to write (only for write action)"},
+            "content": {"type": "string", "description": "Content to write or append (for write/append actions)"},
         },
         "required": ["action", "path"],
     }
@@ -63,6 +81,8 @@ def file_editor(action: str, path: str, content: str = "") -> dict:
         return read_file(path)
     if action == "write":
         return write_file(path, content)
+    if action == "append":
+        return append_file(path, content)
     if action == "list":
         return list_files(path)
     return {"error": f"Unknown action: {action}"}

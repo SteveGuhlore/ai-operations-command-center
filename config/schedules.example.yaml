@@ -1,0 +1,28 @@
+schedules:
+  - schedule_id: daily_health_check
+    cadence: daily
+    suggested_time_local: "09:00"
+    purpose: Check workspace health, remaining locks, queue status, and budget posture.
+    owner_role: manager
+    notes: Safe recurring review job with no external actions.
+
+  - schedule_id: hourly_task_queue_scan
+    cadence: hourly
+    suggested_time_local: "Every hour"
+    purpose: Review queue depth, identify stalled tasks, and surface needed resets or escalation.
+    owner_role: debug_worker
+    notes: Useful for keeping a 24/7 queue visible without triggering real worker runs.
+
+  - schedule_id: nightly_report
+    cadence: daily
+    suggested_time_local: "22:00"
+    purpose: Summarize task movement, retries, budget usage, and unresolved issues.
+    owner_role: budget_worker
+    notes: Intended for reporting only, not external posting.
+
+  - schedule_id: weekly_model_evaluation
+    cadence: weekly
+    suggested_time_local: "Friday 15:00"
+    purpose: Compare role performance, especially Scout variants, using cost and success metrics.
+    owner_role: manager
+    notes: Supports ongoing MiniMax vs Haiku-level evaluation planning for Scout.

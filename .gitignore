@@ -13,6 +13,7 @@ env/
 .env.*
 !config/.env.example
 *.key
+.vertex-key.json
 config/secrets.yaml
 
 # Editor
@@ -40,3 +41,12 @@ workspace/ledger/
 workspace/logs/
 workspace/locks/
 vault/
+
+# Logs (runtime; may contain API keys)
+*.log
+
+# Video render artifacts (generated, binary)
+*.mp4
+
+# Stray pip-redirect artifact
+=*

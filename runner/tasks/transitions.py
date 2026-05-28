@@ -14,7 +14,11 @@ def move_task(task_id: str, from_status: str, to_status: str) -> Path:
 
     matches = list(src_dir.glob(f"*{task_id}*.md"))
     if not matches:
-        raise FileNotFoundError(f"Task {task_id} not found in {from_status}/")
+        # Task already moved by a concurrent runner — treat as claimed, not a crash
+        dst_matches = list(dst_dir.glob(f"*{task_id}*.md"))
+        if dst_matches:
+            return dst_matches[0]
+        raise FileNotFoundError(f"Task {task_id} not found in {from_status}/ or {to_status}/")
 
     src = matches[0]
     content = _STATUS_RE.sub(f"\\g<1>{to_status}", src.read_text(encoding="utf-8"))

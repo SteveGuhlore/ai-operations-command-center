@@ -18,6 +18,16 @@ def parse_task_file(path: Path) -> dict:
     return frontmatter
 
 
+import logging as _logging
+_log = _logging.getLogger(__name__)
+
+
 def read_todo_tasks() -> list[dict]:
     todo_dir = TASKS_DIR / "todo"
-    return [parse_task_file(f) for f in sorted(todo_dir.glob("*.md"))]
+    tasks = []
+    for f in sorted(todo_dir.glob("*.md")):
+        try:
+            tasks.append(parse_task_file(f))
+        except Exception as exc:
+            _log.warning("Skipping malformed task file %s: %s", f.name, exc)
+    return tasks

@@ -1,0 +1,49 @@
+budgets:
+  daily_limits:
+    total_token_limit: PLACEHOLDER_TOTAL_TOKEN_LIMIT
+    total_spend_limit_usd: PLACEHOLDER_TOTAL_SPEND_LIMIT_USD
+
+  per_role_limits:
+    manager:
+      daily_spend_limit_usd: PLACEHOLDER_MANAGER_SPEND_LIMIT
+      daily_token_limit: PLACEHOLDER_MANAGER_TOKEN_LIMIT
+    heavy_worker:
+      daily_spend_limit_usd: PLACEHOLDER_HEAVY_WORKER_SPEND_LIMIT
+      daily_token_limit: PLACEHOLDER_HEAVY_WORKER_TOKEN_LIMIT
+    debug_worker:
+      daily_spend_limit_usd: PLACEHOLDER_DEBUG_WORKER_SPEND_LIMIT
+      daily_token_limit: PLACEHOLDER_DEBUG_WORKER_TOKEN_LIMIT
+    content_worker:
+      daily_spend_limit_usd: PLACEHOLDER_CONTENT_WORKER_SPEND_LIMIT
+      daily_token_limit: PLACEHOLDER_CONTENT_WORKER_TOKEN_LIMIT
+    media_worker:
+      daily_spend_limit_usd: PLACEHOLDER_MEDIA_WORKER_SPEND_LIMIT
+      daily_token_limit: PLACEHOLDER_MEDIA_WORKER_TOKEN_LIMIT
+    audio_worker:
+      daily_spend_limit_usd: PLACEHOLDER_AUDIO_WORKER_SPEND_LIMIT
+      daily_token_limit: PLACEHOLDER_AUDIO_WORKER_TOKEN_LIMIT
+    guard_worker:
+      daily_spend_limit_usd: PLACEHOLDER_GUARD_WORKER_SPEND_LIMIT
+      daily_token_limit: PLACEHOLDER_GUARD_WORKER_TOKEN_LIMIT
+    budget_worker:
+      daily_spend_limit_usd: PLACEHOLDER_BUDGET_WORKER_SPEND_LIMIT
+      daily_token_limit: PLACEHOLDER_BUDGET_WORKER_TOKEN_LIMIT
+
+  retry_limits:
+    default_max_retries: 2
+    manager: 1
+    heavy_worker: 2
+    debug_worker: 2
+    content_worker: 2
+    media_worker: 2
+    audio_worker: 2
+    guard_worker: 1
+    budget_worker: 1
+
+  alert_thresholds:
+    warn_at_percent_of_daily_budget: 70
+    escalate_at_percent_of_daily_budget: 85
+    pause_noncritical_work_at_percent_of_daily_budget: 95
+
+  shutdown_threshold:
+    stop_all_nonapproved_work_at_percent_of_daily_budget: 100
