@@ -30,6 +30,7 @@ _AGENTS_TO_REVIEW = [
     "manager",
     "outreach_worker",
     "market_research_worker",
+    "opportunity_worker",
 ]
 
 _IMPROVEMENT_SYSTEM = """\
