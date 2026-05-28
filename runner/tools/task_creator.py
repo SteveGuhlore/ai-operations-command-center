@@ -3,6 +3,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from runner.scheduler.spawn_gate import record_spawn, spawn_allowed
+
 log = logging.getLogger(__name__)
 
 TASKS_DIR = Path(__file__).parent.parent.parent / "workspace" / "tasks"
@@ -77,6 +79,11 @@ def create_task(
     if _has_pending_task(assigned_agent, task_type):
         return {"skipped": True, "reason": f"A pending {task_type} task for {assigned_agent} already exists — not creating a duplicate."}
 
+    allowed, reason = spawn_allowed(assigned_agent, task_type)
+    if not allowed:
+        log.info("Spawn cadence gate: %s", reason)
+        return {"skipped": True, "reason": reason}
+
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     auto_id = not task_id
     if auto_id:
@@ -109,6 +116,7 @@ def create_task(
 
     path = todo_dir / filename
     path.write_text(content, encoding="utf-8")
+    record_spawn(assigned_agent, task_type)
     return {"success": True, "task_id": task_id, "path": str(path)}
 
 

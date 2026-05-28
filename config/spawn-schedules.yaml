@@ -1,0 +1,63 @@
+# Per-agent / per-task-type spawn schedules.
+#
+# Controls the MINIMUM cadence at which recurring tasks may be re-spawned via
+# create_task. Enforced centrally by runner/scheduler/spawn_gate.py at the
+# create_task chokepoint, so it covers BOTH agent self-perpetuation (an agent
+# calling create_task at the end of its run) and the runner's own revival path
+# (_maybe_spawn_planning_task).
+#
+# WHY: the outreach loop (Pitch) is self-perpetuating and was firing far faster
+# than the Brave Search budget allows. Prompt text alone ("minimum 15 minutes")
+# did not hold. This file makes the cadence real and per-key tunable for cost.
+#
+# ── How matching works (most specific wins) ───────────────────────────────────
+#   1. by_pair["<agent>:<task_type>"]   most specific
+#   2. by_task_type["<task_type>"]
+#   3. by_agent["<agent>"]
+#   4. (no match) -> UNCONSTRAINED. One-off follow-ups (site_build, etc.) are
+#      never throttled unless you deliberately list them here.
+#
+# A matched rule inherits any knob it omits from `defaults`. So adding an agent
+# with an empty rule still gives it the safe default interval — an unconfigured
+# but listed agent can never surprise-spam.
+#
+# The cooldown is tracked at the granularity you configure: a by_task_type rule
+# shares ONE cooldown across whichever agent emits that task_type (correct for
+# the shared Brave budget); a by_pair rule is tracked per agent+type.
+#
+# ── Available knobs (all optional except where a default applies) ─────────────
+#   min_interval_minutes : minimum minutes between spawns of this key
+#   max_per_day          : hard cap on spawns of this key per local calendar day
+#   jitter_minutes       : adds 0..N random minutes ON TOP of the interval, to
+#                          avoid a fixed lockstep cadence (thundering herd)
+#   quiet_hours          : { start: <0-23>, end: <0-23> } local-clock window in
+#                          which no spawns of this key are allowed. Wraps past
+#                          midnight if start > end (e.g. start 22, end 6).
+#
+# ── To add a timer for a future agent ─────────────────────────────────────────
+#   Add an entry under by_agent / by_task_type / by_pair. A fresh runner cycle
+#   re-reads this file (load_spawn_schedules reads it live), so no code change is
+#   needed — just edit and let the next cycle pick it up.
+
+spawn_schedules:
+  # Inherited by every matched rule that omits a knob.
+  defaults:
+    min_interval_minutes: 30
+    jitter_minutes: 0
+
+  # Keyed by task_type — shared cooldown across all agents emitting this type.
+  by_task_type:
+    prospect_research:            # Pitch / local_outreach_pod continuous loop
+      min_interval_minutes: 30    # was an unenforced "15 min" prompt directive
+      max_per_day: 40             # ~one run per 30m across a ~20h active window
+      jitter_minutes: 3           # spread runs so they don't lockstep the cycle
+
+  # Keyed by agent — applies to ALL of that agent's task_types not matched above.
+  by_agent: {}
+
+  # Keyed by "<agent>:<task_type>" — most specific. Example (commented):
+  # by_pair:
+  #   market_research_worker:daily_brief:
+  #     min_interval_minutes: 720     # twice a day max
+  #     quiet_hours: { start: 22, end: 6 }
+  by_pair: {}
