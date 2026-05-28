@@ -16,6 +16,7 @@ VALID_AGENTS = [
     "marketing_worker", "media_worker", "audio_worker",
     "heavy_worker", "debug_worker", "budget_worker", "guard_worker",
     "market_research_worker", "outreach_worker", "builder", "librarian",
+    "opportunity_worker",
 ]
 
 # Self-perpetuating repair loop: agents kept spawning audit/revise tasks against
@@ -159,7 +160,7 @@ TOOL_SPEC = {
                 "enum": [
                     "social_media_pod", "digital_products_pod", "affiliate_pod",
                     "short_form_video_pod", "lead_gen_pod", "local_outreach_pod",
-                    "management", "general",
+                    "opportunity_pod", "management", "general",
                 ],
             },
             "priority": {
