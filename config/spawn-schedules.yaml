@@ -45,11 +45,17 @@ spawn_schedules:
     min_interval_minutes: 30
     jitter_minutes: 0
 
+  # Prospector opportunity-scout cadence. Read by runner/main.py _maybe_spawn_scout
+  # (NOT by the spawn gate — kept out of by_pair/by_task_type so it isn't
+  # double-gated). Edit here to retune; picked up on the next runner cycle.
+  scout:
+    min_interval_minutes: 30      # Prospector scouts new opportunities every 30 min
+
   # Keyed by task_type — shared cooldown across all agents emitting this type.
   by_task_type:
     prospect_research:            # Pitch / local_outreach_pod continuous loop
-      min_interval_minutes: 30    # was an unenforced "15 min" prompt directive
-      max_per_day: 40             # ~one run per 30m across a ~20h active window
+      min_interval_minutes: 60    # hourly — have 600+ leads, working pipeline not gathering
+      max_per_day: 16             # hard cap to stop constant lead-gen spend
       jitter_minutes: 3           # spread runs so they don't lockstep the cycle
 
   # Keyed by agent — applies to ALL of that agent's task_types not matched above.

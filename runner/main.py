@@ -316,7 +316,10 @@ Run the Prospector opportunity scout for opportunity_pod.
 
 
 def _maybe_spawn_scout() -> None:
-    if not scout_due(interval_hours=2):
+    from runner.config import load_spawn_schedules
+    scout_cfg = (load_spawn_schedules() or {}).get("scout", {}) or {}
+    interval_hours = scout_cfg.get("min_interval_minutes", 120) / 60
+    if not scout_due(interval_hours=interval_hours):
         return
     from runner.tools.task_creator import create_task
     if is_pod_budget_exceeded("opportunity_pod"):
