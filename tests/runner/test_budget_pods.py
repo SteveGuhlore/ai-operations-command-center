@@ -31,3 +31,29 @@ def test_pod_budget_exceeded(tmp_path, monkeypatch):
     assert budget.is_pod_budget_exceeded("opportunity_pod") is False
     budget.record_spend("opportunity_worker", 0.02, pod="opportunity_pod")
     assert budget.is_pod_budget_exceeded("opportunity_pod") is True
+
+
+def test_agentbase_passes_pod(monkeypatch):
+    import runner.agents.base as base
+    calls = []
+    monkeypatch.setattr(base, "record_spend", lambda role, cost, pod=None: calls.append((role, pod)))
+    monkeypatch.setattr(base, "dispatch_tool", lambda *a, **k: {})
+
+    agent = base.AgentBase("opportunity_worker", "gemini-2.5-flash", "sys", tools=[])
+
+    class _Msg:
+        content = "done"
+        tool_calls = None
+    class _Choice:
+        finish_reason = "stop"
+        message = _Msg()
+    class _Usage:
+        prompt_tokens = 10
+        completion_tokens = 5
+    class _Resp:
+        choices = [_Choice()]
+        usage = _Usage()
+    monkeypatch.setattr(agent.client.chat.completions, "create", lambda **k: _Resp())
+
+    agent.run({"task_id": "T1", "body": "hi", "pod": "opportunity_pod"})
+    assert calls and calls[0][1] == "opportunity_pod"
