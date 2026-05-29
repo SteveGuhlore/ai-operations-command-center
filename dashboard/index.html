@@ -1450,50 +1450,66 @@ async function gradeOpp(slug, verdict) {
   refreshOpportunities();
 }
 
-async function refreshRunway() {
-  try {
-    const d = await fetch("/api/runway").then(r => r.json());
-    const alive = d.status === "alive";
-    // Red-themed throughout (it's a death clock): soft crimson while healthy,
-    // orange ≤3d, bright red ≤1d, red when dead.
-    const color = !alive ? "#e55"
-      : d.days_remaining <= 1 ? "#e55"
-      : d.days_remaining <= 3 ? "var(--orange)"
-      : "#e08a8a";
-    const skull = alive ? "☠" : "💀";
-    // Prospector ALWAYS wears a doomsday class so it stands out; it just escalates.
-    let dday = "doomsday-alive";
-    if (!alive) dday = "doomsday-dead";
-    else if (d.days_remaining <= 1) dday = "doomsday-critical";
-    else if (d.days_remaining <= 3) dday = "doomsday-warning";
-    // Apply to BOTH the clock panel and the Prospector agent card so it visibly
-    // looks like it's living on borrowed time wherever you're looking.
-    ["runway-clock", "card-opportunity_worker"].forEach(id => {
-      const e = document.getElementById(id);
-      if (!e) return;
-      e.classList.remove("doomsday-alive", "doomsday-warning", "doomsday-critical", "doomsday-dead");
-      e.classList.add(dday);
-    });
-    // Paint the doomsday clock directly onto the Prospector card.
-    const card = document.getElementById("card-opportunity_worker");
-    if (card) {
-      let cr = card.querySelector(".card-runway");
-      if (!cr) { cr = document.createElement("div"); cr.className = "card-runway"; card.appendChild(cr); }
-      cr.innerHTML = `<span style="color:${color}">${skull} ${alive ? d.days_remaining + "d left" : String(d.status).toUpperCase()} · $${d.real_revenue} real · ${d.revived_count}☠ deaths</span>`;
-    }
-    const el = document.getElementById("runway-clock");
-    if (!el) return;
+let _runway = null;
+
+function _fmtDoomsday(surviveBy) {
+  // Live ticking countdown to the runway deadline (local midnight of survive-by).
+  // (Named distinctly from the spawn-gate's _fmtCountdown to avoid hoisting collision.)
+  let ms = new Date(surviveBy + "T00:00:00") - new Date();
+  if (ms < 0) ms = 0;
+  const day = Math.floor(ms / 86400000);
+  const h = Math.floor((ms % 86400000) / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const p = n => String(n).padStart(2, "0");
+  return (day > 0 ? day + "d " : "") + `${p(h)}:${p(m)}:${p(s)}`;
+}
+
+// Renders from the last-fetched _runway; called every second so the clock ticks.
+function renderRunway() {
+  const d = _runway;
+  if (!d) return;
+  const alive = d.status === "alive";
+  const color = !alive ? "#e55"
+    : d.days_remaining <= 1 ? "#e55"
+    : d.days_remaining <= 3 ? "var(--orange)"
+    : "#e08a8a";
+  const skull = alive ? "☠" : "💀";
+  let dday = "doomsday-alive";
+  if (!alive) dday = "doomsday-dead";
+  else if (d.days_remaining <= 1) dday = "doomsday-critical";
+  else if (d.days_remaining <= 3) dday = "doomsday-warning";
+  ["runway-clock", "card-opportunity_worker"].forEach(id => {
+    const e = document.getElementById(id);
+    if (!e) return;
+    e.classList.remove("doomsday-alive", "doomsday-warning", "doomsday-critical", "doomsday-dead");
+    e.classList.add(dday);
+  });
+  const clock = alive ? _fmtDoomsday(d.survive_by) : String(d.status).toUpperCase();
+  const card = document.getElementById("card-opportunity_worker");
+  if (card) {
+    let cr = card.querySelector(".card-runway");
+    if (!cr) { cr = document.createElement("div"); cr.className = "card-runway"; card.appendChild(cr); }
+    cr.innerHTML = `<span style="color:${color};font-variant-numeric:tabular-nums">${skull} ${clock} · $${d.real_revenue} real · ${d.revived_count}☠ deaths</span>`;
+  }
+  const el = document.getElementById("runway-clock");
+  if (el) {
     const revive = alive ? "" :
       ` <button class="trigger-btn" onclick="reviveProspector()">⚡ Revive</button>`;
     el.innerHTML =
-      `<span style="color:${color};font-weight:bold">${skull} DOOMSDAY CLOCK: ${String(d.status).toUpperCase()}</span> · ` +
-      `runway <b>${d.days_remaining}d</b> (survive-by ${d.survive_by}) · ` +
+      `<span style="color:${color};font-weight:bold;font-variant-numeric:tabular-nums">${skull} DOOMSDAY CLOCK: <b>${clock}</b>${alive ? " until shutdown" : ""}</span> · ` +
       `real revenue <b>$${d.real_revenue}</b> / spend $${d.spend} · ` +
       `<span title="times the pod hit zero and was revived">deaths <b>${d.revived_count}</b></span> · ` +
       `every $1 booked = +1 day${revive}`;
     el.style.borderColor = color;
-  } catch { /* leave last-known */ }
+  }
 }
+
+async function refreshRunway() {
+  try { _runway = await fetch("/api/runway").then(r => r.json()); renderRunway(); }
+  catch { /* leave last-known */ }
+}
+setInterval(renderRunway, 1000);  // tick the doomsday clock every second
 
 async function reviveProspector() {
   await fetch("/api/runway/revive", { method: "POST" }).then(r => r.json());
