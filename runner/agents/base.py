@@ -119,6 +119,11 @@ class AgentBase:
             # At 4096 the model spends the budget reasoning and hits finish_reason=length
             # before any tool call -> empty output, no page. Give it room to think + write.
             max_tokens = 32768
+        elif self.role_id == "market_research_worker":
+            # Tony runs gemini-2.5-pro (thinking) over a heavy brief (7KB EOD report + history)
+            # and must still emit analysis + tool calls. At 4096 he hit finish_reason=length and
+            # returned "(no tool calls made this run)" — same trap as Clay. Give him room.
+            max_tokens = 16384
         elif self.role_id in (
             "digital_product_worker", "content_worker", "heavy_worker", "outreach_worker"
         ):
