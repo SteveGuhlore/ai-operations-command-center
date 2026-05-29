@@ -454,11 +454,12 @@ def _maybe_run_learning() -> None:
     if not daily_learning_due(hour_after=2):
         return
     root = Path(__file__).parent.parent
-    log.info("Daily learning hook firing — improvement_loop + opportunity_synthesis")
+    log.info("Daily learning hook firing — improvement_loop + opportunity_synthesis + design_synthesis")
     subprocess.run([sys.executable, str(root / "scripts" / "improvement_loop.py")], cwd=root, check=False)
-    syn = root / "scripts" / "opportunity_synthesis.py"
-    if syn.exists():
-        subprocess.run([sys.executable, str(syn)], cwd=root, check=False)
+    for script in ("opportunity_synthesis.py", "design_synthesis.py"):
+        syn = root / "scripts" / script
+        if syn.exists():
+            subprocess.run([sys.executable, str(syn)], cwd=root, check=False)
     if weekly_sage_due():
         from runner.tools.task_creator import create_task
         create_task(
