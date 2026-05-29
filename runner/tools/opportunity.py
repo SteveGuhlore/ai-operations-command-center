@@ -1,6 +1,7 @@
 # runner/tools/opportunity.py
 from datetime import datetime
 from pathlib import Path
+from runner.ledger.revenue import get_pod_revenue
 
 BASE_DIR = Path(__file__).parent.parent.parent
 OPP_DIR = BASE_DIR / "vault" / "opportunities"
@@ -69,6 +70,20 @@ def read_ledger() -> list[dict]:
                      "system_fit": c[4], "est_rev_mo": c[5], "status": c[6],
                      "pod": c[7], "updated": c[8]})
     return rows
+
+
+def rank_score(row: dict) -> tuple:
+    """Sort key: real revenue dominates the internal composite. Returns
+    (has_revenue, revenue_usd, composite) so any earning opportunity outranks
+    any projection-only one; earners order by revenue, the rest by composite.
+    Use with sorted(..., key=rank_score, reverse=True)."""
+    pod = row.get("pod", "—")
+    revenue = get_pod_revenue(pod) if pod not in ("—", "-", "", None) else 0.0
+    try:
+        composite = float(row.get("composite", 0.0))
+    except (TypeError, ValueError):
+        composite = 0.0
+    return (1 if revenue > 0 else 0, revenue, composite)
 
 
 def log_opportunity(
