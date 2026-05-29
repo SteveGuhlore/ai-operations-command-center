@@ -40,6 +40,13 @@ def test_build_calibration_baseline_when_nothing():
     assert "No calibration" in txt
 
 
+def test_build_calibration_includes_deaths_when_died():
+    txt = syn.build_calibration({"triggered": False, "deepdived": 0, "low": 0, "rate": 0.0},
+                                winners=[], deaths=2)
+    assert "died 2" in txt
+    assert "survival is not guaranteed" in txt.lower()
+
+
 def test_update_calibration_block_replaces_only_region(tmp_path, monkeypatch):
     f = tmp_path / "p.md"
     f.write_text(

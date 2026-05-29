@@ -287,6 +287,20 @@
 
   .agent-card.offline { opacity: 0.35; border-style: dashed; }
 
+  /* ── Doomsday death-throes (Prospector runway) ─────────────────────────── */
+  @keyframes doomsday-pulse {
+    0%, 100% { box-shadow: 0 0 4px rgba(229,85,85,0.30); }
+    50%      { box-shadow: 0 0 20px rgba(229,85,85,0.95); }
+  }
+  @keyframes doomsday-flatline {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.30; }
+  }
+  .doomsday-warning  { animation: doomsday-pulse 2.4s ease-in-out infinite; border: 1px solid rgba(229,85,85,0.55) !important; }
+  .doomsday-critical { animation: doomsday-pulse 0.7s ease-in-out infinite; border: 1px solid #e55 !important; }
+  .doomsday-critical .agent-display, .doomsday-critical .agent-display * { color: #e55 !important; }
+  .doomsday-dead     { animation: doomsday-flatline 1.1s steps(2, end) infinite; filter: grayscale(0.85); border: 1px dashed #e55 !important; }
+
   /* card content */
   .agent-name {
     font-size: 9px;
@@ -1152,6 +1166,10 @@ async function refreshLoopStatus() {
 setInterval(refreshLoopStatus, 15000);
 refreshLoopStatus();
 
+// Keep the doomsday effect alive on the Prospector card from any tab.
+setInterval(refreshRunway, 5000);
+refreshRunway();
+
 // ── Pod trigger ───────────────────────────────────────────────
 async function triggerPod(pod) {
   const btn = [...document.querySelectorAll(".trigger-btn")]
@@ -1415,16 +1433,32 @@ async function gradeOpp(slug, verdict) {
 async function refreshRunway() {
   try {
     const d = await fetch("/api/runway").then(r => r.json());
+    const alive = d.status === "alive";
+    // Death-throes class — gets more frantic as the runway runs out.
+    let dday = "";
+    if (!alive) dday = "doomsday-dead";
+    else if (d.days_remaining <= 1) dday = "doomsday-critical";
+    else if (d.days_remaining <= 3) dday = "doomsday-warning";
+    // Apply to BOTH the clock panel and the Prospector agent card so it visibly
+    // looks like it might die wherever you're looking.
+    ["runway-clock", "card-opportunity_worker"].forEach(id => {
+      const e = document.getElementById(id);
+      if (!e) return;
+      e.classList.remove("doomsday-warning", "doomsday-critical", "doomsday-dead");
+      if (dday) e.classList.add(dday);
+    });
     const el = document.getElementById("runway-clock");
     if (!el) return;
-    const alive = d.status === "alive";
     const color = alive ? (d.days_remaining <= 3 ? "var(--orange)" : "var(--green)") : "#e55";
+    const skull = alive ? "☠" : "💀";
     const revive = alive ? "" :
       ` <button class="trigger-btn" onclick="reviveProspector()">⚡ Revive</button>`;
     el.innerHTML =
-      `<span style="color:${color};font-weight:bold">☠ DOOMSDAY CLOCK: ${String(d.status).toUpperCase()}</span> · ` +
+      `<span style="color:${color};font-weight:bold">${skull} DOOMSDAY CLOCK: ${String(d.status).toUpperCase()}</span> · ` +
       `runway <b>${d.days_remaining}d</b> (survive-by ${d.survive_by}) · ` +
-      `real revenue <b>$${d.real_revenue}</b> / spend $${d.spend} · every $1 booked = +1 day${revive}`;
+      `real revenue <b>$${d.real_revenue}</b> / spend $${d.spend} · ` +
+      `<span title="times the pod hit zero and was revived">deaths <b>${d.revived_count}</b></span> · ` +
+      `every $1 booked = +1 day${revive}`;
     el.style.borderColor = color;
   } catch { /* leave last-known */ }
 }

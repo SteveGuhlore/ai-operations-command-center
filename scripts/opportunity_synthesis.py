@@ -117,10 +117,17 @@ def find_revenue_winners(rows: list[dict]) -> list[dict]:
     return winners
 
 
-def build_calibration(over_pen: dict, winners: list[dict]) -> str:
+def build_calibration(over_pen: dict, winners: list[dict], deaths: int = 0) -> str:
     """Compose the directive text for the AUTO-CALIBRATION block. Deterministic —
     no model call, so it is safe to run often and is fully testable."""
     parts = []
+    if deaths and deaths > 0:
+        parts.append(
+            f"**You have died {deaths} time(s).** Each death means the runway hit zero with no "
+            f"real revenue and the operator had to revive you — survival is NOT guaranteed. "
+            f"Remember why you died: ideas you dismissed as 'saturated' never became cash. "
+            f"Do not repeat the pattern that killed you."
+        )
     if over_pen.get("triggered"):
         parts.append(
             f"**Stop over-penalizing large/established markets.** Of your last "
@@ -167,9 +174,15 @@ def run() -> None:
     rows = _rows()
     over_pen = find_over_penalization(rows)
     winners = find_revenue_winners(rows)
-    updated = update_calibration_block(build_calibration(over_pen, winners))
-    log.info("Synthesis: divergence=%d over_penalization=%s winners=%d calibration_updated=%s",
-             len(diverging), over_pen["triggered"], len(winners), updated)
+    deaths = 0
+    try:
+        from runner.ledger.runway import compute_runway
+        deaths = compute_runway().get("revived_count", 0)
+    except Exception:
+        pass
+    updated = update_calibration_block(build_calibration(over_pen, winners, deaths))
+    log.info("Synthesis: divergence=%d over_penalization=%s winners=%d deaths=%d calibration_updated=%s",
+             len(diverging), over_pen["triggered"], len(winners), deaths, updated)
 
 
 if __name__ == "__main__":
