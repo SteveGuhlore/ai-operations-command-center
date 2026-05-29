@@ -300,14 +300,22 @@
   .doomsday-critical { animation: doomsday-pulse 0.7s ease-in-out infinite; border: 1px solid #e55 !important; }
   .doomsday-critical .agent-display, .doomsday-critical .agent-display * { color: #e55 !important; }
   .doomsday-dead     { animation: doomsday-flatline 1.1s steps(2, end) infinite; filter: grayscale(0.85); border: 1px dashed #e55 !important; }
+  /* Prospector is ALWAYS on the doomsday clock — even healthy it glows crimson so
+     it visibly stands apart from every other agent; it just breathes calmer while
+     it still has runway, then escalates to warning → critical → flatline. */
+  @keyframes doomsday-ember {
+    0%, 100% { box-shadow: 0 0 5px rgba(229,85,85,0.25); border-color: rgba(229,85,85,0.45); background: rgba(229,85,85,0.03); }
+    50%      { box-shadow: 0 0 17px rgba(229,85,85,0.60); border-color: rgba(229,85,85,0.80); background: rgba(229,85,85,0.06); }
+  }
+  .doomsday-alive { animation: doomsday-ember 3s ease-in-out infinite; border: 1px solid rgba(229,85,85,0.5) !important; }
 
-  /* Idle glow — calm cyan breathing, so an idle agent reads as "alive, waiting"
-     (distinct from green=working, red=error). */
+  /* Idle glow — calm cyan breathing (distinct from green=working, red=error).
+     Excluded for any doomsday-themed card so the death clock owns its look. */
   @keyframes idle-breathe {
     0%, 100% { box-shadow: 0 0 6px rgba(0,212,255,0.10); }
     50%      { box-shadow: 0 0 12px rgba(0,212,255,0.22); }
   }
-  .agent-card.idle:not(.working):not(.error):not(.budget_paused):not(.offline):not(.doomsday-dead) {
+  .agent-card.idle:not(.working):not(.error):not(.budget_paused):not(.offline):not([class*="doomsday"]) {
     animation: idle-breathe 3.6s ease-in-out infinite;
   }
   /* Doomsday readout shown directly on the Prospector card. */
@@ -1446,20 +1454,25 @@ async function refreshRunway() {
   try {
     const d = await fetch("/api/runway").then(r => r.json());
     const alive = d.status === "alive";
-    const color = alive ? (d.days_remaining <= 3 ? "var(--orange)" : "var(--green)") : "#e55";
+    // Red-themed throughout (it's a death clock): soft crimson while healthy,
+    // orange ≤3d, bright red ≤1d, red when dead.
+    const color = !alive ? "#e55"
+      : d.days_remaining <= 1 ? "#e55"
+      : d.days_remaining <= 3 ? "var(--orange)"
+      : "#e08a8a";
     const skull = alive ? "☠" : "💀";
-    // Death-throes class — gets more frantic as the runway runs out.
-    let dday = "";
+    // Prospector ALWAYS wears a doomsday class so it stands out; it just escalates.
+    let dday = "doomsday-alive";
     if (!alive) dday = "doomsday-dead";
     else if (d.days_remaining <= 1) dday = "doomsday-critical";
     else if (d.days_remaining <= 3) dday = "doomsday-warning";
     // Apply to BOTH the clock panel and the Prospector agent card so it visibly
-    // looks like it might die wherever you're looking.
+    // looks like it's living on borrowed time wherever you're looking.
     ["runway-clock", "card-opportunity_worker"].forEach(id => {
       const e = document.getElementById(id);
       if (!e) return;
-      e.classList.remove("doomsday-warning", "doomsday-critical", "doomsday-dead");
-      if (dday) e.classList.add(dday);
+      e.classList.remove("doomsday-alive", "doomsday-warning", "doomsday-critical", "doomsday-dead");
+      e.classList.add(dday);
     });
     // Paint the doomsday clock directly onto the Prospector card.
     const card = document.getElementById("card-opportunity_worker");
