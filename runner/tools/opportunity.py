@@ -180,6 +180,7 @@ def grade_poc(slug: str, verdict: str, reason: str) -> dict:
             if graded == text:  # already graded before; append
                 graded = text + f"\n\n## PoC Grade ({today})\n**{verdict}** — {reason}\n"
             page.write_text(graded, encoding="utf-8")
+        ledger_matched = False
         if LEDGER_FILE.exists():
             lines = LEDGER_FILE.read_text(encoding="utf-8").splitlines()
             for i, line in enumerate(lines):
@@ -191,8 +192,14 @@ def grade_poc(slug: str, verdict: str, reason: str) -> dict:
                         cells[6] = "graded"    # status
                         cells[8] = datetime.now().strftime("%Y-%m-%d")
                         lines[i] = "| " + " | ".join(cells) + " |"
+                        ledger_matched = True
                     break
             LEDGER_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        if not ledger_matched:
+            # Silent no-op on a slug typo/mismatch is the exact failure that left
+            # graded PoCs stuck at poc="—": fail loudly so the caller (or the
+            # operator's grade button) knows the verdict did not land.
+            return {"error": f"{slug} not found in opportunity ledger — verdict not recorded"}
         return {"success": True, "slug": slug, "verdict": verdict}
     except OSError as exc:
         return {"error": str(exc)}

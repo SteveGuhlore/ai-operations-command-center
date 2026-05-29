@@ -318,6 +318,14 @@ Run the Prospector opportunity scout for opportunity_pod.
 """
 
 
+def _poc_built(slug: str) -> bool:
+    """True if a PoC has already been scaffolded for this slug under
+    workspace/poc/<slug>/ — the signal that the build step is done and the grade
+    step should run next."""
+    from runner.tools.poc_sandbox import POC_ROOT
+    return (POC_ROOT / slug).is_dir()
+
+
 def _opportunity_task_pending() -> bool:
     """True if any Prospector pipeline task is already queued, so the cycle should
     let it run rather than spawn another."""
@@ -365,7 +373,8 @@ def _advance_opportunity_pipeline() -> None:
 
     # 2) Build a PoC for the best researched idea that doesn't have one yet.
     buildable = [r for r in rows if r.get("phase") == "deepdived"
-                 and r.get("poc", "—") in ("—", "-", "") and r["composite"] >= 70]
+                 and r.get("poc", "—") in ("—", "-", "") and r["composite"] >= 70
+                 and not _poc_built(r["slug"])]
     if buildable:
         top = max(buildable, key=rank_score)
         create_task(
@@ -376,6 +385,27 @@ def _advance_opportunity_pipeline() -> None:
             assigned_agent="heavy_worker", task_type="poc_build",
             pod="opportunity_pod", priority="normal")
         log.info("Pipeline: PoC build %s", top["slug"])
+        return
+
+    # 2.4) Grade a PoC that has been built but not yet graded. The pipeline owns
+    # poc_grade-task creation (correct task_type) so it no longer depends on the
+    # builder remembering to spawn it — the historical source of mislabeled,
+    # never-graded tasks that left PoCs stuck at poc="—".
+    gradeable = [r for r in rows
+                 if r.get("poc", "—") in ("—", "-", "") and _poc_built(r["slug"])]
+    if gradeable:
+        top = max(gradeable, key=rank_score)
+        create_task(
+            title=f"PoC grade: {top['slug']}",
+            body=(f"Grade the proof-of-concept for [[{top['slug']}]] under "
+                  f"workspace/poc/{top['slug']}/. Review output.txt and the demo files against "
+                  f"the Build Spec in vault/opportunities/{top['slug']}.md. You MUST finish by "
+                  f"calling grade_poc(slug='{top['slug']}', verdict=..., reason=...) with verdict "
+                  f"promising/weak/dead — the task is NOT complete until grade_poc returns success. "
+                  f"Do not mark this task done without calling grade_poc."),
+            assigned_agent="opportunity_worker", task_type="poc_grade",
+            pod="opportunity_pod", priority="normal")
+        log.info("Pipeline: PoC grade %s", top["slug"])
         return
 
     # 2.5) Graduate a promising PoC into a draft landing page (autonomous build;
