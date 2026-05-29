@@ -40,6 +40,7 @@ from runner.tools.poc_sandbox import TOOL_SPEC as POC_RUNNER_TOOL_SPEC
 from runner.tools.task_creator import create_task
 from runner.tools.landing import landing_exists, write_landing_state
 from runner.tools.opportunity import rank_score
+from runner.ledger.runway import runway_expired, pause_pod
 from runner.scheduler.daily_jobs import (
     scout_due, mark_scout_ran,
     daily_learning_due, mark_learning_ran,
@@ -348,6 +349,15 @@ def _advance_opportunity_pipeline() -> None:
 
     if is_pod_budget_exceeded("opportunity_pod"):
         log.info("Pipeline: opportunity_pod budget reached — pausing Prospector.")
+        return
+
+    # Doomsday clock: the pod survives only while its runway holds. The runway
+    # burns with spend/time and is extended only by REAL logged revenue, so an
+    # expired runway means "earned nothing real in time" — pull the plug
+    # (reversible auto-pause; operator revives via dashboard/CLI).
+    if runway_expired():
+        pause_pod()
+        log.warning("Pipeline: Prospector runway EXPIRED — pod auto-paused (no real revenue in time).")
         return
 
     # If any opportunity work is already queued, let the 10-min cycle run it.
