@@ -37,6 +37,9 @@ from runner.tools.crm_dedup import dedup_crm
 from runner.tools.opportunity import TOOL_SPEC_LOG as OPP_LOG_TOOL_SPEC, TOOL_SPEC_GRADE as OPP_GRADE_TOOL_SPEC, TOOL_SPEC_UPDATE as OPP_UPDATE_TOOL_SPEC
 from runner.tools.code import TOOL_SPEC as CODE_TOOL_SPEC
 from runner.tools.poc_sandbox import TOOL_SPEC as POC_RUNNER_TOOL_SPEC
+from runner.tools.task_creator import create_task
+from runner.tools.landing import landing_exists, write_landing_state
+from runner.tools.opportunity import rank_score
 from runner.scheduler.daily_jobs import (
     scout_due, mark_scout_ran,
     daily_learning_due, mark_learning_ran,
@@ -315,12 +318,24 @@ Run the Prospector opportunity scout for opportunity_pod.
 """
 
 
+def _opportunity_task_pending() -> bool:
+    """True if any Prospector pipeline task is already queued, so the cycle should
+    let it run rather than spawn another."""
+    from runner.tools.task_creator import _has_pending_task
+    for agent, tt in (("opportunity_worker", "opportunity_scout"),
+                      ("opportunity_worker", "opportunity_deepdive"),
+                      ("heavy_worker", "poc_build"),
+                      ("opportunity_worker", "poc_grade")):
+        if _has_pending_task(agent, tt):
+            return True
+    return False
+
+
 def _advance_opportunity_pipeline() -> None:
     """Keep Prospector perpetually working. Each cycle, if no opportunity task is
     already queued, spawn the next pipeline step so he flows scout -> deep-dive
-    (every idea, not just >=75) -> PoC build -> fresh scout, never idling. The
-    opportunity_pod daily cap is the only guardrail."""
-    from runner.tools.task_creator import create_task, _has_pending_task
+    (every idea, not just >=75) -> PoC build -> graduate (landing build) -> fresh
+    scout, never idling. The opportunity_pod daily cap is the only guardrail."""
     from runner.tools.opportunity import read_ledger
 
     if is_pod_budget_exceeded("opportunity_pod"):
@@ -328,19 +343,15 @@ def _advance_opportunity_pipeline() -> None:
         return
 
     # If any opportunity work is already queued, let the 10-min cycle run it.
-    for agent, tt in (("opportunity_worker", "opportunity_scout"),
-                      ("opportunity_worker", "opportunity_deepdive"),
-                      ("heavy_worker", "poc_build"),
-                      ("opportunity_worker", "poc_grade")):
-        if _has_pending_task(agent, tt):
-            return
+    if _opportunity_task_pending():
+        return
 
     rows = read_ledger()
 
     # 1) Deep-dive the highest-scored idea not yet researched.
     scouted = [r for r in rows if r.get("phase") == "scouted"]
     if scouted:
-        top = max(scouted, key=lambda r: r["composite"])
+        top = max(scouted, key=rank_score)
         create_task(
             title=f"Deep-dive: {top['slug']}",
             body=(f"Deep-dive the opportunity [[{top['slug']}]]. Research market size, "
@@ -356,7 +367,7 @@ def _advance_opportunity_pipeline() -> None:
     buildable = [r for r in rows if r.get("phase") == "deepdived"
                  and r.get("poc", "—") in ("—", "-", "") and r["composite"] >= 70]
     if buildable:
-        top = max(buildable, key=lambda r: r["composite"])
+        top = max(buildable, key=rank_score)
         create_task(
             title=f"PoC build: {top['slug']}",
             body=(f"Build a minimal sandboxed proof-of-concept for [[{top['slug']}]] following "
@@ -365,6 +376,28 @@ def _advance_opportunity_pipeline() -> None:
             assigned_agent="heavy_worker", task_type="poc_build",
             pod="opportunity_pod", priority="normal")
         log.info("Pipeline: PoC build %s", top["slug"])
+        return
+
+    # 2.5) Graduate a promising PoC into a draft landing page (autonomous build;
+    # deploy stays behind the dashboard's one-click human gate).
+    promising = [r for r in rows
+                 if r.get("poc") == "promising" and not landing_exists(r["slug"])]
+    if promising:
+        top = max(promising, key=rank_score)
+        write_landing_state(top["slug"], status="queued")
+        create_task(
+            title=f"Landing build: {top['slug']}",
+            body=(f"Build a one-page product landing page for the graduated opportunity "
+                  f"[[{top['slug']}]]. Read its value prop, who-pays, and pricing from "
+                  f"vault/opportunities/{top['slug']}.md. Follow the 'Product Landing Page "
+                  f"(landing_build)' section of your system prompt. Save the page to "
+                  f"workspace/sites/{top['slug']}/index.html with the CTA button's href set to "
+                  f"the literal placeholder __STRIPE_PAYMENT_LINK__ (do NOT invent a URL — the "
+                  f"operator injects the live Stripe Payment Link at deploy). End your summary "
+                  f"with: LANDING DRAFTED: {top['slug']}"),
+            assigned_agent="builder", task_type="landing_build",
+            pod="opportunity_pod", priority="normal")
+        log.info("Pipeline: landing build %s", top["slug"])
         return
 
     # 3) Everything processed — scout a fresh batch of ideas.
