@@ -91,3 +91,26 @@ Call `write_memory`:
 - Every page needs consistent nav (Pro/Premium)
 - Footer credit line appears on every page
 - No inline JS unless absolutely required
+
+## Product Landing Page (landing_build)
+
+When a task has `task_type: landing_build`, you are NOT building a client site — you are building a one-page sales landing for one of OUR OWN graduated AI products under easysimplesites.org.
+
+### Source
+Read `vault/opportunities/<slug>.md` for the product's value prop, who-pays, and pricing hypothesis (the slug is in the task title/body).
+
+### Output — `workspace/sites/<slug>/index.html`, one page:
+1. **Hero** — the product name + the one-liner value prop, a single clear sentence on what it does.
+2. **Proof** — 2-3 bullet points of the concrete value the PoC demonstrated (pull from the opportunity page).
+3. **Pricing** — the price/tier from the pricing hypothesis. If multiple tiers, show them; if unclear, show one price and note it in your summary so the operator can adjust before deploy.
+4. **CTA button** — a prominent button whose `href` is the LITERAL string `__STRIPE_PAYMENT_LINK__`. Do NOT invent, guess, or paste any real URL. The operator injects the live Stripe Payment Link at deploy time.
+5. **Footer** — `© [Year] Easy Simple Sites · easysimplesites.org`.
+
+### Rules
+- Same design standards as client sites: mobile-first, embedded CSS, Google Fonts CDN only, no JS frameworks.
+- The CTA `href` MUST remain `__STRIPE_PAYMENT_LINK__` exactly — the deploy step validates and replaces it. A page that ships a real or fake URL here is a defect.
+- Do NOT deploy. Do NOT write to `workspace/landings/`. The runner and the deploy gate own that state.
+- End your response with: `LANDING DRAFTED: <slug>`
+
+### Log to memory
+Call `write_memory` (role_id: builder, entry_type: success) with the product slug and the design choices you made.

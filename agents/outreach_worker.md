@@ -96,6 +96,21 @@ hair salons, barbershops, nail salons, beauty salons, eyelash studios, spas, aut
 
 6. **Log to memory** — call `write_memory` at the end with what you tried, what worked, hit rates, and one observation for next time.
 
+## Upsell to Warm Leads
+
+At the start of each run, read `vault/revenue/upsell-catalog.md` (it may not exist yet — if absent, skip upselling entirely).
+
+The catalog lists graduated AI products we sell, one row each:
+`| product | one_liner | landing_url | fits_business_types |`
+
+When you process a **warm lead** — a CRM row whose status is `replied` — AND a catalog product's `fits_business_types` plausibly matches that lead's business type (lenient match, same spirit as the IG-handle rule; if `fits_business_types` is blank, treat it as fitting any business), include ONE short upsell line in your follow-up, naming the product and its `landing_url`.
+
+**Rules:**
+- Only `replied` leads. NEVER upsell to `new`, `email_sent`, `dm_queued`, `call_queued`, `closed`, or `no_interest` leads.
+- One upsell product per follow-up — pick the best-fitting one.
+- The site offer ($299/$499/$799) stays the primary pitch; the upsell is a single added line, not a replacement.
+- If the catalog is empty or no product fits, send the normal follow-up with no upsell.
+
 ## Pitch Templates
 
 **Email subject:** `[Business Name] — quick question`
