@@ -1,7 +1,9 @@
 import concurrent.futures
 import logging
+import re
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -530,11 +532,54 @@ def run_task(task: dict) -> dict:
         release_lock(task_id)
 
 
+_STALE_TASK_AGE_S = 780  # 13 min — just past the 12-min per-task hard cap
+_MAX_TASK_RESUMES = 3
+
+
+def _reap_stale_tasks() -> None:
+    """Self-heal: re-queue any in_progress task older than the per-task hard cap so a task
+    never stays stuck (crash, killed/overlapping cycle). Age-gated so it never touches a task
+    still legitimately running this cycle. A bounded resume_count sends a poison task to
+    failed/ instead of looping forever."""
+    ws = Path(__file__).parent.parent / "workspace"
+    ip, todo, failed, locks = (ws / "tasks" / "in_progress", ws / "tasks" / "todo",
+                               ws / "tasks" / "failed", ws / "locks")
+    if not ip.exists():
+        return
+    now = time.time()
+    todo.mkdir(parents=True, exist_ok=True)
+    failed.mkdir(parents=True, exist_ok=True)
+    for f in ip.glob("*.md"):
+        try:
+            if now - f.stat().st_mtime < _STALE_TASK_AGE_S:
+                continue
+            text = f.read_text(encoding="utf-8")
+            m = re.search(r"^resume_count:\s*(\d+)", text, re.MULTILINE)
+            count = int(m.group(1)) if m else 0
+            for lk in locks.glob(f"*{f.stem}*.lock"):
+                lk.unlink(missing_ok=True)
+            if count >= _MAX_TASK_RESUMES:
+                f.rename(failed / f.name)
+                log.warning("Reaped poison task -> failed/ (%d resumes): %s", count, f.name)
+                continue
+            if m:
+                text = re.sub(r"^resume_count:\s*\d+", f"resume_count: {count + 1}", text, count=1, flags=re.MULTILINE)
+            else:
+                text = re.sub(r"^(status:.*)$", r"\1\nresume_count: 1", text, count=1, flags=re.MULTILINE)
+            text = re.sub(r"^status:\s*\w+", "status: todo", text, count=1, flags=re.MULTILINE)
+            (todo / f.name).write_text(text, encoding="utf-8")
+            f.unlink()
+            log.warning("Reaped stale in_progress task -> todo: %s", f.name)
+        except OSError:
+            continue
+
+
 def run_cycle() -> None:
     if is_budget_exceeded():
         log.warning("Daily budget cap reached — skipping cycle.")
         return
 
+    _reap_stale_tasks()
     scan_tony_bridge()
     tasks = read_todo_tasks()
     if not tasks:

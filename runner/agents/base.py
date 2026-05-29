@@ -114,9 +114,17 @@ class AgentBase:
         total_output = 0
         output_text = ""
 
-        max_tokens = 8192 if self.role_id in (
+        if self.role_id == "builder":
+            # Clay runs gemini-2.5-pro (a thinking model) AND must emit a full HTML page.
+            # At 4096 the model spends the budget reasoning and hits finish_reason=length
+            # before any tool call -> empty output, no page. Give it room to think + write.
+            max_tokens = 32768
+        elif self.role_id in (
             "digital_product_worker", "content_worker", "heavy_worker", "outreach_worker"
-        ) else 4096
+        ):
+            max_tokens = 8192
+        else:
+            max_tokens = 4096
 
         oai_tools = _to_openai_tools(self.tools) if self.tools else None
 
