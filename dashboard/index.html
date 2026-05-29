@@ -763,6 +763,11 @@
         <tbody id="crm-recent"></tbody>
       </table>
       <div style="margin-top:10px;font-size:9px;color:var(--muted)" id="crm-empty">Loading outreach data…</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:10px">
+        <button class="trigger-btn" id="crm-prev" onclick="crmPrev()">‹ Prev</button>
+        <button class="trigger-btn" id="crm-next" onclick="crmNext()">Next ›</button>
+        <span id="crm-pager" style="color:var(--muted)"></span>
+      </div>
     </div>
 
     <!-- Tab: Revenue -->
@@ -1212,6 +1217,10 @@ function switchTab(name) {
 }
 
 // ── Outreach CRM ──────────────────────────────────────────────
+let crmRecent = [];
+let crmPage = 0;
+const CRM_PAGE_SIZE = 50;
+
 async function refreshCRM() {
   try {
     const d = await fetch("/api/outreach/stats").then(r => r.json());
@@ -1223,16 +1232,27 @@ async function refreshCRM() {
     document.getElementById("crm-call-q").textContent    = d.call_queued      ?? 0;
     document.getElementById("crm-conv-pct").textContent  = (d.conversion_pct??0) + "%";
 
-    const tbody  = document.getElementById("crm-recent");
-    const empty  = document.getElementById("crm-empty");
-    const recent = d.recent ?? [];
-    if (!recent.length) {
-      tbody.innerHTML = "";
+    crmRecent = (d.recent ?? []).slice().reverse();  // newest first
+    const empty = document.getElementById("crm-empty");
+    if (!crmRecent.length) {
+      document.getElementById("crm-recent").innerHTML = "";
       empty.textContent = d.total === 0 ? "No outreach sent yet. Run the Pitch agent to start." : "No recent entries.";
+      const pg = document.getElementById("crm-pager"); if (pg) pg.textContent = "";
       return;
     }
     empty.textContent = "";
-    tbody.innerHTML = recent.map(r => {
+    const maxPage = Math.max(0, Math.ceil(crmRecent.length / CRM_PAGE_SIZE) - 1);
+    if (crmPage > maxPage) crmPage = maxPage;
+    if (crmPage < 0) crmPage = 0;
+    renderCrmPage();
+  } catch { document.getElementById("crm-empty").textContent = "Error loading CRM data."; }
+}
+
+function renderCrmPage() {
+  const tbody = document.getElementById("crm-recent");
+  if (!tbody) return;
+  const start = crmPage * CRM_PAGE_SIZE;
+  tbody.innerHTML = crmRecent.slice(start, start + CRM_PAGE_SIZE).map(r => {
       const cls = (r.status||"new").toLowerCase().replace(/\s+/g,"_");
       const phone = r.contact || "—";
       const noteTip = r.notes ? r.notes : "";
@@ -1266,8 +1286,17 @@ async function refreshCRM() {
         <td style="white-space:nowrap">${actions}</td>
       </tr>`;
     }).join("");
-  } catch { document.getElementById("crm-empty").textContent = "Error loading CRM data."; }
+  const total = crmRecent.length;
+  const maxPage = Math.max(0, Math.ceil(total / CRM_PAGE_SIZE) - 1);
+  const pager = document.getElementById("crm-pager");
+  if (pager) pager.textContent = `Page ${crmPage + 1} / ${maxPage + 1} · ${total} leads (newest first)`;
+  const prev = document.getElementById("crm-prev"), next = document.getElementById("crm-next");
+  if (prev) prev.disabled = crmPage <= 0;
+  if (next) next.disabled = crmPage >= maxPage;
 }
+
+function crmPrev() { if (crmPage > 0) { crmPage--; renderCrmPage(); } }
+function crmNext() { const mp = Math.max(0, Math.ceil(crmRecent.length / CRM_PAGE_SIZE) - 1); if (crmPage < mp) { crmPage++; renderCrmPage(); } }
 
 async function logCall(business, status) {
   try {
