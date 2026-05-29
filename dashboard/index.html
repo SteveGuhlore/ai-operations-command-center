@@ -809,6 +809,7 @@
 
     <!-- Tab: Opportunities -->
     <div id="tab-opportunities" style="display:none">
+      <div id="runway-clock" style="margin-bottom:12px;padding:8px 10px;border:1px solid var(--muted);border-radius:6px;font-size:11px;color:var(--muted)">Loading runway…</div>
       <div class="section-title" style="margin-bottom:12px">Opportunity Board</div>
       <div class="opp-vitals">
         <span id="opp-spend">$0 / $10</span>
@@ -1209,7 +1210,7 @@ function switchTab(name) {
   });
   if (name === "crm")           refreshCRM();
   if (name === "revenue")     { refreshLandings(); refreshPnl(); }
-  if (name === "opportunities") refreshOpportunities();
+  if (name === "opportunities") { refreshOpportunities(); refreshRunway(); }
   if (name === "analytics")     refreshAnalytics();
   if (name === "spawn")       { refreshSpawnGate(); loadCadence(); }
   if (name === "tony")          renderTonyStocks();
@@ -1409,6 +1410,29 @@ async function gradeOpp(slug, verdict) {
     alert(`Error: ${r.error || "grade failed"}`);
   }
   refreshOpportunities();
+}
+
+async function refreshRunway() {
+  try {
+    const d = await fetch("/api/runway").then(r => r.json());
+    const el = document.getElementById("runway-clock");
+    if (!el) return;
+    const alive = d.status === "alive";
+    const color = alive ? (d.days_remaining <= 3 ? "var(--orange)" : "var(--green)") : "#e55";
+    const revive = alive ? "" :
+      ` <button class="trigger-btn" onclick="reviveProspector()">⚡ Revive</button>`;
+    el.innerHTML =
+      `<span style="color:${color};font-weight:bold">☠ DOOMSDAY CLOCK: ${String(d.status).toUpperCase()}</span> · ` +
+      `runway <b>${d.days_remaining}d</b> (survive-by ${d.survive_by}) · ` +
+      `real revenue <b>$${d.real_revenue}</b> / spend $${d.spend} · every $1 booked = +1 day${revive}`;
+    el.style.borderColor = color;
+  } catch { /* leave last-known */ }
+}
+
+async function reviveProspector() {
+  await fetch("/api/runway/revive", { method: "POST" }).then(r => r.json());
+  alert("Prospector revived — runway reset.");
+  refreshRunway();
 }
 
 async function logRevenue() {
