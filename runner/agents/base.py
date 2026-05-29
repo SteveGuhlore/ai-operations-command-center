@@ -222,7 +222,7 @@ class AgentBase:
                 for tc in (m.get("tool_calls") or [])
             ]
             if tool_names:
-                tail = "ALL_TOOLS_ERRORED" if all_tools_errored else "Check CRM for new entries."
+                tail = "ALL_TOOLS_ERRORED" if all_tools_errored else "(agent returned no text summary — see the files it changed)"
                 output_text = f"Run completed via tool calls: {', '.join(dict.fromkeys(tool_names))}. {tail}"
             else:
                 output_text = "(no tool calls made this run)"
