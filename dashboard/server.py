@@ -354,6 +354,21 @@ async def api_landing_deploy(request: Request):
             "next_step": f"Drag workspace/sites/{slug}/ to app.netlify.com/drop to publish."}
 
 
+@app.get("/api/runway")
+async def api_runway():
+    """Prospector doomsday clock: runway state (alive/expired/paused), days left,
+    real revenue, survive-by date."""
+    from runner.ledger.runway import compute_runway
+    return compute_runway()
+
+
+@app.post("/api/runway/revive")
+async def api_runway_revive():
+    """Operator action: revive a paused/expired Prospector pod (resets the clock)."""
+    from runner.ledger.runway import revive
+    return revive()
+
+
 @app.post("/api/opportunity/grade")
 async def api_opportunity_grade(request: Request):
     """Operator grades a PoC from the board (promising/weak/dead). Backs the manual
