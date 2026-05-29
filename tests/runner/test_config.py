@@ -7,7 +7,7 @@ def test_load_agents_returns_agent_list():
 
 def test_load_budgets_returns_daily_limit():
     data = load_budgets()
-    assert data["budgets"]["daily_limits"]["total_spend_limit_usd"] == 50.0
+    assert data["budgets"]["daily_limits"]["total_spend_limit_usd"] == 80.0
 
 def test_load_automation_level_returns_level():
     data = load_automation_level()

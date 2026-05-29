@@ -1,30 +1,31 @@
 import json
-from pathlib import Path
-from datetime import date
 from runner.bridge import tony_bridge as bridge_module
 
 
-SAMPLE_SCANNER = {
-    "date": "2026-05-21",
-    "type": "scanner",
-    "tickers": ["AAPL", "TSLA"],
-    "notes": "High momentum setups identified.",
-}
-
-
-def test_scanner_file_creates_task(tmp_path, monkeypatch):
-    bridge_dir = tmp_path / "bridge" / "tony-stocks"
+def _setup(tmp_path, monkeypatch):
+    reports_dir = tmp_path / "reports"
     tasks_dir = tmp_path / "workspace" / "tasks" / "todo"
-    bridge_dir.mkdir(parents=True)
+    reports_dir.mkdir(parents=True)
     tasks_dir.mkdir(parents=True)
-
-    monkeypatch.setattr(bridge_module, "BRIDGE_DIR", bridge_dir)
+    monkeypatch.setattr(bridge_module, "TRADING_REPORTS_DIR", reports_dir)
     monkeypatch.setattr(bridge_module, "TASKS_DIR", tasks_dir)
+    monkeypatch.setattr(bridge_module, "_PROCESSED_LOG", tmp_path / "processed.json")
+    monkeypatch.setattr(bridge_module, "VAULT_DIR", tmp_path / "vault")
+    return reports_dir, tasks_dir
 
-    scanner_file = bridge_dir / f"scanner-{date.today()}.json"
-    scanner_file.write_text(json.dumps(SAMPLE_SCANNER), encoding="utf-8")
 
-    bridge_module.process_bridge_file(scanner_file)
+def _write_eod(reports_dir, date_str, tickers):
+    d = reports_dir / date_str
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "eod_report.json").write_text(
+        json.dumps({"active_symbols": tickers, "weakening": 0}), encoding="utf-8")
+
+
+def test_scan_creates_daily_brief(tmp_path, monkeypatch):
+    reports_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    _write_eod(reports_dir, "2026-05-21", ["AAPL", "TSLA"])
+
+    bridge_module.scan_and_process()
 
     task_files = list(tasks_dir.glob("*.md"))
     assert len(task_files) == 1
@@ -33,32 +34,20 @@ def test_scanner_file_creates_task(tmp_path, monkeypatch):
     assert "AAPL" in content
 
 
-def test_process_bridge_file_skips_unknown_type(tmp_path, monkeypatch):
-    bridge_dir = tmp_path / "bridge"
-    tasks_dir = tmp_path / "tasks"
-    bridge_dir.mkdir()
-    tasks_dir.mkdir()
-    monkeypatch.setattr(bridge_module, "BRIDGE_DIR", bridge_dir)
-    monkeypatch.setattr(bridge_module, "TASKS_DIR", tasks_dir)
+def test_scan_skips_already_processed(tmp_path, monkeypatch):
+    reports_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    _write_eod(reports_dir, "2026-05-21", ["AAPL"])
 
-    bad_file = bridge_dir / "unknown-2026-05-21.json"
-    bad_file.write_text(json.dumps({"type": "unknown", "data": {}}))
-    bridge_module.process_bridge_file(bad_file)  # should not raise or create tasks
-    assert len(list(tasks_dir.glob("*.md"))) == 0
+    bridge_module.scan_and_process()
+    bridge_module.scan_and_process()  # second run must not duplicate
+
+    assert len(list(tasks_dir.glob("*.md"))) == 1
 
 
-def test_scan_and_process_handles_multiple_files(tmp_path, monkeypatch):
-    bridge_dir = tmp_path / "bridge"
-    tasks_dir = tmp_path / "tasks"
-    bridge_dir.mkdir()
-    tasks_dir.mkdir()
-    monkeypatch.setattr(bridge_module, "BRIDGE_DIR", bridge_dir)
-    monkeypatch.setattr(bridge_module, "TASKS_DIR", tasks_dir)
-    monkeypatch.setattr(bridge_module, "_PROCESSED_LOG", tmp_path / "processed.json")
-
+def test_scan_handles_multiple_dates(tmp_path, monkeypatch):
+    reports_dir, tasks_dir = _setup(tmp_path, monkeypatch)
     for i in range(3):
-        f = bridge_dir / f"scanner-2026-05-{i+1:02d}.json"
-        f.write_text(json.dumps({**SAMPLE_SCANNER, "date": f"2026-05-{i+1:02d}"}))
+        _write_eod(reports_dir, f"2026-05-2{i+1}", ["AAPL"])
 
     bridge_module.scan_and_process()
     assert len(list(tasks_dir.glob("*.md"))) == 3

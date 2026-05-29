@@ -366,6 +366,30 @@ def _advance_opportunity_pipeline() -> None:
 
     rows = read_ledger()
 
+    # 0) SHIP FIRST: graduate a promising PoC into a draft landing page. This is
+    # the closest step to real revenue, so it outranks speculative research —
+    # otherwise the constant backlog of scouted/deepdived ideas starves graduated
+    # winners and nothing ever ships (the stall that stranded ai-b2b-intent-data-analyzer).
+    promising = [r for r in rows
+                 if r.get("poc") == "promising" and not landing_exists(r["slug"])]
+    if promising:
+        top = max(promising, key=rank_score)
+        write_landing_state(top["slug"], status="queued")
+        create_task(
+            title=f"Landing build: {top['slug']}",
+            body=(f"Build a one-page product landing page for the graduated opportunity "
+                  f"[[{top['slug']}]]. Read its value prop, who-pays, and pricing from "
+                  f"vault/opportunities/{top['slug']}.md. Follow the 'Product Landing Page "
+                  f"(landing_build)' section of your system prompt. Save the page to "
+                  f"workspace/sites/{top['slug']}/index.html with the CTA button's href set to "
+                  f"the literal placeholder __STRIPE_PAYMENT_LINK__ (do NOT invent a URL — the "
+                  f"operator injects the live Stripe Payment Link at deploy). End your summary "
+                  f"with: LANDING DRAFTED: {top['slug']}"),
+            assigned_agent="builder", task_type="landing_build",
+            pod="opportunity_pod", priority="normal")
+        log.info("Pipeline: landing build %s", top["slug"])
+        return
+
     # 1) Deep-dive the highest-scored idea not yet researched.
     scouted = [r for r in rows if r.get("phase") == "scouted"]
     if scouted:
@@ -418,28 +442,6 @@ def _advance_opportunity_pipeline() -> None:
         log.info("Pipeline: PoC grade %s", top["slug"])
         return
 
-    # 2.5) Graduate a promising PoC into a draft landing page (autonomous build;
-    # deploy stays behind the dashboard's one-click human gate).
-    promising = [r for r in rows
-                 if r.get("poc") == "promising" and not landing_exists(r["slug"])]
-    if promising:
-        top = max(promising, key=rank_score)
-        write_landing_state(top["slug"], status="queued")
-        create_task(
-            title=f"Landing build: {top['slug']}",
-            body=(f"Build a one-page product landing page for the graduated opportunity "
-                  f"[[{top['slug']}]]. Read its value prop, who-pays, and pricing from "
-                  f"vault/opportunities/{top['slug']}.md. Follow the 'Product Landing Page "
-                  f"(landing_build)' section of your system prompt. Save the page to "
-                  f"workspace/sites/{top['slug']}/index.html with the CTA button's href set to "
-                  f"the literal placeholder __STRIPE_PAYMENT_LINK__ (do NOT invent a URL — the "
-                  f"operator injects the live Stripe Payment Link at deploy). End your summary "
-                  f"with: LANDING DRAFTED: {top['slug']}"),
-            assigned_agent="builder", task_type="landing_build",
-            pod="opportunity_pod", priority="normal")
-        log.info("Pipeline: landing build %s", top["slug"])
-        return
-
     # 3) Everything processed — scout a fresh batch of ideas.
     result = create_task(
         title="Prospector: Opportunity Scout", body=_SCOUT_TASK_BODY,
@@ -454,9 +456,9 @@ def _maybe_run_learning() -> None:
     if not daily_learning_due(hour_after=2):
         return
     root = Path(__file__).parent.parent
-    log.info("Daily learning hook firing — improvement_loop + opportunity_synthesis + design_synthesis")
+    log.info("Daily learning hook firing — improvement_loop + opportunity_synthesis + design_synthesis + outreach_synthesis")
     subprocess.run([sys.executable, str(root / "scripts" / "improvement_loop.py")], cwd=root, check=False)
-    for script in ("opportunity_synthesis.py", "design_synthesis.py"):
+    for script in ("opportunity_synthesis.py", "design_synthesis.py", "outreach_synthesis.py"):
         syn = root / "scripts" / script
         if syn.exists():
             subprocess.run([sys.executable, str(syn)], cwd=root, check=False)

@@ -1,8 +1,11 @@
+import re
 from datetime import datetime
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent.parent.parent
 AGENTS_MEMORY_DIR = BASE_DIR / "vault" / "agents"
+SYNTHESIS_DIR = BASE_DIR / "vault" / "synthesis"
+_MAX_INSIGHTS_CHARS = 1500
 
 WRITE_MEMORY_TOOL_SPEC = {
     "name": "write_memory",
@@ -113,3 +116,24 @@ def load_agent_memory(role_id: str) -> str:
         return ""
 
     return "\n\n---\n\n".join(parts)
+
+
+def load_cross_agent_insights() -> str:
+    """Cross-agent insights are system-wide, so inject a bounded slice into EVERY
+    agent's prompt — that is how one agent's hard-won lesson actually reaches the
+    others. Sage writes vault/synthesis/cross_agent_insights.md weekly; before this
+    loader existed the report was orphaned (written, never read), so the cross-agent
+    learning loop was open. Bounded to _MAX_INSIGHTS_CHARS so it never bloats prompts."""
+    f = SYNTHESIS_DIR / "cross_agent_insights.md"
+    if not f.exists():
+        return ""
+    text = f.read_text(encoding="utf-8")
+    m = re.match(r"^---\n.*?\n---\n(.*)", text, re.DOTALL)
+    if m:
+        text = m.group(1)
+    text = text.strip()
+    if len(text) < 40:
+        return ""
+    if len(text) > _MAX_INSIGHTS_CHARS:
+        text = text[:_MAX_INSIGHTS_CHARS].rsplit("\n", 1)[0].rstrip() + "\n…(truncated)"
+    return text

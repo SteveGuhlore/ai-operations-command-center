@@ -4,7 +4,7 @@ from runner.agents.base import AgentBase, calculate_cost
 
 
 def test_calculate_cost_opus():
-    cost = calculate_cost("claude-opus-4-7", 1_000_000, 1_000_000)
+    cost = calculate_cost("claude-opus-4-8", 1_000_000, 1_000_000)
     assert cost == pytest.approx(90.0)  # (15 + 75) per million
 
 
@@ -18,25 +18,29 @@ def test_calculate_cost_haiku():
     assert cost == pytest.approx(4.8)  # (0.8 + 4.0) per million
 
 
-def test_agent_run_returns_output(monkeypatch):
-    mock_block = MagicMock()
-    mock_block.type = "text"
-    mock_block.text = "Task completed successfully."
-    mock_response = MagicMock()
-    mock_response.stop_reason = "end_turn"
-    mock_response.content = [mock_block]
-    mock_response.usage.input_tokens = 100
-    mock_response.usage.output_tokens = 50
+def _openai_response(text):
+    """Build an OpenAI-shaped chat.completions response (the client base.py uses)."""
+    msg = MagicMock()
+    msg.content = text
+    msg.tool_calls = None
+    choice = MagicMock()
+    choice.finish_reason = "stop"
+    choice.message = msg
+    resp = MagicMock()
+    resp.choices = [choice]
+    resp.usage.prompt_tokens = 100
+    resp.usage.completion_tokens = 50
+    return resp
 
-    with patch("runner.agents.base.anthropic.Anthropic") as mock_anthropic:
-        mock_client = MagicMock()
-        mock_anthropic.return_value = mock_client
-        mock_client.messages.create.return_value = mock_response
 
-        with patch("runner.agents.base.record_spend"):
-            agent = AgentBase("debug_worker", "claude-haiku-4-5", "You are Scout.")
-            task = {"task_id": "TEST-001", "body": "Check environment."}
-            result = agent.run(task)
+def test_agent_run_returns_output():
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = _openai_response("Task completed successfully.")
+
+    with patch("runner.agents.base.openai.OpenAI", return_value=mock_client), \
+         patch("runner.agents.base.record_spend"):
+        agent = AgentBase("debug_worker", "claude-haiku-4-5", "You are Scout.")
+        result = agent.run({"task_id": "TEST-001", "body": "Check environment."})
 
     assert result["output"] == "Task completed successfully."
     assert result["task_id"] == "TEST-001"

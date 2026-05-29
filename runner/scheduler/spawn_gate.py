@@ -229,15 +229,16 @@ def next_allowed_at(agent: str, task_type: str) -> str | None:
     return _read()["next_allowed"].get(key)
 
 
-def describe() -> list[dict]:
+def describe(now=None) -> list[dict]:
     """Observability snapshot of every configured key: interval, spawns today,
-    and next-allowed time. Safe to call for dashboards/reporting."""
+    and next-allowed time. Safe to call for dashboards/reporting. `now` is
+    injectable for deterministic tests; defaults to the current time."""
     sched = load_spawn_schedules()
     if not sched:
         return []
     defaults = sched.get("defaults", {}) or {}
     data = _read()
-    now = _now()
+    now = now or _now()
     rows: list[dict] = []
     sources = (
         ("pair", sched.get("by_pair", {}) or {}),

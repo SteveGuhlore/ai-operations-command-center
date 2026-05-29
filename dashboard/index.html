@@ -1551,7 +1551,8 @@ async function refreshLandings() {
     if (!d.pending || !d.pending.length) { el.textContent = "No products awaiting deploy."; return; }
     el.innerHTML = d.pending.map(p =>
       `<div class="queue-row"><span>${p.slug} (${p.status})</span>` +
-      `<button class="trigger-btn" onclick="deployLanding('${p.slug}')">🚀 Deploy</button></div>`).join("");
+      `<span><a class="trigger-btn" href="/sites/${p.slug}" target="_blank" rel="noopener">👁 Preview</a> ` +
+      `<button class="trigger-btn" onclick="deployLanding('${p.slug}')">🚀 Deploy</button></span></div>`).join("");
   } catch { /* leave last-known */ }
 }
 

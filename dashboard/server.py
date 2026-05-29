@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Set
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from dashboard.watcher import StateFileWatcher
 
 STATE_FILE = Path(__file__).parent.parent / "workspace" / "dashboard-state.json"
@@ -297,6 +297,16 @@ async def outreach_followup_sweep():
         priority="high",
     )
     return result
+
+
+@app.get("/sites/{slug}")
+async def view_site(slug: str):
+    """Serve a built landing page locally so the operator can preview it from the
+    dashboard instead of digging through workspace/sites/."""
+    index = (SITES_DIR / slug / "index.html").resolve()
+    if not str(index).startswith(str(SITES_DIR.resolve())) or not index.exists():
+        return HTMLResponse(f"<h1>No built page for {slug!r} yet.</h1>", status_code=404)
+    return FileResponse(index)
 
 
 @app.get("/api/landing/pending")

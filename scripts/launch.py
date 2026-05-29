@@ -11,6 +11,8 @@ Press Ctrl-C to stop everything.
 """
 import argparse
 import os
+import re
+import socket
 import subprocess
 import sys
 import time
@@ -24,6 +26,14 @@ load_dotenv()
 REQUIRED_KEYS = ["GOOGLE_AI_API_KEY"]
 OPTIONAL_KEYS = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ETSY_API_KEY", "ETSY_SHOP_ID"]
 DASHBOARD_URL = "http://127.0.0.1:8765"
+
+
+def _already_running(port: int = 8765) -> bool:
+    """A live dashboard on the port means the full system is already up. Prevents the
+    duplicate-process / port-conflict pileup that looks like 'agents didn't start'."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", port)) == 0
 
 
 def check_keys():
@@ -50,21 +60,46 @@ def start_dashboard():
     return proc
 
 
+MAX_RESUMES = 3
+
+
 def cleanup_stale_tasks():
-    """Move orphaned in_progress tasks to failed and clear stale locks on startup."""
+    """Resume orphaned in_progress tasks on startup. A task left in_progress means the
+    process died (restart / disconnect / crash) mid-run, so re-queue it to todo/ and the
+    runner re-runs it next cycle — interrupted work is no longer silently lost. A bounded
+    resume_count in the frontmatter stops a crash-inducing 'poison' task from looping
+    forever: after MAX_RESUMES it goes to failed/ for human review. Stale locks are cleared."""
     root = Path(__file__).parent.parent / "workspace"
     in_progress = root / "tasks" / "in_progress"
+    todo = root / "tasks" / "todo"
     failed = root / "tasks" / "failed"
     locks = root / "locks"
+    todo.mkdir(parents=True, exist_ok=True)
     failed.mkdir(parents=True, exist_ok=True)
-    count = 0
+    resumed = dead = 0
     for f in in_progress.glob("*.md"):
-        f.rename(failed / f.name)
-        count += 1
+        text = f.read_text(encoding="utf-8")
+        m = re.search(r"^resume_count:\s*(\d+)", text, re.MULTILINE)
+        count = int(m.group(1)) if m else 0
+        if count >= MAX_RESUMES:
+            f.rename(failed / f.name)
+            dead += 1
+            continue
+        if m:
+            text = re.sub(r"^resume_count:\s*\d+", f"resume_count: {count + 1}",
+                          text, count=1, flags=re.MULTILINE)
+        else:
+            text = re.sub(r"^(status:.*)$", r"\1\nresume_count: 1",
+                          text, count=1, flags=re.MULTILINE)
+        text = re.sub(r"^status:\s*\w+", "status: todo", text, count=1, flags=re.MULTILINE)
+        (todo / f.name).write_text(text, encoding="utf-8")
+        f.unlink()
+        resumed += 1
     for f in locks.glob("*.lock"):
         f.unlink(missing_ok=True)
-    if count:
-        print(f"Startup cleanup: moved {count} stale task(s) to failed/, cleared locks.")
+    if resumed or dead:
+        print(f"Startup recovery: re-queued {resumed} interrupted task(s) to todo/, "
+              f"{dead} exceeded retry cap -> failed/. Cleared locks.")
 
 
 def main():
@@ -76,6 +111,11 @@ def main():
     print("\n" + "="*50)
     print("  AI OPS COMMAND CENTER — LAUNCH")
     print("="*50 + "\n")
+
+    if _already_running():
+        print("System already running (dashboard live on 8765) — not starting a duplicate.")
+        print(f"View at {DASHBOARD_URL}")
+        return
 
     check_keys()
     cleanup_stale_tasks()

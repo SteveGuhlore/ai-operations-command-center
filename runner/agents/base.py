@@ -35,6 +35,10 @@ MODEL_PRICING: dict[str, tuple[float, float]] = {
     "gemini-2.5-flash":             (0.30,   2.50),  # Google direct — primary worker model
     "gemini-2.5-flash-lite":        (0.10,   0.40),  # Google direct
     "gemini-2.5-pro":               (1.25,  10.00),  # Google direct — Atlas + Tony Stocks
+    "claude-opus-4-8":              (15.0,  75.0),   # Claude builds (see 2026-05-29 spec)
+    "claude-opus-4-7":              (15.0,  75.0),
+    "claude-sonnet-4-6":            (3.0,   15.0),
+    "claude-haiku-4-5":             (0.80,   4.0),
 }
 
 

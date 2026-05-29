@@ -1,7 +1,7 @@
 from pathlib import Path
 from runner.config import load_agents
 from runner.plugins.loader import build_agent_skills_prompt
-from runner.tools.vault_memory import load_agent_memory
+from runner.tools.vault_memory import load_agent_memory, load_cross_agent_insights
 
 BASE_DIR = Path(__file__).parent.parent.parent
 
@@ -90,5 +90,13 @@ def build_system_prompt(role_id: str) -> str:
     memory = load_agent_memory(role_id)
     if memory:
         parts.append(f"\n---\n\n{memory}")
+
+    insights = load_cross_agent_insights()
+    if insights:
+        parts.append(
+            "\n---\n\n## Cross-Agent Insights (system-wide, distilled weekly by Sage)\n\n"
+            "Lessons other agents learned that apply across the system — heed them:\n\n"
+            f"{insights}"
+        )
 
     return "\n\n".join(parts)

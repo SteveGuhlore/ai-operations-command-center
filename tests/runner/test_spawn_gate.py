@@ -174,8 +174,9 @@ def test_jitter_extends_but_respects_minimum(tmp_path, monkeypatch):
 
 def test_describe_reports_configured_keys(tmp_path, monkeypatch):
     sg = _fresh(tmp_path, monkeypatch, _BASE)
-    sg.record_spawn("outreach_worker", "prospect_research", now=datetime(2026, 5, 28, 12, 0))
-    rows = sg.describe()
+    t0 = datetime(2026, 5, 28, 12, 0)
+    sg.record_spawn("outreach_worker", "prospect_research", now=t0)
+    rows = sg.describe(now=t0 + timedelta(minutes=5))
     keys = {r["key"] for r in rows}
     assert "type:prospect_research" in keys
     row = next(r for r in rows if r["key"] == "type:prospect_research")
