@@ -89,90 +89,9 @@ def test_learnings_note_says_aligned_when_no_divergence(tmp_path, monkeypatch):
     assert "No divergence" in text
 
 
-def test_tune_prompt_skips_without_api_key(tmp_path, monkeypatch):
-    syn = _fresh(tmp_path, monkeypatch)
-    monkeypatch.delenv("GOOGLE_AI_API_KEY", raising=False)
-    syn.PROMPT_FILE.write_text("## Scout workflow\noriginal\n", encoding="utf-8")
-
-    def _boom(*a, **k):  # OpenAI must never be constructed without a key
-        raise AssertionError("OpenAI client constructed without API key")
-
-    monkeypatch.setattr(syn, "OpenAI", _boom)
-    syn._tune_prompt([{"slug": "a", "composite": "82", "poc": "dead"}])
-    assert syn.PROMPT_FILE.read_text(encoding="utf-8") == "## Scout workflow\noriginal\n"
-
-
-def test_tune_prompt_skips_when_no_divergence(tmp_path, monkeypatch):
-    syn = _fresh(tmp_path, monkeypatch)
-    monkeypatch.setenv("GOOGLE_AI_API_KEY", "x")
-
-    def _boom(*a, **k):
-        raise AssertionError("OpenAI client constructed when nothing diverged")
-
-    monkeypatch.setattr(syn, "OpenAI", _boom)
-    syn._tune_prompt([])  # must early-return before touching the client
-
-
-def test_tune_prompt_rewrites_when_guard_satisfied(tmp_path, monkeypatch):
-    syn = _fresh(tmp_path, monkeypatch)
-    monkeypatch.setenv("GOOGLE_AI_API_KEY", "x")
-    syn.PROMPT_FILE.write_text("## Scout workflow\noriginal\n", encoding="utf-8")
-    revised = "## Scout workflow\nrevised — avoid over-scoring dead PoCs\n"
-
-    class _Msg:
-        content = revised
-
-    class _Choice:
-        message = _Msg()
-
-    class _Resp:
-        choices = [_Choice()]
-
-    class _FakeClient:
-        def __init__(self, *a, **k):
-            self.chat = self
-
-        @property
-        def completions(self):
-            return self
-
-        def create(self, *a, **k):
-            return _Resp()
-
-    monkeypatch.setattr(syn, "OpenAI", _FakeClient)
-    syn._tune_prompt([{"slug": "a", "composite": "82", "poc": "dead"}])
-    assert syn.PROMPT_FILE.read_text(encoding="utf-8") == revised
-
-
-def test_tune_prompt_rejects_output_missing_guard_section(tmp_path, monkeypatch):
-    syn = _fresh(tmp_path, monkeypatch)
-    monkeypatch.setenv("GOOGLE_AI_API_KEY", "x")
-    original = "## Scout workflow\noriginal\n"
-    syn.PROMPT_FILE.write_text(original, encoding="utf-8")
-
-    class _Msg:
-        content = "garbage output that dropped every section"
-
-    class _Choice:
-        message = _Msg()
-
-    class _Resp:
-        choices = [_Choice()]
-
-    class _FakeClient:
-        def __init__(self, *a, **k):
-            self.chat = self
-
-        @property
-        def completions(self):
-            return self
-
-        def create(self, *a, **k):
-            return _Resp()
-
-    monkeypatch.setattr(syn, "OpenAI", _FakeClient)
-    syn._tune_prompt([{"slug": "a", "composite": "82", "poc": "dead"}])
-    assert syn.PROMPT_FILE.read_text(encoding="utf-8") == original
+# NOTE: the old `_tune_prompt` full-file Gemini rewrite was removed (it could
+# overwrite the whole persona). Self-learning now writes only the bounded
+# AUTO-CALIBRATION block — see tests/runner/test_opportunity_synthesis_calibration.py.
 
 
 def test_daily_hook_invokes_synthesis_script():
