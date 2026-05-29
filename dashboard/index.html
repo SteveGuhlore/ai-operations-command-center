@@ -705,6 +705,7 @@
       <button class="tab-btn active" data-tab="agents" onclick="switchTab('agents')">Agents</button>
       <button class="tab-btn" data-tab="crm" onclick="switchTab('crm')">Outreach CRM</button>
       <button class="tab-btn" data-tab="opportunities" onclick="switchTab('opportunities')">Prospector</button>
+      <button class="tab-btn" data-tab="revenue" onclick="switchTab('revenue')">Revenue</button>
       <button class="tab-btn" data-tab="forge" onclick="switchTab('forge')">Forge</button>
       <button class="tab-btn" data-tab="atlas" onclick="switchTab('atlas')">Atlas</button>
       <button class="tab-btn" data-tab="sage" onclick="switchTab('sage')">Sage</button>
@@ -755,18 +756,25 @@
         <button class="trigger-btn" onclick="triggerPod('outreach')">▶ Run Pitch Agent</button>
         <button class="trigger-btn" onclick="triggerPod('builder')">▶ Run Site Builder</button>
         <button class="trigger-btn" onclick="followupSweep(this)">➕ Queue Follow-up Sweep</button>
-        <button class="trigger-btn" onclick="logRevenue(this)">💰 Log Revenue</button>
       </div>
-      <div class="section-title" style="margin-bottom:6px">Graduated Products — Deploy</div>
-      <div id="landing-pending" style="font-size:10px;color:var(--muted);margin-bottom:10px">Loading…</div>
-      <div class="section-title" style="margin-bottom:6px">P&amp;L — Real vs. Projected</div>
-      <div id="pnl-strip" style="font-size:10px;color:var(--muted);margin-bottom:10px">Loading…</div>
       <div class="section-title">Recent Outreach</div>
       <table class="crm-table">
         <thead><tr><th>Business</th><th>Type</th><th>City</th><th>Phone / Contact</th><th>Ch</th><th>Status</th><th>Date</th><th>Log Call</th></tr></thead>
         <tbody id="crm-recent"></tbody>
       </table>
       <div style="margin-top:10px;font-size:9px;color:var(--muted)" id="crm-empty">Loading outreach data…</div>
+    </div>
+
+    <!-- Tab: Revenue -->
+    <div id="tab-revenue" style="display:none">
+      <div class="section-title" style="margin-bottom:12px">Revenue &amp; Graduation</div>
+      <div style="margin-bottom:14px">
+        <button class="trigger-btn" onclick="logRevenue(this)">💰 Log Revenue</button>
+      </div>
+      <div class="section-title" style="margin-bottom:6px">Graduated Products — Deploy</div>
+      <div id="landing-pending" style="font-size:10px;color:var(--muted);margin-bottom:16px">Loading…</div>
+      <div class="section-title" style="margin-bottom:6px">P&amp;L — Real vs. Projected</div>
+      <div id="pnl-strip" style="font-size:10px;color:var(--muted)">Loading…</div>
     </div>
 
     <!-- Tab: Analytics -->
@@ -1181,7 +1189,7 @@ setInterval(refreshVaultFeed, 30000);
 refreshVaultFeed();
 
 // ── Tab switching ─────────────────────────────────────────────
-const TABS = ["agents","crm","opportunities","forge","atlas","sage","tony","analytics","spawn"];
+const TABS = ["agents","crm","opportunities","revenue","forge","atlas","sage","tony","analytics","spawn"];
 const POD_TABS = ["forge","atlas","sage"];
 function switchTab(name) {
   TABS.forEach(t => {
@@ -1194,7 +1202,8 @@ function switchTab(name) {
   document.querySelectorAll(".pod-item").forEach(p => {
     p.classList.toggle("active", p.dataset.tab === name);
   });
-  if (name === "crm")         { refreshCRM(); refreshLandings(); refreshPnl(); }
+  if (name === "crm")           refreshCRM();
+  if (name === "revenue")     { refreshLandings(); refreshPnl(); }
   if (name === "opportunities") refreshOpportunities();
   if (name === "analytics")     refreshAnalytics();
   if (name === "spawn")       { refreshSpawnGate(); loadCadence(); }
