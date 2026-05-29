@@ -354,6 +354,45 @@ async def api_landing_deploy(request: Request):
             "next_step": f"Drag workspace/sites/{slug}/ to app.netlify.com/drop to publish."}
 
 
+@app.post("/api/revenue/log")
+async def api_revenue_log(request: Request):
+    """Operator-only manual revenue entry, backing the dashboard 'Log Revenue' button."""
+    from runner.tools.revenue_tool import log_revenue
+    data = await request.json()
+    return log_revenue(
+        pod=(data.get("pod") or "").strip(),
+        amount_usd=data.get("amount_usd"),
+        source=(data.get("source") or "manual").strip(),
+        external_id=(data.get("external_id") or "").strip(),
+        kind=(data.get("kind") or "manual").strip(),
+        note=(data.get("note") or "").strip(),
+    )
+
+
+@app.get("/api/pnl")
+async def api_pnl():
+    """Per-pod real revenue vs. the original est_rev_mo projection, net of spend."""
+    from runner.ledger.revenue import get_pod_revenue
+    from runner.ledger.budget import get_pod_spend
+    pods = []
+    for row in read_opportunities():
+        pod = row.get("pod", "—")
+        if pod in ("—", "-", "", None):
+            continue
+        try:
+            est = float(row.get("est_rev_mo", 0) or 0)
+        except (TypeError, ValueError):
+            est = 0.0
+        revenue = round(get_pod_revenue(pod), 2)
+        spend = round(get_pod_spend(pod), 2)
+        pods.append({
+            "pod": pod, "slug": row.get("slug"),
+            "est_rev_mo": est, "revenue_to_date": revenue,
+            "spend_to_date": spend, "net": round(revenue - spend, 2),
+        })
+    return {"pods": pods}
+
+
 def read_opportunities() -> list[dict]:
     """Parse vault/opportunities/ledger.md into rows for the Opportunity Board."""
     ledger = VAULT_DIR / "opportunities" / "ledger.md"
