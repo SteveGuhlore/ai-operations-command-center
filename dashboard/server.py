@@ -354,6 +354,22 @@ async def api_landing_deploy(request: Request):
             "next_step": f"Drag workspace/sites/{slug}/ to app.netlify.com/drop to publish."}
 
 
+@app.post("/api/opportunity/grade")
+async def api_opportunity_grade(request: Request):
+    """Operator grades a PoC from the board (promising/weak/dead). Backs the manual
+    Grade buttons. A 'promising' grade flips the ledger row; the runner's pipeline
+    then auto-queues the landing build — the reliable human path that bypasses the
+    autonomous grader."""
+    from runner.tools.opportunity import grade_poc
+    data = await request.json()
+    slug = (data.get("slug") or "").strip()
+    verdict = (data.get("verdict") or "").strip()
+    reason = (data.get("reason") or "graded from dashboard").strip()
+    if not slug:
+        return {"error": "slug required"}
+    return grade_poc(slug, verdict, reason)
+
+
 @app.post("/api/revenue/log")
 async def api_revenue_log(request: Request):
     """Operator-only manual revenue entry, backing the dashboard 'Log Revenue' button."""
