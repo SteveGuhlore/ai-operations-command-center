@@ -9,6 +9,14 @@ from fastapi.responses import HTMLResponse
 from dashboard.watcher import StateFileWatcher
 
 STATE_FILE = Path(__file__).parent.parent / "workspace" / "dashboard-state.json"
+SITES_DIR = Path(__file__).parent.parent / "workspace" / "sites"
+UPSELL_CATALOG = Path(__file__).parent.parent / "vault" / "revenue" / "upsell-catalog.md"
+_STRIPE_URL_RE = re.compile(r"^https://(?:buy\.stripe\.com|[a-z0-9.-]+\.stripe\.com)/\S+$")
+_UPSELL_HEADER = (
+    "# Upsell Catalog\n\n"
+    "| product | one_liner | landing_url | fits_business_types |\n"
+    "|---------|-----------|-------------|---------------------|\n"
+)
 
 _connections: Set[WebSocket] = set()
 _watcher: StateFileWatcher | None = None
@@ -289,6 +297,61 @@ async def outreach_followup_sweep():
         priority="high",
     )
     return result
+
+
+@app.get("/api/landing/pending")
+async def api_landing_pending():
+    """Draft product landing pages awaiting the operator's one-click deploy."""
+    from runner.tools.landing import LANDINGS_DIR, read_landing_state
+    pending = []
+    if LANDINGS_DIR.exists():
+        for f in LANDINGS_DIR.glob("*.json"):
+            state = read_landing_state(f.stem)
+            if state.get("status") in ("queued", "draft"):
+                pending.append({"slug": f.stem, "status": state.get("status")})
+    return {"pending": pending}
+
+
+@app.post("/api/landing/deploy")
+async def api_landing_deploy(request: Request):
+    """Inject the operator's LIVE Stripe Payment Link into a draft landing page
+    and mark it deployed. This is the single human money-gate: the live link
+    enters the system only here, only on an explicit click, and only if it
+    validates as a Stripe URL."""
+    from runner.tools.landing import read_landing_state, write_landing_state
+
+    data = await request.json()
+    slug = (data.get("slug") or "").strip()
+    url = (data.get("payment_link_url") or "").strip()
+    if not slug:
+        return {"error": "slug required"}
+    if not _STRIPE_URL_RE.match(url):
+        return {"error": "payment_link_url must be a valid Stripe link (https://buy.stripe.com/...)"}
+
+    state = read_landing_state(slug)
+    if not state:
+        return {"error": f"no landing draft found for {slug!r}"}
+
+    index = SITES_DIR / slug / "index.html"
+    if not index.exists():
+        return {"error": f"landing page not built yet for {slug!r} (no index.html)"}
+    html = index.read_text(encoding="utf-8")
+    if "__STRIPE_PAYMENT_LINK__" not in html:
+        return {"error": "placeholder __STRIPE_PAYMENT_LINK__ not found in page"}
+    index.write_text(html.replace("__STRIPE_PAYMENT_LINK__", url), encoding="utf-8")
+
+    public_url = f"https://easysimplesites.org/{slug}"
+    write_landing_state(slug, status="deployed", payment_link_url=url, public_url=public_url)
+
+    UPSELL_CATALOG.parent.mkdir(parents=True, exist_ok=True)
+    if not UPSELL_CATALOG.exists():
+        UPSELL_CATALOG.write_text(_UPSELL_HEADER, encoding="utf-8")
+    one_liner = state.get("one_liner", slug)
+    with UPSELL_CATALOG.open("a", encoding="utf-8") as fh:
+        fh.write(f"| {slug} | {one_liner} | {public_url} |  |\n")
+
+    return {"success": True, "slug": slug, "public_url": public_url,
+            "next_step": f"Drag workspace/sites/{slug}/ to app.netlify.com/drop to publish."}
 
 
 def read_opportunities() -> list[dict]:
