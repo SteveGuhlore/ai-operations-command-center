@@ -501,6 +501,10 @@
   .trigger-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .trigger-btn:disabled:hover { transform: none; }
   #crm-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .mini-btn { background: transparent; border: 1px solid var(--muted); color: var(--muted); border-radius: 4px; cursor: pointer; font-size: 11px; padding: 1px 6px; margin: 0 2px; }
+  .mini-btn.ok:hover   { border-color: var(--green);  color: var(--green); }
+  .mini-btn.warn:hover { border-color: var(--orange); color: var(--orange); }
+  .mini-btn.bad:hover  { border-color: #e55;          color: #e55; }
 
   /* ─── VAULT FEED ─────────────────────────── */
   #vault-feed-wrap { margin-top: 10px; }
@@ -751,9 +755,12 @@
         <button class="trigger-btn" onclick="triggerPod('outreach')">▶ Run Pitch Agent</button>
         <button class="trigger-btn" onclick="triggerPod('builder')">▶ Run Site Builder</button>
         <button class="trigger-btn" onclick="followupSweep(this)">➕ Queue Follow-up Sweep</button>
-        <button class="trigger-btn" disabled
-                title="P5 — revenue ledger not built yet. See docs/superpowers/specs/2026-05-28-prospector-phase5-pnl.md (log_revenue tool).">💰 Log Revenue</button>
+        <button class="trigger-btn" onclick="logRevenue(this)">💰 Log Revenue</button>
       </div>
+      <div class="section-title" style="margin-bottom:6px">Graduated Products — Deploy</div>
+      <div id="landing-pending" style="font-size:10px;color:var(--muted);margin-bottom:10px">Loading…</div>
+      <div class="section-title" style="margin-bottom:6px">P&amp;L — Real vs. Projected</div>
+      <div id="pnl-strip" style="font-size:10px;color:var(--muted);margin-bottom:10px">Loading…</div>
       <div class="section-title">Recent Outreach</div>
       <table class="crm-table">
         <thead><tr><th>Business</th><th>Type</th><th>City</th><th>Phone / Contact</th><th>Ch</th><th>Status</th><th>Date</th><th>Log Call</th></tr></thead>
@@ -796,7 +803,7 @@
         <span id="opp-promising">0 promising</span>
       </div>
       <table class="opp-table">
-        <thead><tr><th>#</th><th>idea</th><th>score</th><th>phase</th><th>poc</th><th>fit</th><th>$est</th></tr></thead>
+        <thead><tr><th>#</th><th>idea</th><th>score</th><th>phase</th><th>poc</th><th>fit</th><th>$est</th><th>grade</th></tr></thead>
         <tbody id="opp-rows"></tbody>
       </table>
       <div style="margin-top:10px;font-size:9px;color:var(--muted)" id="opp-empty">No opportunities scouted yet. Prospector runs on its scout interval.</div>
@@ -1187,7 +1194,7 @@ function switchTab(name) {
   document.querySelectorAll(".pod-item").forEach(p => {
     p.classList.toggle("active", p.dataset.tab === name);
   });
-  if (name === "crm")           refreshCRM();
+  if (name === "crm")         { refreshCRM(); refreshLandings(); refreshPnl(); }
   if (name === "opportunities") refreshOpportunities();
   if (name === "analytics")     refreshAnalytics();
   if (name === "spawn")       { refreshSpawnGate(); loadCadence(); }
@@ -1335,13 +1342,86 @@ async function refreshOpportunities() {
     tbody.innerHTML = rows.map((r, i) => {
       const score = parseFloat(r.composite) || 0;
       const color = score >= 75 ? "var(--green)" : (score >= 60 ? "var(--orange)" : "var(--muted)");
+      const ungraded = ["—", "-", ""].includes((r.poc || "").trim());
+      const actions = ungraded
+        ? `<button class="mini-btn ok"  title="promising → graduate (queues landing build)" onclick="gradeOpp('${r.slug}','promising')">✓</button>`
+        + `<button class="mini-btn warn" title="weak" onclick="gradeOpp('${r.slug}','weak')">~</button>`
+        + `<button class="mini-btn bad"  title="dead" onclick="gradeOpp('${r.slug}','dead')">✗</button>`
+        : r.poc;
       return `<tr>` +
         `<td>${i + 1}</td><td>${r.slug}</td>` +
         `<td style="color:${color}">${r.composite}</td>` +
         `<td>${r.phase}</td><td>${r.poc}</td><td>${r.system_fit}</td><td>${r.est_rev_mo}</td>` +
+        `<td>${actions}</td>` +
         `</tr>`;
     }).join("");
   } catch { document.getElementById("opp-empty").textContent = "Error loading opportunities."; }
+}
+
+async function gradeOpp(slug, verdict) {
+  const reason = prompt(`Reason for grading "${slug}" as ${verdict}:`) || "graded from dashboard";
+  const r = await fetch("/api/opportunity/grade", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slug, verdict, reason }),
+  }).then(r => r.json());
+  if (r.success) {
+    alert(`${slug} graded ${verdict}` + (verdict === "promising"
+      ? " — a landing build will queue on the next pipeline cycle." : "."));
+  } else {
+    alert(`Error: ${r.error || "grade failed"}`);
+  }
+  refreshOpportunities();
+}
+
+async function logRevenue() {
+  const pod = prompt("Pod / product id (e.g. local_outreach_pod):");
+  if (!pod) return;
+  const amount = parseFloat(prompt("Amount USD (negative for a refund):"));
+  if (isNaN(amount)) { alert("Amount must be a number"); return; }
+  const note = prompt("Note (optional):") || "";
+  const r = await fetch("/api/revenue/log", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pod, amount_usd: amount, source: "manual", kind: "manual", note }),
+  }).then(r => r.json());
+  alert(r.success ? `Logged $${amount} to ${pod}` : `Error: ${r.error || r.reason}`);
+  refreshPnl();
+}
+
+async function deployLanding(slug) {
+  const url = prompt(`Paste the LIVE Stripe Payment Link for "${slug}":`);
+  if (!url) return;
+  const r = await fetch("/api/landing/deploy", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slug, payment_link_url: url }),
+  }).then(r => r.json());
+  alert(r.success ? `Deployed. ${r.next_step}` : `Error: ${r.error}`);
+  refreshLandings();
+}
+
+async function refreshLandings() {
+  try {
+    const d = await fetch("/api/landing/pending").then(r => r.json());
+    const el = document.getElementById("landing-pending");
+    if (!el) return;
+    if (!d.pending || !d.pending.length) { el.textContent = "No products awaiting deploy."; return; }
+    el.innerHTML = d.pending.map(p =>
+      `<div class="queue-row"><span>${p.slug} (${p.status})</span>` +
+      `<button class="trigger-btn" onclick="deployLanding('${p.slug}')">🚀 Deploy</button></div>`).join("");
+  } catch { /* leave last-known */ }
+}
+
+async function refreshPnl() {
+  try {
+    const d = await fetch("/api/pnl").then(r => r.json());
+    const el = document.getElementById("pnl-strip");
+    if (!el) return;
+    if (!d.pods || !d.pods.length) { el.textContent = "No graduated pods earning yet."; return; }
+    el.innerHTML = d.pods.map(p => {
+      const cls = p.net < 0 ? "failed" : "done";
+      return `<div class="queue-row"><span>${p.pod}</span>` +
+             `<span class="queue-count ${cls}">$${p.revenue_to_date} real / $${p.est_rev_mo} est · net $${p.net}</span></div>`;
+    }).join("");
+  } catch { /* leave last-known */ }
 }
 
 // ── Tony stock dashboard ──────────────────────────────────────
