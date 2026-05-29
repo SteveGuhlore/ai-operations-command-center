@@ -158,7 +158,24 @@ class AgentBase:
                 messages.append(assistant_entry)
 
                 for tc in msg.tool_calls:
-                    tool_input = json.loads(tc.function.arguments)
+                    try:
+                        tool_input = json.loads(tc.function.arguments)
+                    except (json.JSONDecodeError, TypeError) as exc:
+                        # The model emitted malformed JSON for this tool call's
+                        # arguments. Don't crash the whole task (this killed PoC
+                        # builds) — feed the parse error back so it resends valid
+                        # JSON on the next turn.
+                        tool_calls_total += 1
+                        tool_calls_errored += 1
+                        messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": json.dumps({
+                                "error": f"Invalid JSON in tool arguments: {exc}. "
+                                         f"Resend this tool call with valid JSON."
+                            }),
+                        })
+                        continue
                     result = dispatch_tool(tc.function.name, tool_input)
                     tool_calls_total += 1
                     if isinstance(result, dict) and result.get("error"):
