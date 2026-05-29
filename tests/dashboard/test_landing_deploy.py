@@ -36,6 +36,15 @@ def test_deploy_injects_valid_stripe_url(client, tmp_path):
     assert "ai-x" in catalog
 
 
+def test_deploy_uses_operator_domain(client, tmp_path):
+    r = client.post("/api/landing/deploy",
+                    json={"slug": "ai-x", "payment_link_url": "https://buy.stripe.com/test_abc",
+                          "domain": "myproduct.ai"})
+    assert r.json()["success"] is True
+    assert r.json()["public_url"] == "https://myproduct.ai"
+    assert landing.read_landing_state("ai-x")["domain"] == "myproduct.ai"
+
+
 def test_deploy_rejects_non_stripe_url(client, tmp_path):
     r = client.post("/api/landing/deploy",
                     json={"slug": "ai-x", "payment_link_url": "https://evil.example.com/pay"})

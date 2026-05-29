@@ -340,8 +340,11 @@ async def api_landing_deploy(request: Request):
         return {"error": "placeholder __STRIPE_PAYMENT_LINK__ not found in page"}
     index.write_text(html.replace("__STRIPE_PAYMENT_LINK__", url), encoding="utf-8")
 
-    public_url = f"https://easysimplesites.org/{slug}"
-    write_landing_state(slug, status="deployed", payment_link_url=url, public_url=public_url)
+    # Each product ships on its OWN domain (operator buys it + supplies it here),
+    # so easysimplesites.org stays clean. Falls back to an ESS path if none given.
+    domain = (data.get("domain") or "").strip().replace("https://", "").replace("http://", "").strip("/")
+    public_url = f"https://{domain}" if domain else f"https://easysimplesites.org/{slug}"
+    write_landing_state(slug, status="deployed", payment_link_url=url, public_url=public_url, domain=domain)
 
     UPSELL_CATALOG.parent.mkdir(parents=True, exist_ok=True)
     if not UPSELL_CATALOG.exists():

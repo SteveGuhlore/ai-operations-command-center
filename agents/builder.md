@@ -94,23 +94,43 @@ Call `write_memory`:
 
 ## Product Landing Page (landing_build)
 
-When a task has `task_type: landing_build`, you are NOT building a client site — you are building a one-page sales landing for one of OUR OWN graduated AI products under easysimplesites.org.
+When a task has `task_type: landing_build`, you are building a one-page sales landing for one of OUR OWN graduated AI products. Each product is its OWN brand on its OWN domain (the operator buys a cheap domain and supplies it at deploy) — it is NOT an Easy Simple Sites page. easysimplesites.org appears only as a small footer credit.
 
 ### Source
 Read `vault/opportunities/<slug>.md` for the product's value prop, who-pays, and pricing hypothesis (the slug is in the task title/body).
 
-### Output — `workspace/sites/<slug>/index.html`, one page:
-1. **Hero** — the product name + the one-liner value prop, a single clear sentence on what it does.
-2. **Proof** — 2-3 bullet points of the concrete value the PoC demonstrated (pull from the opportunity page).
-3. **Pricing** — the price/tier from the pricing hypothesis. If multiple tiers, show them; if unclear, show one price and note it in your summary so the operator can adjust before deploy.
-4. **CTA button** — a prominent button whose `href` is the LITERAL string `__STRIPE_PAYMENT_LINK__`. Do NOT invent, guess, or paste any real URL. The operator injects the live Stripe Payment Link at deploy time.
-5. **Footer** — `© [Year] Easy Simple Sites · easysimplesites.org`.
+### Step 1 — Pick a design ARCHETYPE (this is how we avoid same-looking sites)
+Every landing must look genuinely different from the last. Do NOT reuse one template with new colors/words. Choose the archetype that best fits THIS product's buyer, and vary the STRUCTURE (section order, layout, type scale), not just the palette:
+
+1. **Bold Editorial** — oversized serif display headline, generous whitespace, one accent color, asymmetric magazine layout. (Good for premium/creative buyers.)
+2. **Neon Glass** — dark background, glassmorphic cards, neon gradient accents, soft glow. (Good for dev/technical AI tools.)
+3. **Brutalist Mono** — monospace type, hard 2px borders, black/white + one harsh accent, visible grid. (Good for no-nonsense/engineer buyers.)
+4. **Warm Organic** — rounded shapes, warm cream/terracotta palette, friendly humanist sans. (Good for SMB/local/wellness buyers.)
+5. **Technical Spec-Sheet** — data-dense, real tables/metrics, system font, precise and credible. (Good for ops/finance/B2B buyers.)
+6. **Playful Gradient** — vibrant multi-stop gradients, big rounded buttons, energetic. (Good for consumer/SMB buyers.)
+
+State which archetype you chose and why in your output summary.
+
+### Step 2 — Generate a UNIQUE hero image
+Call `image_generation` with a prompt tailored to the product + chosen archetype's style (e.g. "brutalist black-and-white abstract grid representing automated lead routing, high contrast"). Save it into the site folder and reference it in the hero. If image_generation fails or is unavailable, proceed with a CSS-only hero (gradient/shapes consistent with the archetype) — never block.
+
+### Step 3 — Write `workspace/sites/<slug>/index.html` (one page)
+1. **Hero** — product name + a single concrete value sentence + the generated hero image (or CSS hero). Use the archetype's type and layout.
+2. **Proof** — 2-3 bullets of the SPECIFIC value the PoC demonstrated, with real numbers/examples from the opportunity page.
+3. **Pricing** — the price/tier from the pricing hypothesis (show tiers if multiple; if unclear, show one and flag it in your summary).
+4. **CTA button** — a prominent button whose `href` is the LITERAL string `__STRIPE_PAYMENT_LINK__`. Do NOT invent or paste any real URL — the operator injects the live Stripe Payment Link at deploy.
+5. **Footer** — the PRODUCT's own brand line, plus a small, low-key credit: `site by easysimplesites.org`.
+
+### Anti-slop copy rules
+- BANNED filler words/phrases: "Welcome to", "Unleash", "Empower", "Revolutionize", "Supercharge", "Seamless", "cutting-edge", "game-changer", "take it to the next level", "in today's fast-paced world".
+- Write like a real founder: specific, concrete, benefit-first, name the buyer and the exact pain. Use real numbers from the PoC.
 
 ### Rules
-- Same design standards as client sites: mobile-first, embedded CSS, Google Fonts CDN only, no JS frameworks.
-- The CTA `href` MUST remain `__STRIPE_PAYMENT_LINK__` exactly — the deploy step validates and replaces it. A page that ships a real or fake URL here is a defect.
+- Mobile-first, embedded CSS, Google Fonts CDN only, no JS frameworks.
+- The CTA `href` MUST remain `__STRIPE_PAYMENT_LINK__` exactly — the deploy step validates and replaces it. Shipping a real/fake URL here is a defect.
 - Do NOT deploy. Do NOT write to `workspace/landings/`. The runner and the deploy gate own that state.
-- End your response with: `LANDING DRAFTED: <slug>`
+- Do NOT brand the page as Easy Simple Sites — it is the product's own site; ESS is only the small footer credit.
+- End your response with: `LANDING DRAFTED: <slug>` and the archetype you used.
 
 ### Log to memory
-Call `write_memory` (role_id: builder, entry_type: success) with the product slug and the design choices you made.
+Call `write_memory` (role_id: builder, entry_type: success) with the product slug, the archetype chosen, and design choices — and note which archetypes you've used recently so you keep rotating them.

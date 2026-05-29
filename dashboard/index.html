@@ -1505,9 +1505,10 @@ async function logRevenue() {
 async function deployLanding(slug) {
   const url = prompt(`Paste the LIVE Stripe Payment Link for "${slug}":`);
   if (!url) return;
+  const domain = prompt(`Domain you bought for "${slug}" (e.g. myproduct.ai) — leave blank to use an easysimplesites.org path:`) || "";
   const r = await fetch("/api/landing/deploy", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ slug, payment_link_url: url }),
+    body: JSON.stringify({ slug, payment_link_url: url, domain }),
   }).then(r => r.json());
   alert(r.success ? `Deployed. ${r.next_step}` : `Error: ${r.error}`);
   refreshLandings();

@@ -103,7 +103,7 @@ ROLE_TOOLS: dict[str, list[dict]] = {
     "guard_worker":           [],
     "budget_worker":          [],
     "librarian":              [FILE_TOOL_SPEC],
-    "builder":                [FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "builder":                [FILE_TOOL_SPEC, IMAGE_TOOL_SPEC, MEMORY_TOOL_SPEC],
 }
 
 
