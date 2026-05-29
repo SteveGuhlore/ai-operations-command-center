@@ -68,7 +68,7 @@ MODELS: dict[str, str] = {
     "market_research_worker": "gemini-2.5-pro",            # Tony Stocks — needs sharp analysis for daily brief
     "outreach_worker":        "gemini-2.5-flash",          # Pitch — fast cheap prospect research
     "librarian":              "gemini-2.5-flash",
-    "builder":                "gemini-2.5-flash",          # Clay — site generation
+    "builder":                "gemini-2.5-pro",            # Clay — site generation (Pro for sharper, skill-driven design)
     "opportunity_worker":     "gemini-2.5-flash",          # Prospector — scout default; deep-dive overridden to Pro
 }
 
