@@ -27,6 +27,7 @@ from runner.tools.video import TOOL_SPEC as VIDEO_TOOL_SPEC
 from runner.tools.task_creator import TOOL_SPEC as TASK_CREATOR_TOOL_SPEC
 from runner.tools.flag_issue import TOOL_SPEC as FLAG_ISSUE_TOOL_SPEC
 from runner.tools.tony_insights import TOOL_SPEC as TONY_INSIGHTS_TOOL_SPEC
+from runner.plugins.loader import LOAD_DESIGN_SKILL_TOOL_SPEC
 from runner.tools.vault_writer import write_vault_session
 from runner.tools.email_sender import TOOL_SPEC as EMAIL_TOOL_SPEC
 from runner.tools.places import TOOL_SPEC as PLACES_TOOL_SPEC
@@ -103,7 +104,7 @@ ROLE_TOOLS: dict[str, list[dict]] = {
     "guard_worker":           [],
     "budget_worker":          [],
     "librarian":              [FILE_TOOL_SPEC],
-    "builder":                [FILE_TOOL_SPEC, IMAGE_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "builder":                [FILE_TOOL_SPEC, IMAGE_TOOL_SPEC, MEMORY_TOOL_SPEC, LOAD_DESIGN_SKILL_TOOL_SPEC],
 }
 
 

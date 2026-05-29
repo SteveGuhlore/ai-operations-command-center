@@ -13,6 +13,10 @@ from pathlib import Path
 CACHE_ROOT = Path.home() / ".claude" / "plugins" / "cache"
 PLUGINS_CACHE = CACHE_ROOT / "claude-plugins-official"  # kept for back-compat (tests monkeypatch this)
 
+# Clay's OWN skill, authored by the design-memory loop from builds that booked real revenue.
+ROOT = Path(__file__).resolve().parents[2]
+HOUSE_STYLE_SKILL = ROOT / "vault" / "builder" / "skills" / "clay-house-style" / "SKILL.md"
+
 AGENT_SKILLS: dict[str, list[tuple[str, str]]] = {
     "manager":                [("superpowers", "dispatching-parallel-agents")],
     "heavy_worker":           [("feature-dev", "feature-dev"), ("superpowers", "test-driven-development")],
@@ -126,8 +130,66 @@ def build_design_skill_menu() -> str:
     return "\n".join(f"- **{n}** — {d}" if d else f"- **{n}**" for n, d in skills)
 
 
+def _load_house_style() -> str:
+    if HOUSE_STYLE_SKILL.exists():
+        try:
+            return HOUSE_STYLE_SKILL.read_text(encoding="utf-8")
+        except OSError:
+            return ""
+    return ""
+
+
+def load_design_skill_by_name(name: str) -> str:
+    """Full text of an installed design skill by bare name, restricted to the design
+    library (the menu Clay sees). Returns '' for anything not in that library."""
+    if name not in {n for n, _ in discover_design_skills()}:
+        return ""
+    for repo in DESIGN_SKILL_REPOS:
+        base = CACHE_ROOT / repo
+        if not base.exists():
+            continue
+        for p in base.rglob("SKILL.md"):
+            if "docs" in p.parts:
+                continue
+            if p.parent.name == name and p.parent.parent.name == "skills":
+                try:
+                    return p.read_text(encoding="utf-8")
+                except OSError:
+                    return ""
+    return ""
+
+
+def load_design_skill(name: str) -> dict:
+    """Tool adapter: pull the full instructions of a design skill on demand mid-build."""
+    content = load_design_skill_by_name(name)
+    if not content:
+        return {"error": f"'{name}' is not in your design library. Use an exact name from the menu."}
+    return {"skill": name, "content": content}
+
+
+LOAD_DESIGN_SKILL_TOOL_SPEC = {
+    "name": "load_design_skill",
+    "description": (
+        "Load the FULL instructions of a design skill from your design library by its exact "
+        "name (as listed in the DESIGN SKILL LIBRARY menu in your system prompt). Call this "
+        "mid-build to pull detailed guidance for the 1-3 skills most relevant to the page you "
+        "are designing (e.g. 'brutalist-skill', 'color-system', 'micro-interaction-spec')."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Exact skill name from the menu."}
+        },
+        "required": ["name"],
+    },
+}
+
+
 def _build_builder_skills_prompt() -> str:
     parts = []
+    house = _load_house_style()
+    if house:
+        parts.append(f"--- SKILL: clay-house-style (YOUR OWN — learned from what actually converted) ---\n{house}")
     for plugin, skill in BUILDER_CORE_SKILLS:
         content = load_skill(plugin, skill)
         if content:
@@ -136,11 +198,12 @@ def _build_builder_skills_prompt() -> str:
     if menu:
         parts.append(
             "--- DESIGN SKILL LIBRARY (your options) ---\n"
-            "The core design skills above are loaded in full. The skills below are also installed "
-            "and available to you — recall and apply their principles when a build calls for them "
-            "(e.g. a brutalist hero, a minimalist pricing page, a bold landing). Note in `write_memory` "
-            "which skills you drew on and what worked, so the design-memory loop can merge them into "
-            "your own evolving style:\n\n" + menu
+            "The core design skills above are loaded in full. The skills below are also installed. "
+            "For any of them, call the `load_design_skill` tool with the exact name to pull its FULL "
+            "instructions mid-build — do this for the 1-3 skills most relevant to the page you are "
+            "designing (e.g. a brutalist hero, a minimalist pricing page). In your design_log notes, "
+            "record which skills you drew on so the design-memory loop can merge what converts into "
+            "your own clay-house-style skill:\n\n" + menu
         )
     return "\n\n".join(parts)
 

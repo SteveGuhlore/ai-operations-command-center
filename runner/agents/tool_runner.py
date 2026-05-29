@@ -61,4 +61,6 @@ register_tool("send_instagram_dm",  send_instagram_dm)
 register_tool("write_memory",       write_memory)
 register_tool("read_inbox",         read_inbox)
 register_tool("flag_issue",         flag_issue)
-register_tool("flag_issue",         flag_issue)
+
+from runner.plugins.loader import load_design_skill
+register_tool("load_design_skill",  load_design_skill)
