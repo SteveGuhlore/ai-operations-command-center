@@ -1,5 +1,22 @@
 # Roadmap
 
+## ⭐ Near-Term Priority — Dashboard Mobile Polish (HIGH)
+
+The dashboard is now reachable remotely from a phone over Tailscale Serve
+(`https://alexandria.tail0ae2dc.ts.net` → `127.0.0.1:8765`, tailnet-only), so the
+operator can watch it from work. **But the UI is desktop-only and unreadable on
+mobile — everything renders too small to use.** Polish needed before it's actually
+usable on a phone (esp. during market hours to watch Tony's paper book live):
+
+- Add a proper viewport meta tag + responsive breakpoints (`dashboard/index.html`).
+- Make the data tables responsive — the Tony **Paper Book**, **Structured Verdicts**,
+  Signal Ledger, and pod/CRM tables (`crm-table`) overflow/shrink on small screens;
+  switch to stacked/card layouts or horizontal scroll with larger touch targets.
+- Bump base font sizes / spacing for legibility; avoid the 8–9px micro-text on mobile.
+- Verify on an actual phone via the Tailscale URL (PC must stay awake + runner up).
+
+Priority: HIGH — do after tonight's go-live. Cosmetic only; does not affect trading.
+
 ## Current integrated foundation
 
 The AI Operations Command Center now has a generic local foundation for:
