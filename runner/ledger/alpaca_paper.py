@@ -180,6 +180,9 @@ def _alpaca_broker():
                 "status": str(o.status).rsplit(".", 1)[-1].lower(),
             } for o in ords]
 
+        def cancel_all(self):
+            client.cancel_orders()
+
     return _Broker()
 
 
@@ -242,3 +245,27 @@ def paper_book() -> dict:
         return acct
     except Exception as exc:
         return {"status": "error", "error": str(exc), "open_positions": [], "orders": []}
+
+
+def flush_session(broker=None) -> dict:
+    """Pre-open reset so each market day (and any overnight test data) starts on a clean book:
+    cancel working paper orders, forget executions, and empty the verdicts file. PAPER ONLY —
+    cancels orders, never closes filled positions. Safe if keys are absent."""
+    if broker is None:
+        broker = _alpaca_broker()
+    cancelled = "no_keys"
+    if broker is not None:
+        try:
+            broker.cancel_all()
+            cancelled = "ok"
+        except Exception as exc:
+            cancelled = f"error: {exc}"
+    cleared = []
+    for f in (EXECUTED_LOG, VERDICTS_FILE):
+        try:
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("[]", encoding="utf-8")
+            cleared.append(f.name)
+        except OSError as exc:
+            _log.warning("flush_session: clearing %s failed: %s", f, exc)
+    return {"cancelled": cancelled, "cleared": cleared}

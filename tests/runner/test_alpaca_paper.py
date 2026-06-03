@@ -105,3 +105,31 @@ def test_paper_book_no_keys(monkeypatch):
     monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
     book = ap.paper_book()
     assert book["status"] == "no_keys" and book["orders"] == [] and book["open_positions"] == []
+
+
+def test_flush_session_clears(tmp_path, monkeypatch):
+    monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
+    (tmp_path / "exec.json").write_text(json.dumps(["2026-06-02:D:open"]))
+    (tmp_path / "v.json").write_text(json.dumps([{"date": "2026-06-02", "symbol": "D"}]))
+
+    class CancelBroker:
+        cancelled = False
+        def cancel_all(self):
+            CancelBroker.cancelled = True
+
+    res = ap.flush_session(broker=CancelBroker())
+    assert CancelBroker.cancelled and res["cancelled"] == "ok"
+    assert json.load(open(tmp_path / "exec.json")) == []
+    assert json.load(open(tmp_path / "v.json")) == []
+
+
+def test_flush_session_no_keys_still_clears(tmp_path, monkeypatch):
+    monkeypatch.delenv("ALPACA_API_KEY", raising=False)
+    monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
+    monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
+    (tmp_path / "exec.json").write_text("[]")
+    (tmp_path / "v.json").write_text("[]")
+    res = ap.flush_session()
+    assert res["cancelled"] == "no_keys" and "v.json" in res["cleared"]
