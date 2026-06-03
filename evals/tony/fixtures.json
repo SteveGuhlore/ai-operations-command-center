@@ -1,0 +1,11 @@
+[
+  {"case": "reaffirm won", "verdict": "reaffirm", "return_pct": 12.0, "expected_right": true},
+  {"case": "reaffirm lost", "verdict": "reaffirm", "return_pct": -8.0, "expected_right": false},
+  {"case": "adjust won", "verdict": "adjust", "return_pct": 4.5, "expected_right": true},
+  {"case": "adjust lost", "verdict": "adjust", "return_pct": -3.0, "expected_right": false},
+  {"case": "override avoided a loser", "verdict": "override", "return_pct": -9.0, "expected_right": true},
+  {"case": "override missed a winner", "verdict": "override", "return_pct": 7.0, "expected_right": false},
+  {"case": "pass avoided a loser", "verdict": "pass", "return_pct": -2.0, "expected_right": true},
+  {"case": "close avoided a flat", "verdict": "close", "return_pct": 0.0, "expected_right": true},
+  {"case": "close missed a winner", "verdict": "close", "return_pct": 5.0, "expected_right": false}
+]
