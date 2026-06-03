@@ -188,22 +188,28 @@ def _make_brief_from_bridge(date_str: str, bridge_md: str) -> None:
     body = f"""\
 You are Tony Stocks. This is your daily analytical brief for {date_str}.
 
-The scanner (TradingBotAgentProject) has handed off the brief below. The scanner
-did the quantitative work — your job is the qualitative layer: web-research the
-top signals, find the *why*, apply macro/sector overlay, and write your own
-verdict back with `write_tony_insight`.
+The scanner (TradingBotAgentProject) is the FIRST layer — scripts, charts, technical
+scores. You are the SECOND layer: a research analyst who independently verifies the
+data, pulls real fundamentals, reads the news, then makes YOUR OWN call on each pick.
 
 **Signal Ledger:** `vault/tony-stocks/signal-ledger.md` — read this first, update it last.
 
-## Your Workflow
+## Your Workflow — for EACH Tier 1 ticker (3+ days active), do all of this:
 
-Follow the workflow in your system prompt exactly. Priorities for today, in order:
-- Deep-analyze every Tier 1 ticker (3+ days active): web-search news/earnings, check
-  its `vault/tickers/TICKER.md`, and form your own conviction vs. the scanner's score.
-- Review each Cluster Risk Flag — say whether the concentration changes your picks.
-- Cross-reference Tier 2 against the signal ledger for multi-day persistence.
-- Write 1–3 concrete insights with `write_tony_insight` (ticker + signal + catalyst +
-  your verdict: reaffirm / adjust / pass / override).
+1. **Pull real data** — call `get_stock_data(symbol)`. The scanner's close is stale; this
+   is your live price + fundamentals (P/E, revenue/earnings growth, margins, analyst target
+   & rating, **next earnings date**, 52-week range). Compare it to the scanner's numbers.
+2. **Research the why** — `web_research(action=search)` for news/catalysts/earnings.
+3. **Check your memory** — read `vault/tickers/TICKER.md` for prior history on this name.
+4. **Decide and record** — call `write_tony_verdict(...)` with YOUR independent 0–100 score
+   and a verdict: **reaffirm** (agree), **adjust** (agree, change target/stop), **override**
+   (you'd trade it differently), **pass** (skip), or **close** (avoid/exit). Ground the thesis
+   in the data you pulled. Red flags that should push you off the scanner's pick: analyst
+   target BELOW price, earnings INSIDE the trade window, deteriorating margins, news risk.
+
+Then, across the whole brief:
+- Review each Cluster Risk Flag — say whether the concentration changes any verdict.
+- Write 1–3 cross-cutting `write_tony_insight` notes (sector/macro context, not per-pick).
 - Update the signal ledger, ticker memory, and sector-rotation notes.
 
 ---

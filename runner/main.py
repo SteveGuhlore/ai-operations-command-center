@@ -29,6 +29,8 @@ from runner.tools.video import TOOL_SPEC as VIDEO_TOOL_SPEC
 from runner.tools.task_creator import TOOL_SPEC as TASK_CREATOR_TOOL_SPEC
 from runner.tools.flag_issue import TOOL_SPEC as FLAG_ISSUE_TOOL_SPEC
 from runner.tools.tony_insights import TOOL_SPEC as TONY_INSIGHTS_TOOL_SPEC
+from runner.tools.tony_verdict import TOOL_SPEC as TONY_VERDICT_TOOL_SPEC
+from runner.tools.stock_data import TOOL_SPEC as STOCK_DATA_TOOL_SPEC
 from runner.plugins.loader import LOAD_DESIGN_SKILL_TOOL_SPEC
 from runner.tools.vault_writer import write_vault_session
 from runner.tools.email_sender import TOOL_SPEC as EMAIL_TOOL_SPEC
@@ -102,7 +104,7 @@ ROLE_TOOLS: dict[str, list[dict]] = {
     "digital_product_worker": [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "content_worker":         [FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "debug_worker":           [WEB_TOOL_SPEC, FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, MEMORY_TOOL_SPEC],
-    "market_research_worker": [WEB_TOOL_SPEC, FILE_TOOL_SPEC, TONY_INSIGHTS_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "market_research_worker": [WEB_TOOL_SPEC, STOCK_DATA_TOOL_SPEC, FILE_TOOL_SPEC, TONY_INSIGHTS_TOOL_SPEC, TONY_VERDICT_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "outreach_worker":        [PLACES_TOOL_SPEC, WEB_TOOL_SPEC, EMAIL_TOOL_SPEC, SOCIAL_DM_TOOL_SPEC, FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, INBOX_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "marketing_worker":       [ETSY_TOOL_SPEC, FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "manager":                [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, MEMORY_TOOL_SPEC],
