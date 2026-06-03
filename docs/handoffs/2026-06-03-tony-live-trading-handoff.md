@@ -2,7 +2,7 @@
 
 **For:** a fresh Command Center session (assume zero prior context).
 **Date written:** 2026-06-03 (mid-session, market open).
-**One-line status:** The bot ⇄ CC loop is **live and trading** — Tony bought **HOOD + DAL** (filled, bracketed) on his own **$1M Alpaca paper account** off the corrected daily bridge. Everything below is committed. This session was debugging to first-trade; the next session is **verify + 1 open item**, not a rebuild.
+**One-line status:** The bot ⇄ CC loop is **live and trading** — Tony bought **HOOD + DAL** (filled, bracketed, still held) on his own **$1M Alpaca paper account**. Afternoon bridges (through 13:00) confirmed still ingesting & holding. Everything below is committed. **Open item #1 is now ROOT-CAUSED** (record path mismatch — see §4.1); next session = implement that small fix + keep watching, not a rebuild.
 
 ---
 
@@ -55,7 +55,10 @@ Tests: full suite green (`python -m pytest tests/runner/ evals/ -q`).
 ---
 
 ## 4. OPEN ITEMS for the next session
-1. **(Main) Scout→Forge handoff may be a no-op/loop.** Scout (`debug_worker`) audits spawn a Forge (`heavy_worker`) fix task, but today's `workspace/tasks/done/AUTO-20260603-115402-fix-missing-tony-stocks-record.md` only **re-escalated** ("a task has been created for them") instead of doing the fix. Check whether Scout→Forge produces real work or loops; the underlying issue it targeted (missing `record.json`) is already resolved.
+1. **(Main — ROOT-CAUSED, ready to fix) The Scout→Forge "no-op" is a symptom of a record-path mismatch.**
+   - **Root cause:** `write_record()` (in `runner/ledger/tony_scorecard.py`) writes `tony_stocks_record.json` to **`../TradingBotAgentProject/reports/`** (where it exists, with real data: `graded 6, win_rate 33.3%`). But Tony's **weekly self-review looks for it in `vault/tony-stocks/tony_stocks_record.json`** → so Tony falsely reports it "missing" → Scout files a `critical` bug → hands Forge (`heavy_worker`) a *vague* "investigate & fix" task about a non-bug (`workspace/tasks/done/AUTO-20260603-115402-fix-missing-tony-stocks-record.md`) → Forge finds no real bug and just re-escalates = the no-op. **Forge isn't broken; it was handed a non-bug.**
+   - **The fix (small):** (a) mirror `write_record()` to also write `vault/tony-stocks/tony_stocks_record.json` (where Tony looks) — *safer/simpler*, OR (b) point the self-review read path at the real `reports/` path. **First verify** the exact read path (`runner/ledger/tony_self_review.py` or wherever the record is read with a `vault/` prefix). Add a test + restart the runner.
+   - **Optional hardening:** make Scout-spawned Forge tasks carry concrete bug details (exact file path + generator function) so Forge has something actionable, not "go investigate."
 2. **(Watch) Afternoon/again-trading:** confirm the 13:00 / 15:30 / EOD bridges keep ingesting → verdicts → fills. D will now either get a **valid** bracket (target>stop) or be passed — never a broken order.
 3. **(Nice-to-have) Dashboard mobile polish** — see ROADMAP top item; UI is desktop-only, unreadable on the Tailscale phone view.
 4. **(Bot-side, after 16:00 ET)** bot will add `GET /api/command-center` to read `record.json` for its head-to-head dashboard. No CC action needed beyond keeping `record.json` written (already automatic each cycle).
