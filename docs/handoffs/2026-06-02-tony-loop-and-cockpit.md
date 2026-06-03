@@ -167,6 +167,25 @@ handoff" when a pick has no verdict yet.
 | `reports/tony_stocks_verdicts.json` | CC → bot/Cockpit | CC writes | `TONY_VERDICTS_FILE` |
 | `reports/tony_stocks_outcomes.json` | **bot → CC** | **bot writes (4b)** | `TONY_OUTCOMES_FILE` |
 
+## 5b. The loop is BIDIRECTIONAL (close it)
+This isn't a one-way handoff. The intended cycle:
+1. Bot picks/triggers → drops the daily bridge.
+2. Command Center: Tony does deeper analysis → writes `tony_stocks_verdicts.json` with his
+   own score, verdict, **and his own entry/target/stop**.
+3. **Bot reads `tony_stocks_verdicts.json` and adjusts** — e.g. on `override`/`close` it can
+   tighten/exit; on `adjust` it can take Tony's target/stop; on `reaffirm` it holds. → next bridge.
+Both layers learn off the same environment. The verdict file is the back-channel — please have
+the bot consume it each day.
+
+## 5c. Tony now has his OWN Alpaca paper book (true head-to-head)
+Tony Stocks now executes his verdicts into his **own Alpaca paper account** (`runner/ledger/
+alpaca_paper.py`): reaffirm/adjust/override → open (bracket w/ his target+stop), close → exit,
+pass → skip. So his record is **his account's P&L**, independent of the bot's trades — the
+honest way to answer "does the 2nd pass make money." Needs `ALPACA_API_KEY` + `ALPACA_SECRET_KEY`
+(paper) in the CC `.env`; degrades to no-op without them. **Suggested comparison: bot's paper
+account equity vs Tony's paper account equity** — two real curves, no join needed for the money
+question (the verdict↔outcome join still powers the agreement matrix / "did he agree & was he right").
+
 ## 6. Your action items (trading-bot terminal)
 1. Confirm the daily bridge keeps dropping in the §1 format.
 2. Build/emit `tony_stocks_outcomes.json` per §4b with the §4c join key. **This is the one

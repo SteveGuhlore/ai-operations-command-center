@@ -676,6 +676,13 @@ def run_cycle() -> None:
         write_record()  # refresh tony_stocks_record.json for the Cockpit (cheap, degrades safely)
     except Exception as exc:
         log.warning("scorecard refresh failed: %s", exc)
+    try:
+        from runner.ledger.alpaca_paper import sync as alpaca_sync
+        res = alpaca_sync()  # execute fresh verdicts into Tony's paper book (no-op without keys)
+        if res.get("executed"):
+            log.info("Alpaca paper: executed %d order(s)", res["executed"])
+    except Exception as exc:
+        log.warning("alpaca paper sync failed: %s", exc)
     _sync_vault()
 
 

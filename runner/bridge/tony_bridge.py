@@ -24,10 +24,12 @@ _PROCESSED_LOG = Path(__file__).parent.parent.parent / "workspace" / "logs" / "t
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TIER1_SYM_RE = re.compile(r"\[\[([A-Z][A-Z0-9.\-]{0,9})\]\]")
 
-# Per-Tier-1 fan-out: when the brief has >= this many Tier-1 tickers, also spawn one
-# focused deep-dive verdict task per ticker so each gets full depth without one giant
-# task hitting the token/time cap. 0 = off (single-brief mode). Env-tunable.
+# Per-Tier-1 fan-out: when the brief has >= MIN Tier-1 tickers, also spawn one focused
+# deep-dive verdict task per ticker (up to MAX, in bridge order = score desc) so each gets
+# full depth without one giant task truncating. 0 = off. Healthy medium: MIN=3, MAX=6 —
+# deep per-pick analysis on the conviction set, Tier-2/3 stay in the lighter combined brief.
 FANOUT_MIN_TIER1 = int(os.environ.get("TONY_FANOUT_MIN_TIER1", "0"))
+FANOUT_MAX = int(os.environ.get("TONY_FANOUT_MAX", "6"))
 
 _REPORT_FILES = ["eod_report", "strategy_proposal", "approval_package"]
 _VAULT_HISTORY_DAYS = 7
@@ -253,7 +255,7 @@ Then, across the whole brief:
     if FANOUT_MIN_TIER1:
         syms = _extract_tier1_symbols(bridge_md)
         if len(syms) >= FANOUT_MIN_TIER1:
-            for s in syms:
+            for s in syms[:FANOUT_MAX]:  # top-N in bridge order (score desc)
                 _spawn_ticker_task(date_str, s)
 
 
