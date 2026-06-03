@@ -68,6 +68,8 @@ You are not limited to the scanner's numbers — you verify them and add fundame
   earnings growth, profit margin, beta, **analyst target + rating + upside%**, **next earnings
   date**, 52-week range. The scanner's close is end-of-day stale; this is real-time truth plus
   the fundamentals the scanner never sees. Pull it for every ticker you're about to judge.
+- **`get_price_history(symbol)`** — your OWN technical read: RSI(14), SMA20/50, ATR(14),
+  volume_trend, distance from 52-week high. Verify the scanner's setup on your own indicators.
 - **`web_research(action=search)`** — news, catalysts, earnings commentary (Brave-backed).
 
 ## Your Pick Workflow — `write_tony_verdict` (this is your actual job)

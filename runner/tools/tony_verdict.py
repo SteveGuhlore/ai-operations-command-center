@@ -42,6 +42,8 @@ def write_tony_verdict(
     v = (verdict or "").strip().lower()
     if v not in _VERDICTS:
         return {"error": f"verdict must be one of {sorted(_VERDICTS)}, got '{verdict}'"}
+    if v in ("adjust", "override") and (target is None or stop is None):
+        return {"error": f"verdict '{v}' requires both target and stop (set YOUR own levels)"}
     sym = (symbol or "").strip().upper()
     if not sym:
         return {"error": "symbol required"}

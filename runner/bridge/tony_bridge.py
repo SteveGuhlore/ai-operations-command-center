@@ -22,6 +22,12 @@ BRIDGE_MD_DIR = Path(
 )
 _PROCESSED_LOG = Path(__file__).parent.parent.parent / "workspace" / "logs" / "tony-bridge-processed.json"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_TIER1_SYM_RE = re.compile(r"\[\[([A-Z][A-Z0-9.\-]{0,9})\]\]")
+
+# Per-Tier-1 fan-out: when the brief has >= this many Tier-1 tickers, also spawn one
+# focused deep-dive verdict task per ticker so each gets full depth without one giant
+# task hitting the token/time cap. 0 = off (single-brief mode). Env-tunable.
+FANOUT_MIN_TIER1 = int(os.environ.get("TONY_FANOUT_MIN_TIER1", "0"))
 
 _REPORT_FILES = ["eod_report", "strategy_proposal", "approval_package"]
 _VAULT_HISTORY_DAYS = 7
@@ -199,9 +205,11 @@ data, pulls real fundamentals, reads the news, then makes YOUR OWN call on each 
 1. **Pull real data** — call `get_stock_data(symbol)`. The scanner's close is stale; this
    is your live price + fundamentals (P/E, revenue/earnings growth, margins, analyst target
    & rating, **next earnings date**, 52-week range). Compare it to the scanner's numbers.
-2. **Research the why** — `web_research(action=search)` for news/catalysts/earnings.
-3. **Check your memory** — read `vault/tickers/TICKER.md` for prior history on this name.
-4. **Decide and record** — call `write_tony_verdict(...)` with YOUR independent 0–100 score
+2. **Verify the setup** — call `get_price_history(symbol)` for your OWN RSI/SMA/ATR/volume
+   read. Confirm (or reject) the scanner's technical setup on your own indicators.
+3. **Research the why** — `web_research(action=search)` for news/catalysts/earnings.
+4. **Check your memory** — read `vault/tickers/TICKER.md` for prior history on this name.
+5. **Decide and record** — call `write_tony_verdict(...)` with YOUR independent 0–100 score
    and a verdict: **reaffirm** (agree), **adjust** (agree, change target/stop), **override**
    (you'd trade it differently), **pass** (skip), or **close** (avoid/exit). Ground the thesis
    in the data you pulled. Red flags that should push you off the scanner's pick: analyst
@@ -241,6 +249,44 @@ Then, across the whole brief:
         encoding="utf-8",
     )
     _log.info("tony_bridge: created daily brief %s (markdown bridge)", task_id)
+
+    if FANOUT_MIN_TIER1:
+        syms = _extract_tier1_symbols(bridge_md)
+        if len(syms) >= FANOUT_MIN_TIER1:
+            for s in syms:
+                _spawn_ticker_task(date_str, s)
+
+
+def _extract_tier1_symbols(md: str) -> list[str]:
+    """Pull [[TICKER]] names from the Tier 1 section only."""
+    after = md.split("Tier 1", 1)[-1]
+    after = after.split("Tier 2", 1)[0]
+    return list(dict.fromkeys(_TIER1_SYM_RE.findall(after)))
+
+
+def _spawn_ticker_task(date_str: str, sym: str) -> None:
+    task_id = f"TONY-TKR-{sym}-{date_str.replace('-', '')}"
+    TASKS_DIR.mkdir(parents=True, exist_ok=True)
+    (TASKS_DIR / f"{task_id}.md").write_text(
+        f"---\n"
+        f"task_id: {task_id}\n"
+        f"assigned_agent: market_research_worker\n"
+        f"status: todo\n"
+        f"priority: normal\n"
+        f"pod: stock_research_pod\n"
+        f"task_type: ticker_deepdive\n"
+        f"---\n\n"
+        f"# Deep-dive verdict — {sym} ({date_str})\n\n"
+        f"Produce ONE structured verdict for **{sym}**. Steps:\n"
+        f"1. `get_stock_data('{sym}')` — live price + fundamentals + earnings date.\n"
+        f"2. `get_price_history('{sym}')` — your own RSI/SMA/ATR/volume read.\n"
+        f"3. `web_research(action=search)` — news/catalysts.\n"
+        f"4. `write_tony_verdict(...)` — your independent score + verdict + (for adjust/override) "
+        f"your own target & stop.\n"
+        f"Then append your findings to `vault/tickers/{sym}.md`.\n",
+        encoding="utf-8",
+    )
+    _log.info("tony_bridge: fan-out ticker task %s", task_id)
 
 
 def _scan_markdown_bridge(processed: set) -> None:

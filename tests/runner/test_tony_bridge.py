@@ -87,6 +87,28 @@ def test_markdown_bridge_not_duplicated(tmp_path, monkeypatch):
     assert len(list(tasks_dir.glob("*.md"))) == 1
 
 
+def test_fanout_spawns_per_ticker(tmp_path, monkeypatch):
+    _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(bridge_module, "FANOUT_MIN_TIER1", 2)
+    body = ("## Tier 1\n### [[AAA]]\n- Days active: 3\n### [[BBB]]\n- Days active: 4\n"
+            "## Tier 2\n### [[CCC]]\n## For Tony\nx")
+    _write_bridge(bridge_dir, "2026-06-03", body)
+    bridge_module.scan_and_process()
+    names = [p.name for p in tasks_dir.glob("*.md")]
+    assert any("TONY-TKR-AAA" in n for n in names)
+    assert any("TONY-TKR-BBB" in n for n in names)
+    assert not any("CCC" in n for n in names)  # Tier 2 excluded
+
+
+def test_fanout_off_by_default(tmp_path, monkeypatch):
+    _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(bridge_module, "FANOUT_MIN_TIER1", 0)
+    body = "## Tier 1\n### [[AAA]]\n### [[BBB]]\n## For Tony\nx"
+    _write_bridge(bridge_dir, "2026-06-03", body)
+    bridge_module.scan_and_process()
+    assert not any("TONY-TKR" in p.name for p in tasks_dir.glob("*.md"))
+
+
 def test_markdown_wins_when_both_sources_present(tmp_path, monkeypatch):
     reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
     _write_eod(reports_dir, "2026-05-29", ["AAPL"])

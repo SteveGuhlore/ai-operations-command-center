@@ -32,6 +32,7 @@ from runner.tools.task_creator import create_task
 from runner.tools.tony_insights import write_tony_insight
 from runner.tools.tony_verdict import write_tony_verdict
 from runner.tools.stock_data import get_stock_data
+from runner.tools.stock_technicals import get_price_history
 from runner.tools.email_sender import send_email
 from runner.tools.places import find_prospects
 from runner.tools.social_dm import send_instagram_dm
@@ -59,6 +60,7 @@ register_tool("create_task",        create_task)
 register_tool("write_tony_insight", write_tony_insight)
 register_tool("write_tony_verdict", write_tony_verdict)
 register_tool("get_stock_data",     get_stock_data)
+register_tool("get_price_history",  get_price_history)
 register_tool("send_email",         send_email)
 register_tool("find_prospects",     find_prospects)
 register_tool("send_instagram_dm",  send_instagram_dm)
