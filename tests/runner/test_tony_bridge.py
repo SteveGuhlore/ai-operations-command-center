@@ -77,6 +77,18 @@ def test_scan_ingests_markdown_bridge(tmp_path, monkeypatch):
     assert "market_research_worker" in content
 
 
+def test_vault_history_filters_poison(tmp_path, monkeypatch):
+    sessions = tmp_path / "vault" / "sessions" / "2026-06-03"
+    sessions.mkdir(parents=True)
+    (sessions / "TONY-A.md").write_text(
+        "AMD CLOSE — scanner data integrity failure detected.", encoding="utf-8")
+    (sessions / "TONY-B.md").write_text(
+        "DAL reaffirm — strong breakout, tony_score 80.", encoding="utf-8")
+    monkeypatch.setattr(bridge_module, "VAULT_DIR", tmp_path / "vault")
+    out = bridge_module._load_vault_history()
+    assert "DAL reaffirm" in out and "integrity failure" not in out
+
+
 def test_intraday_bridges_each_fire(tmp_path, monkeypatch):
     _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
     for slot in ("2026-06-03T1030", "2026-06-03T1300", "2026-06-03-eod"):

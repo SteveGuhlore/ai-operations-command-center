@@ -52,8 +52,16 @@ def _save_processed(processed: set) -> None:
     _PROCESSED_LOG.write_text(json.dumps(sorted(processed)), encoding="utf-8")
 
 
+_HISTORY_POISON = (
+    "data integrity failure", "mass exit", "flag_issue", "no tool calls",
+    "returned no text summary", "data failure", "data interruption", "no new signals",
+)
+
+
 def _load_vault_history() -> str:
-    """Read the last N days of Tony's session outputs from the vault."""
+    """Read recent PRODUCTIVE Tony sessions from the vault, skipping broken-scan / no-op runs
+    (their 'data integrity failure / mass exit / no signals' narrative anchors Tony into
+    concluding the environment is broken and skipping his per-ticker analysis)."""
     sessions_dir = VAULT_DIR / "sessions"
     if not sessions_dir.exists():
         return "No prior sessions found."
@@ -67,14 +75,17 @@ def _load_vault_history() -> str:
     for dated_dir in dated_dirs:
         for session_file in sorted(dated_dir.glob("TONY-*.md")):
             try:
-                entries.append(session_file.read_text(encoding="utf-8"))
+                txt = session_file.read_text(encoding="utf-8")
             except OSError:
-                pass
+                continue
+            if any(m in txt.lower() for m in _HISTORY_POISON):
+                continue  # drop poisoned / no-op runs so they don't anchor a fresh brief
+            entries.append(txt)
 
     if not entries:
-        return "No prior Tony sessions found."
+        return "No prior productive sessions — analyze today's bridge fresh on its own merits."
 
-    return "\n\n---\n\n".join(entries[-10:])  # cap at 10 entries to keep context tight
+    return "\n\n---\n\n".join(entries[-5:])  # cap to keep context tight
 
 
 def _extract_watchlist(eod_raw: str) -> str:
