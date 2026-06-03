@@ -47,7 +47,10 @@ def _log_blocked(title: str, assigned_agent: str) -> None:
 
 
 def _has_pending_task(assigned_agent: str, task_type: str) -> bool:
-    for folder in ("todo",):
+    # Check in_progress too: a dispatched task (todo -> in_progress) is still "pending" for
+    # dedup. Without this, any task running longer than one cycle gets a duplicate spawned
+    # every cycle (the duplicate poc_build bug).
+    for folder in ("todo", "in_progress"):
         d = TASKS_DIR / folder
         if not d.exists():
             continue

@@ -16,7 +16,7 @@ RUNWAY_FILE = LEDGER_DIR / "runway.json"
 _DEFAULTS = {
     "base_grace_days": 14,
     "days_per_real_dollar": 1.0,
-    "spend_allowance_usd": 20.0,
+    "spend_allowance_usd": 100.0,
     "usd_per_real_dollar": 1.0,
     "status": "alive",
     "paused_at": None,

@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
@@ -13,7 +14,14 @@ _default_reports = (
 TRADING_REPORTS_DIR = Path(os.environ.get("TONY_REPORTS_DIR", str(_default_reports)))
 TASKS_DIR = Path(__file__).parent.parent.parent / "workspace" / "tasks" / "todo"
 VAULT_DIR = Path(__file__).parent.parent.parent / "vault"
+BRIDGE_MD_DIR = Path(
+    os.environ.get(
+        "TONY_BRIDGE_DIR",
+        str(Path(__file__).parent.parent.parent / "bridge" / "tony-stocks"),
+    )
+)
 _PROCESSED_LOG = Path(__file__).parent.parent.parent / "workspace" / "logs" / "tony-bridge-processed.json"
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 _REPORT_FILES = ["eod_report", "strategy_proposal", "approval_package"]
 _VAULT_HISTORY_DAYS = 7
@@ -171,11 +179,94 @@ Follow the workflow in your system prompt exactly. Key focus for today:
     _log.info("tony_bridge: created daily brief %s", task_id)
 
 
-def scan_and_process() -> None:
-    if not TRADING_REPORTS_DIR.exists():
+def _make_brief_from_bridge(date_str: str, bridge_md: str) -> None:
+    task_id = f"TONY-DAILY-BRIEF-{date_str.replace('-', '')}"
+    title = f"Tony Daily Brief — {date_str}"
+
+    vault_history = _load_vault_history()
+
+    body = f"""\
+You are Tony Stocks. This is your daily analytical brief for {date_str}.
+
+The scanner (TradingBotAgentProject) has handed off the brief below. The scanner
+did the quantitative work — your job is the qualitative layer: web-research the
+top signals, find the *why*, apply macro/sector overlay, and write your own
+verdict back with `write_tony_insight`.
+
+**Signal Ledger:** `vault/tony-stocks/signal-ledger.md` — read this first, update it last.
+
+## Your Workflow
+
+Follow the workflow in your system prompt exactly. Priorities for today, in order:
+- Deep-analyze every Tier 1 ticker (3+ days active): web-search news/earnings, check
+  its `vault/tickers/TICKER.md`, and form your own conviction vs. the scanner's score.
+- Review each Cluster Risk Flag — say whether the concentration changes your picks.
+- Cross-reference Tier 2 against the signal ledger for multi-day persistence.
+- Write 1–3 concrete insights with `write_tony_insight` (ticker + signal + catalyst +
+  your verdict: reaffirm / adjust / pass / override).
+- Update the signal ledger, ticker memory, and sector-rotation notes.
+
+---
+
+## Scanner Bridge — {date_str}
+
+{bridge_md}
+
+---
+
+## Recent Session History (last {_VAULT_HISTORY_DAYS} days)
+
+{vault_history}
+"""
+
+    TASKS_DIR.mkdir(parents=True, exist_ok=True)
+    task_file = TASKS_DIR / f"{task_id}.md"
+    task_file.write_text(
+        f"---\n"
+        f"task_id: {task_id}\n"
+        f"assigned_agent: market_research_worker\n"
+        f"status: todo\n"
+        f"priority: normal\n"
+        f"pod: stock_research_pod\n"
+        f"task_type: market_scan_summary\n"
+        f"---\n\n"
+        f"# {title}\n\n"
+        f"{body}\n",
+        encoding="utf-8",
+    )
+    _log.info("tony_bridge: created daily brief %s (markdown bridge)", task_id)
+
+
+def _scan_markdown_bridge(processed: set) -> None:
+    """Primary source: rich markdown bridges the trading bot drops in bridge/tony-stocks/."""
+    if not BRIDGE_MD_DIR.exists():
         return
 
-    processed = _load_processed()
+    md_files = sorted(
+        [f for f in BRIDGE_MD_DIR.glob("*.md") if _DATE_RE.match(f.stem)],
+        reverse=True,
+    )
+
+    for md_file in md_files:
+        date_str = md_file.stem
+        key = f"{date_str}/daily_brief"
+        if key in processed:
+            continue
+        try:
+            bridge_md = md_file.read_text(encoding="utf-8")
+        except OSError as exc:
+            _log.warning("tony_bridge: could not read %s: %s", md_file, exc)
+            continue
+        if not bridge_md.strip():
+            continue
+        _make_brief_from_bridge(date_str, bridge_md)
+        processed.add(key)
+
+
+def _scan_json_reports(processed: set) -> None:
+    """Fallback source: legacy JSON reports from TradingBotAgentProject/reports/<date>/."""
+    if not TRADING_REPORTS_DIR.exists():
+        return
 
     dated_dirs = sorted(
         [d for d in TRADING_REPORTS_DIR.iterdir() if d.is_dir() and d.name[:4].isdigit()],
@@ -204,4 +295,9 @@ def scan_and_process() -> None:
         _make_daily_brief(date_str, reports)
         processed.add(key)
 
+
+def scan_and_process() -> None:
+    processed = _load_processed()
+    _scan_markdown_bridge(processed)
+    _scan_json_reports(processed)
     _save_processed(processed)

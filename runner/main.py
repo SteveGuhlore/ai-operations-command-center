@@ -43,7 +43,7 @@ from runner.tools.poc_sandbox import TOOL_SPEC as POC_RUNNER_TOOL_SPEC
 from runner.tools.task_creator import create_task
 from runner.tools.landing import landing_exists, write_landing_state
 from runner.tools.opportunity import rank_score
-from runner.ledger.runway import runway_expired, pause_pod
+from runner.ledger.runway import runway_expired, pause_pod, compute_runway
 from runner.scheduler.daily_jobs import (
     scout_due, mark_scout_ran,
     daily_learning_due, mark_learning_ran,
@@ -88,6 +88,11 @@ TASK_MODEL_OVERRIDES: dict[str, str] = _load_task_models()
 
 MAX_CONCURRENT = 4
 LOW_WATER_MARK = 2  # Atlas auto-spawns when fewer than this many tasks remain in queue (lowered for tighter outreach cadence)
+
+# Operator pause switch for the Easy Simple Sites outreach loop (Pitch). When True,
+# the cycle stops auto-reviving Pitch outreach tasks — only Tony Stocks and any
+# reactive site_build (real interested leads) keep flowing. Flip to False to resume.
+OUTREACH_PAUSED = True
 
 # Tools each role is allowed to call
 ROLE_TOOLS: dict[str, list[dict]] = {
@@ -274,7 +279,7 @@ Sign as Stephen, easysimplesites.org.
 def _maybe_spawn_planning_task() -> None:
     # Pitch is self-perpetuating (Step 10 of outreach_worker creates its own next task).
     # Only intervene if the loop has died — create a Pitch task directly, no Atlas needed.
-    if not _pitch_is_alive():
+    if not OUTREACH_PAUSED and not _pitch_is_alive():
         from runner.tools.task_creator import create_task
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         result = create_task(
@@ -311,13 +316,34 @@ def _maybe_spawn_planning_task() -> None:
         log.info("Strategic task needed — spawned Atlas: %s", result.get("task_id"))
 
 
-_SCOUT_TASK_BODY = """\
-Run the Prospector opportunity scout for opportunity_pod.
+def _doomsday_banner() -> str:
+    """Live runway state as an urgent header — makes the doomsday clock LITERAL and
+    concrete (real days/dollars) at the top of every Prospector task, so he races it."""
+    r = compute_runway()
+    return (
+        "TICKING TIME BOMB — your survival runway, read it as a literal countdown:\n"
+        f"  - {r['days_remaining']} day(s) of runway left (the pod is PAUSED and you STOP "
+        f"running at zero; survive-by {r['survive_by']}).\n"
+        f"  - ${r['spend']:.2f} burned of ${r['effective_allowance_usd']:.2f} allowance.\n"
+        f"  - REAL revenue booked so far: ${r['real_revenue']:.2f}. The clock is extended "
+        "ONLY by real paying customers — never by scores or a pile of ideas.\n"
+        "  - So every cycle counts. Surface the BEST, most novel, monetizable-THIS-WEEK "
+        "ideas, relentlessly. Quality and speed to first dollar are survival.\n\n"
+    )
 
-1. Read vault/opportunities/ledger.md first — skip slugs already present.
-2. Web-research current AI-agent business ideas. Produce 15-20 candidates.
-3. Score each new idea (six dimensions 0-10) and call log_opportunity.
-4. For each idea with composite >= 75, create an opportunity_deepdive task (opportunity_worker, opportunity_pod).
+
+_SCOUT_TASK_BODY = """\
+Run the Prospector opportunity scout for opportunity_pod. You never stop hunting — if the
+backlog ever empties, you scout again. Constant flow of the BEST ideas is the job.
+
+1. Read vault/opportunities/ledger.md first — skip slugs already present, never re-scout them.
+2. Web-research the FRESHEST, highest-signal AI-agent business ideas, niches, and unmet pain
+   points. Produce 15-20 genuinely NEW candidates — novel angles, not me-too wrappers, not
+   re-skins of ideas already in the ledger.
+3. Score each new idea (six dimensions 0-10) and call log_opportunity. Be honest, but do NOT
+   reflexively dock big/proven markets — name the defensible wedge or don't reject it.
+4. For each idea with composite >= 75, create an opportunity_deepdive task (opportunity_worker,
+   opportunity_pod). Prioritize the ones with the fastest concrete path to a paying customer.
 5. write_memory(entry_type=metric) with counts scouted / >=75.
 """
 
@@ -447,7 +473,7 @@ def _advance_opportunity_pipeline() -> None:
 
     # 3) Everything processed — scout a fresh batch of ideas.
     result = create_task(
-        title="Prospector: Opportunity Scout", body=_SCOUT_TASK_BODY,
+        title="Prospector: Opportunity Scout", body=_doomsday_banner() + _SCOUT_TASK_BODY,
         assigned_agent="opportunity_worker", task_type="opportunity_scout",
         pod="opportunity_pod", priority="low")
     if result.get("success") or result.get("skipped"):

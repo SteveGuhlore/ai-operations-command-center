@@ -5,6 +5,7 @@ from runner.tools import landing
 def _setup(monkeypatch, tmp_path, built_slugs):
     monkeypatch.setattr(landing, "LANDINGS_DIR", tmp_path)
     monkeypatch.setattr(main, "is_pod_budget_exceeded", lambda pod: False)
+    monkeypatch.setattr(main, "runway_expired", lambda: False)
     monkeypatch.setattr(main, "_opportunity_task_pending", lambda: False)
     monkeypatch.setattr(main, "_poc_built", lambda slug: slug in built_slugs)
 

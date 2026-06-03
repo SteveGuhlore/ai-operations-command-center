@@ -253,7 +253,7 @@ agents:
 
   - role_id: outreach_worker
     display_name: Pitch
-    enabled: true
+    enabled: false  # PAUSED 2026-06-02 by operator — waiting on results. Re-enable + flip runner.main OUTREACH_PAUSED=False to resume.
     purpose: Finds local businesses without websites, composes personalized pitches for tiered website packages, sends outreach via email and Instagram DM, and tracks all contacts in the CRM.
     allowed_task_types:
       - prospect_research

@@ -44,16 +44,42 @@ BUILDER_CORE_SKILLS: list[tuple[str, str]] = [
 ]
 
 # Repos scanned to build the design-skill MENU (dir names under the cache root).
-# ecc is deliberately excluded — it is a 300+ skill general-purpose plugin, not a design
-# repo, so auto-scanning it would flood the menu with irrelevant engineering skills. Its
-# genuine design skills are pulled in explicitly via BUILDER_CORE_SKILLS instead.
+# ecc is deliberately excluded from the auto-scan — it is a 300+ skill general-purpose
+# plugin, so scanning it whole would flood the menu with engineering skills. Its genuine
+# design skills are pulled in by name via ECC_DESIGN_SKILLS instead.
 DESIGN_SKILL_REPOS = [
     "claude-plugins-official/frontend-design",
     "taste-skill", "interface-design", "agent-skills",
-    "designer-skills", "impeccable", "ui-ux-pro-max-skill",
+    "designer-skills",
+]
+
+# User-level design skills installed at ~/.claude/skills/<name>/SKILL.md (impeccable,
+# ui-ux-pro-max, Emil Kowalski's polish skill, the CKM design suite). These are full
+# design systems — too large to inject every build, so they go in the on-demand menu.
+USER_SKILLS_ROOT = Path.home() / ".claude" / "skills"
+USER_DESIGN_SKILLS = [
+    "impeccable", "ui-ux-pro-max", "emil-design-eng",
+    "ckm-design", "ckm-design-system", "ckm-ui-styling",
+]
+
+# Curated ecc design skills, added to the menu by name (ecc as a whole is not scanned).
+ECC_DESIGN_SKILLS = [
+    "design-system", "accessibility", "liquid-glass-design",
+    "make-interfaces-feel-better", "frontend-design-direction",
+    "motion-ui", "motion-foundations", "ui-demo", "frontend-slides",
 ]
 
 _FM_DESC = re.compile(r"^description:\s*(.+)$", re.MULTILINE)
+
+
+def _desc_from(path: Path) -> str:
+    """Extract the frontmatter description (first 160 chars) from a SKILL.md."""
+    try:
+        head = path.read_text(encoding="utf-8", errors="ignore")[:800]
+    except OSError:
+        return ""
+    m = _FM_DESC.search(head)
+    return (m.group(1).strip().strip('"').strip("'") if m else "")[:160]
 
 
 def _find_skill_file(plugin: str, skill: str) -> Path | None:
@@ -112,13 +138,21 @@ def discover_design_skills() -> list[tuple[str, str]]:
             name = p.parent.name
             if name in found:
                 continue
-            try:
-                head = p.read_text(encoding="utf-8", errors="ignore")[:800]
-            except OSError:
-                continue
-            m = _FM_DESC.search(head)
-            desc = (m.group(1).strip().strip('"').strip("'") if m else "")[:160]
-            found[name] = desc
+            found[name] = _desc_from(p)
+    # Curated ecc design skills, resolved by name from the ecc plugin tree.
+    for skill in ECC_DESIGN_SKILLS:
+        if skill in found:
+            continue
+        p = _find_skill_file("ecc", skill)
+        if p is not None:
+            found[skill] = _desc_from(p)
+    # User-level design skills (~/.claude/skills/<name>/SKILL.md).
+    for skill in USER_DESIGN_SKILLS:
+        if skill in found:
+            continue
+        p = USER_SKILLS_ROOT / skill / "SKILL.md"
+        if p.exists():
+            found[skill] = _desc_from(p)
     _design_menu_cache = sorted(found.items())
     return _design_menu_cache
 
@@ -144,6 +178,14 @@ def load_design_skill_by_name(name: str) -> str:
     library (the menu Clay sees). Returns '' for anything not in that library."""
     if name not in {n for n, _ in discover_design_skills()}:
         return ""
+    if name in ECC_DESIGN_SKILLS:
+        return load_skill("ecc", name)
+    if name in USER_DESIGN_SKILLS:
+        p = USER_SKILLS_ROOT / name / "SKILL.md"
+        try:
+            return p.read_text(encoding="utf-8") if p.exists() else ""
+        except OSError:
+            return ""
     for repo in DESIGN_SKILL_REPOS:
         base = CACHE_ROOT / repo
         if not base.exists():

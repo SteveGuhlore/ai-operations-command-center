@@ -4,14 +4,17 @@ from runner.bridge import tony_bridge as bridge_module
 
 def _setup(tmp_path, monkeypatch):
     reports_dir = tmp_path / "reports"
+    bridge_dir = tmp_path / "bridge" / "tony-stocks"
     tasks_dir = tmp_path / "workspace" / "tasks" / "todo"
     reports_dir.mkdir(parents=True)
+    bridge_dir.mkdir(parents=True)
     tasks_dir.mkdir(parents=True)
     monkeypatch.setattr(bridge_module, "TRADING_REPORTS_DIR", reports_dir)
+    monkeypatch.setattr(bridge_module, "BRIDGE_MD_DIR", bridge_dir)
     monkeypatch.setattr(bridge_module, "TASKS_DIR", tasks_dir)
     monkeypatch.setattr(bridge_module, "_PROCESSED_LOG", tmp_path / "processed.json")
     monkeypatch.setattr(bridge_module, "VAULT_DIR", tmp_path / "vault")
-    return reports_dir, tasks_dir
+    return reports_dir, bridge_dir, tasks_dir
 
 
 def _write_eod(reports_dir, date_str, tickers):
@@ -21,8 +24,15 @@ def _write_eod(reports_dir, date_str, tickers):
         json.dumps({"active_symbols": tickers, "weakening": 0}), encoding="utf-8")
 
 
+def _write_bridge(bridge_dir, date_str, body):
+    (bridge_dir / f"{date_str}.md").write_text(
+        f"---\ndate: {date_str}\nsource: TradingBotAgentProject\nexport_type: eod-bridge\n---\n\n{body}\n",
+        encoding="utf-8",
+    )
+
+
 def test_scan_creates_daily_brief(tmp_path, monkeypatch):
-    reports_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    reports_dir, _bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
     _write_eod(reports_dir, "2026-05-21", ["AAPL", "TSLA"])
 
     bridge_module.scan_and_process()
@@ -35,7 +45,7 @@ def test_scan_creates_daily_brief(tmp_path, monkeypatch):
 
 
 def test_scan_skips_already_processed(tmp_path, monkeypatch):
-    reports_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    reports_dir, _bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
     _write_eod(reports_dir, "2026-05-21", ["AAPL"])
 
     bridge_module.scan_and_process()
@@ -45,9 +55,45 @@ def test_scan_skips_already_processed(tmp_path, monkeypatch):
 
 
 def test_scan_handles_multiple_dates(tmp_path, monkeypatch):
-    reports_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    reports_dir, _bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
     for i in range(3):
         _write_eod(reports_dir, f"2026-05-2{i+1}", ["AAPL"])
 
     bridge_module.scan_and_process()
     assert len(list(tasks_dir.glob("*.md"))) == 3
+
+
+def test_scan_ingests_markdown_bridge(tmp_path, monkeypatch):
+    _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    _write_bridge(bridge_dir, "2026-05-29", "## Tier 1\n### [[ZETA]]\nScore 88.75")
+
+    bridge_module.scan_and_process()
+
+    task_files = list(tasks_dir.glob("*.md"))
+    assert len(task_files) == 1
+    content = task_files[0].read_text(encoding="utf-8")
+    assert "TONY-DAILY-BRIEF-20260529" in content
+    assert "ZETA" in content
+    assert "market_research_worker" in content
+
+
+def test_markdown_bridge_not_duplicated(tmp_path, monkeypatch):
+    _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    _write_bridge(bridge_dir, "2026-05-29", "## Tier 1\n### [[ZETA]]")
+
+    bridge_module.scan_and_process()
+    bridge_module.scan_and_process()
+
+    assert len(list(tasks_dir.glob("*.md"))) == 1
+
+
+def test_markdown_wins_when_both_sources_present(tmp_path, monkeypatch):
+    reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    _write_eod(reports_dir, "2026-05-29", ["AAPL"])
+    _write_bridge(bridge_dir, "2026-05-29", "## Tier 1\n### [[ZETA]]")
+
+    bridge_module.scan_and_process()
+
+    task_files = list(tasks_dir.glob("*.md"))
+    assert len(task_files) == 1  # shared dedup key — same date never double-fires
+    assert "ZETA" in task_files[0].read_text(encoding="utf-8")
