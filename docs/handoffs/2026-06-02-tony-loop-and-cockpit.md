@@ -186,6 +186,12 @@ honest way to answer "does the 2nd pass make money." Needs `ALPACA_API_KEY` + `A
 account equity vs Tony's paper account equity** — two real curves, no join needed for the money
 question (the verdict↔outcome join still powers the agreement matrix / "did he agree & was he right").
 
+**IMPORTANT — separate Alpaca paper accounts.** The bot and Tony Stocks must use TWO DIFFERENT
+Alpaca paper accounts (Alpaca allows up to 3; one active key pair each). The bot keeps its own
+account/keys; Tony Stocks gets his own ("Tony Stocks Agent", $100k). Do NOT share keys — if they
+trade into the same account you can't separate whose P&L is whose and the head-to-head collapses.
+CC `.env` gets Tony's keys only; the bot's keys stay on the bot side.
+
 ## 6. Your action items (trading-bot terminal)
 1. Confirm the daily bridge keeps dropping in the §1 format.
 2. Build/emit `tony_stocks_outcomes.json` per §4b with the §4c join key. **This is the one
