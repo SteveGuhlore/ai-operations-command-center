@@ -77,6 +77,39 @@ def test_scan_ingests_markdown_bridge(tmp_path, monkeypatch):
     assert "market_research_worker" in content
 
 
+def test_intraday_bridges_each_fire(tmp_path, monkeypatch):
+    _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    for slot in ("2026-06-03T1030", "2026-06-03T1300", "2026-06-03-eod"):
+        (bridge_dir / f"{slot}.md").write_text(
+            "---\ndate: 2026-06-03\n---\n\n## Tier 1\n### [[ZETA]]\n", encoding="utf-8")
+    bridge_module.scan_and_process()
+    names = [p.name for p in tasks_dir.glob("*.md")]
+    assert len(names) == 3  # each intraday slot fires its own run
+    assert any("TONY-INTRADAY-20260603-1030" in n for n in names)
+    assert any("TONY-INTRADAY-20260603-1300" in n for n in names)
+    # intraday tasks are the LIGHT variant, not the heavy deep-dive
+    body = (tasks_dir / "TONY-INTRADAY-20260603-1030.md").read_text(encoding="utf-8")
+    assert "market_scan_intraday" in body and "LIGHT intraday update" in body
+    assert "for EACH Tier 1 ticker" not in body  # the heavy daily workflow must be absent
+
+
+def test_daily_bridge_is_full_not_intraday(tmp_path, monkeypatch):
+    _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    _write_bridge(bridge_dir, "2026-06-03", "## Tier 1\n### [[ZETA]]\nScore 88")
+    bridge_module.scan_and_process()
+    body = (tasks_dir / "TONY-DAILY-BRIEF-20260603.md").read_text(encoding="utf-8")
+    assert "for EACH Tier 1 ticker" in body  # pure-date stays the full deep-dive
+
+
+def test_intraday_bridge_not_duplicated(tmp_path, monkeypatch):
+    _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    (bridge_dir / "2026-06-03-1030.md").write_text(
+        "---\ndate: 2026-06-03\n---\n\n## Tier 1\n### [[ZETA]]\n", encoding="utf-8")
+    bridge_module.scan_and_process()
+    bridge_module.scan_and_process()
+    assert len(list(tasks_dir.glob("*.md"))) == 1
+
+
 def test_markdown_bridge_not_duplicated(tmp_path, monkeypatch):
     _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
     _write_bridge(bridge_dir, "2026-05-29", "## Tier 1\n### [[ZETA]]")

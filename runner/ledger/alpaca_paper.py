@@ -17,6 +17,7 @@ Idempotent: each (date, symbol) verdict is executed at most once (workspace/alpa
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
@@ -24,9 +25,44 @@ _log = logging.getLogger(__name__)
 _reports = Path(__file__).parent.parent.parent.parent / "TradingBotAgentProject" / "reports"
 VERDICTS_FILE = Path(os.environ.get("TONY_VERDICTS_FILE", str(_reports / "tony_stocks_verdicts.json")))
 EXECUTED_LOG = Path(__file__).parent.parent.parent / "workspace" / "alpaca-executed.json"
+BRIDGE_DIR = Path(os.environ.get("TONY_BRIDGE_DIR", str(Path(__file__).parent.parent.parent / "bridge" / "tony-stocks")))
 NOTIONAL = float(os.environ.get("TONY_PAPER_NOTIONAL", "1000"))
 
 _OPEN = {"reaffirm", "adjust", "override"}
+_LEVELS_RE = re.compile(r"Target:\s*\$([\d.]+).*?Stop:\s*\$([\d.]+)", re.S)
+
+
+def parse_scanner_levels(md: str) -> dict:
+    """Pull the scanner's per-symbol Target/Stop out of a bridge markdown so a reaffirm
+    (Tony agreeing with the scanner's plan, no levels of his own) still becomes a protected
+    bracket — an exit on both sides — instead of a naked long."""
+    levels: dict[str, dict] = {}
+    for block in re.split(r"^### \[\[", md, flags=re.M)[1:]:
+        m_sym = re.match(r"([A-Z0-9.\-]+)\]\]", block)
+        m_lv = _LEVELS_RE.search(block)
+        if m_sym and m_lv:
+            levels[m_sym.group(1)] = {"target": float(m_lv.group(1)), "stop": float(m_lv.group(2))}
+    return levels
+
+
+def _latest_scanner_levels() -> dict:
+    if not BRIDGE_DIR.exists():
+        return {}
+    files = sorted([f for f in BRIDGE_DIR.glob("*.md") if re.match(r"\d{4}-\d{2}-\d{2}$", f.stem)], reverse=True)
+    if not files:
+        return {}
+    try:
+        return parse_scanner_levels(files[0].read_text(encoding="utf-8"))
+    except OSError:
+        return {}
+
+
+def whole_share_qty(notional: float, price: float | None) -> int:
+    """Bracket orders can't be fractional (Alpaca rejects notional + bracket), so size
+    them in whole shares. Floors to budget; always at least 1 share."""
+    if not price or price <= 0:
+        return 1
+    return max(1, int(notional // price))
 
 
 def _load(p) -> list:
@@ -37,8 +73,11 @@ def _load(p) -> list:
         return []
 
 
-def plan_orders(verdicts: list, already_done: set) -> list:
-    """Pure: turn fresh verdicts into intended paper actions (skips ones already executed)."""
+def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None = None) -> list:
+    """Pure: turn fresh verdicts into intended paper actions (skips ones already executed).
+    An open verdict with no levels of its own (a reaffirm) inherits the scanner's target/stop
+    so it's still a protected bracket — never a naked long."""
+    scanner_levels = scanner_levels or {}
     plan = []
     for v in verdicts:
         sym = v.get("symbol")
@@ -47,8 +86,13 @@ def plan_orders(verdicts: list, already_done: set) -> list:
             continue
         verdict = v.get("verdict")
         if verdict in _OPEN:
+            target, stop = v.get("target"), v.get("stop")
+            if not (target and stop):
+                lv = scanner_levels.get(sym, {})
+                target = target or lv.get("target")
+                stop = stop or lv.get("stop")
             plan.append({"key": key, "symbol": sym, "action": "buy", "notional": NOTIONAL,
-                         "target": v.get("target"), "stop": v.get("stop")})
+                         "target": target, "stop": stop})
         elif verdict == "close":
             plan.append({"key": key, "symbol": sym, "action": "close"})
         # pass -> no action
@@ -65,17 +109,30 @@ def _alpaca_broker():
         from alpaca.trading.client import TradingClient
         from alpaca.trading.requests import MarketOrderRequest, TakeProfitRequest, StopLossRequest
         from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockLatestTradeRequest
     except ImportError:
         _log.warning("alpaca-py not installed — paper book disabled")
         return None
 
     client = TradingClient(key, secret, paper=True)
+    data = StockHistoricalDataClient(key, secret)
 
     class _Broker:
+        def _latest_price(self, symbol):
+            try:
+                t = data.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=symbol))
+                return float(t[symbol].price)
+            except Exception as exc:
+                _log.info("latest_price(%s) failed: %s", symbol, exc)
+                return None
+
         def buy(self, symbol, notional, target, stop):
             if target and stop:
+                # Bracket orders must be whole-share qty — notional is rejected as fractional.
+                qty = whole_share_qty(notional, self._latest_price(symbol))
                 req = MarketOrderRequest(
-                    symbol=symbol, notional=round(notional, 2), side=OrderSide.BUY,
+                    symbol=symbol, qty=qty, side=OrderSide.BUY,
                     time_in_force=TimeInForce.DAY, order_class=OrderClass.BRACKET,
                     take_profit=TakeProfitRequest(limit_price=round(float(target), 2)),
                     stop_loss=StopLossRequest(stop_price=round(float(stop), 2)))
@@ -115,7 +172,7 @@ def sync(broker=None) -> dict:
 
     verdicts = _load(VERDICTS_FILE)
     done = set(_load(EXECUTED_LOG))
-    plan = plan_orders(verdicts, done)
+    plan = plan_orders(verdicts, done, _latest_scanner_levels())
 
     executed = 0
     for action in plan:

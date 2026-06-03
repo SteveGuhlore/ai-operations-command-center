@@ -17,6 +17,15 @@ class FakeBroker:
         return {"equity": 100000.0, "open_positions": []}
 
 
+def test_whole_share_qty():
+    # bracket orders can't be fractional — notional must become a whole-share qty
+    assert ap.whole_share_qty(1000, 50) == 20
+    assert ap.whole_share_qty(1000, 333) == 3      # floors
+    assert ap.whole_share_qty(1000, 1500) == 1     # share dearer than budget -> at least 1
+    assert ap.whole_share_qty(1000, None) == 1     # no price -> fall back to 1
+    assert ap.whole_share_qty(1000, 0) == 1        # no div-by-zero
+
+
 def test_plan_opens_and_closes():
     verdicts = [
         {"date": "2026-06-03", "symbol": "AAA", "verdict": "override", "target": 30, "stop": 25},
@@ -27,6 +36,31 @@ def test_plan_opens_and_closes():
     plan = ap.plan_orders(verdicts, set())
     actions = {p["symbol"]: p["action"] for p in plan}
     assert actions == {"AAA": "buy", "BBB": "buy", "DDD": "close"}  # pass skipped
+
+
+def test_parse_scanner_levels():
+    md = (
+        "### [[D]]\n"
+        "- Last close: $66.96 | Target: $71.7386 (+7.1%) | Stop: $64.5707 (-3.6%)\n"
+        "### [[ZETA]]\n"
+        "- Last close: $18.8 | Target: $21.6768 (+15.3%) | Stop: $17.3616 (-7.7%)\n"
+    )
+    lv = ap.parse_scanner_levels(md)
+    assert lv["D"] == {"target": 71.7386, "stop": 64.5707}
+    assert lv["ZETA"]["target"] == 21.6768
+
+
+def test_reaffirm_inherits_scanner_levels():
+    # reaffirm carries no levels of its own -> must inherit the scanner's for a protected bracket
+    verdicts = [{"date": "2026-06-03", "symbol": "AAA", "verdict": "reaffirm"}]
+    plan = ap.plan_orders(verdicts, set(), {"AAA": {"target": 30.0, "stop": 25.0}})
+    assert plan[0]["target"] == 30.0 and plan[0]["stop"] == 25.0
+
+
+def test_own_levels_beat_scanner():
+    verdicts = [{"date": "2026-06-03", "symbol": "AAA", "verdict": "adjust", "target": 40, "stop": 35}]
+    plan = ap.plan_orders(verdicts, set(), {"AAA": {"target": 30.0, "stop": 25.0}})
+    assert plan[0]["target"] == 40 and plan[0]["stop"] == 35
 
 
 def test_plan_skips_already_done():

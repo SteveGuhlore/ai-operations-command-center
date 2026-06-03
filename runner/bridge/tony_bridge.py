@@ -21,7 +21,10 @@ BRIDGE_MD_DIR = Path(
     )
 )
 _PROCESSED_LOG = Path(__file__).parent.parent.parent / "workspace" / "logs" / "tony-bridge-processed.json"
-_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# Date PREFIX (not anchored at end): a pure-date stem `2026-06-03` is the legacy one-a-day
+# bridge; intraday bridges add a slot suffix `2026-06-03-1030` / `2026-06-03-eod`. Each
+# distinct stem becomes its own Tony run, so 4+ bridges/day all ingest.
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 _TIER1_SYM_RE = re.compile(r"\[\[([A-Z][A-Z0-9.\-]{0,9})\]\]")
 
 # Per-Tier-1 fan-out: when the brief has >= MIN Tier-1 tickers, also spawn one focused
@@ -187,9 +190,10 @@ Follow the workflow in your system prompt exactly. Key focus for today:
     _log.info("tony_bridge: created daily brief %s", task_id)
 
 
-def _make_brief_from_bridge(date_str: str, bridge_md: str) -> None:
-    task_id = f"TONY-DAILY-BRIEF-{date_str.replace('-', '')}"
-    title = f"Tony Daily Brief — {date_str}"
+def _make_brief_from_bridge(slug: str, bridge_md: str) -> None:
+    date_str = slug[:10]  # slug may carry an intraday slot suffix; the body shows the trading day
+    task_id = f"TONY-DAILY-BRIEF-{slug.replace('-', '')}"
+    title = f"Tony Brief — {slug}"
 
     vault_history = _load_vault_history()
 
@@ -256,7 +260,60 @@ Then, across the whole brief:
         syms = _extract_tier1_symbols(bridge_md)
         if len(syms) >= FANOUT_MIN_TIER1:
             for s in syms[:FANOUT_MAX]:  # top-N in bridge order (score desc)
-                _spawn_ticker_task(date_str, s)
+                _spawn_ticker_task(slug, s)
+
+
+def _make_intraday_brief(slug: str, bridge_md: str) -> None:
+    """Intraday slots (10:30 / 13:00 / 15:30 ET) get a LIGHT update — Tony already did the full
+    morning deep-dive, so here he only reacts to what materially changed since, not re-analyze
+    every name. This keeps 4 runs/day cheap and fast and lets him take/exit intraday trades."""
+    date_str = slug[:10]
+    slot = slug[11:] or "intraday"  # e.g. "2026-06-02T1030" -> "1030"
+    task_id = f"TONY-INTRADAY-{slug.replace('-', '').replace('T', '-')}"
+    title = f"Tony Intraday Update — {date_str} {slot} ET"
+
+    body = f"""\
+You are Tony Stocks. This is a LIGHT intraday update for {date_str} (slot {slot} ET) — NOT a
+full re-analysis. You already ran your deep morning brief and have open verdicts/positions.
+
+Market hours are 09:30–16:00 ET. Your job right now: react only to what MATERIALLY changed
+since your last pass, and adjust your book.
+
+## Do this, fast:
+1. Skim the intraday bridge below for changes vs this morning: newly **Entry triggered: yes**
+   names, big score moves, or names now near their target/stop.
+2. For ONLY those changed names (not every ticker), call `get_stock_data(symbol)` to get the
+   live price, then update your call with `write_tony_verdict(...)`:
+   - **adjust/override** if your target/stop should move, **close** if the thesis broke or it
+     hit your risk line, **reaffirm** if still good. (close/adjust flow straight to the book.)
+3. `web_research` only if a name moved on news you don't understand — at most 1–2 names.
+4. If nothing material changed, write ONE `write_tony_insight` ("no intraday changes, holding")
+   and stop. Do not churn.
+
+Keep it tight — this is a check-in, not the morning deep-dive.
+
+---
+
+## Intraday Scanner Bridge — {date_str} {slot} ET
+
+{bridge_md}
+"""
+
+    TASKS_DIR.mkdir(parents=True, exist_ok=True)
+    (TASKS_DIR / f"{task_id}.md").write_text(
+        f"---\n"
+        f"task_id: {task_id}\n"
+        f"assigned_agent: market_research_worker\n"
+        f"status: todo\n"
+        f"priority: high\n"
+        f"pod: stock_research_pod\n"
+        f"task_type: market_scan_intraday\n"
+        f"---\n\n"
+        f"# {title}\n\n"
+        f"{body}\n",
+        encoding="utf-8",
+    )
+    _log.info("tony_bridge: created intraday update %s", task_id)
 
 
 def _extract_tier1_symbols(md: str) -> list[str]:
@@ -266,8 +323,9 @@ def _extract_tier1_symbols(md: str) -> list[str]:
     return list(dict.fromkeys(_TIER1_SYM_RE.findall(after)))
 
 
-def _spawn_ticker_task(date_str: str, sym: str) -> None:
-    task_id = f"TONY-TKR-{sym}-{date_str.replace('-', '')}"
+def _spawn_ticker_task(slug: str, sym: str) -> None:
+    date_str = slug[:10]
+    task_id = f"TONY-TKR-{sym}-{slug.replace('-', '')}"
     TASKS_DIR.mkdir(parents=True, exist_ok=True)
     (TASKS_DIR / f"{task_id}.md").write_text(
         f"---\n"
@@ -302,8 +360,11 @@ def _scan_markdown_bridge(processed: set) -> None:
     )
 
     for md_file in md_files:
-        date_str = md_file.stem
-        key = f"{date_str}/daily_brief"
+        slug = md_file.stem
+        date_str = slug[:10]
+        # Pure-date bridge keeps the legacy key so it still dedups against the JSON fallback;
+        # an intraday slot keys on its full stem so each slot fires its own run.
+        key = f"{date_str}/daily_brief" if slug == date_str else f"{slug}/brief"
         if key in processed:
             continue
         try:
@@ -313,7 +374,10 @@ def _scan_markdown_bridge(processed: set) -> None:
             continue
         if not bridge_md.strip():
             continue
-        _make_brief_from_bridge(date_str, bridge_md)
+        if slug == date_str:
+            _make_brief_from_bridge(slug, bridge_md)       # full morning/EOD deep analysis
+        else:
+            _make_intraday_brief(slug, bridge_md)          # light intraday update, not a re-run
         processed.add(key)
 
 
