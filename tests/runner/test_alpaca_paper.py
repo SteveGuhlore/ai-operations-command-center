@@ -68,6 +68,16 @@ def test_plan_skips_already_done():
     assert ap.plan_orders(verdicts, {"2026-06-03:AAA:open"}) == []
 
 
+def test_plan_skips_degenerate_bracket():
+    # target <= stop is an invalid long bracket (Alpaca rejects) -> must not be planned
+    verdicts = [
+        {"date": "2026-06-03", "symbol": "D", "verdict": "override", "target": 66.53, "stop": 66.53},
+        {"date": "2026-06-03", "symbol": "HOOD", "verdict": "override", "target": 99.0, "stop": 76.0},
+    ]
+    syms = {p["symbol"] for p in ap.plan_orders(verdicts, set())}
+    assert syms == {"HOOD"}  # D dropped, HOOD kept
+
+
 def test_intraday_close_fires_after_open():
     # buying AAA in the morning must NOT block a later same-day discretionary close
     verdicts = [{"date": "2026-06-03", "symbol": "AAA", "verdict": "close"}]

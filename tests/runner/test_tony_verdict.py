@@ -7,6 +7,13 @@ def test_override_requires_target_stop(tmp_path, monkeypatch):
     assert "error" in r and "target" in r["error"].lower()
 
 
+def test_override_rejects_target_le_stop(tmp_path, monkeypatch):
+    monkeypatch.setattr(tv, "VERDICTS_FILE", tmp_path / "v.json")
+    r = tv.write_tony_verdict(symbol="D", tony_score=30, verdict="override", thesis="t",
+                              target=66.53, stop=66.53)
+    assert "error" in r and "target > stop" in r["error"]
+
+
 def test_adjust_with_levels_ok(tmp_path, monkeypatch):
     monkeypatch.setattr(tv, "VERDICTS_FILE", tmp_path / "v.json")
     r = tv.write_tony_verdict(symbol="X", tony_score=70, verdict="adjust", thesis="t",

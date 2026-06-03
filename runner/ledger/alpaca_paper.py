@@ -95,6 +95,8 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
                 lv = scanner_levels.get(sym, {})
                 target = target or lv.get("target")
                 stop = stop or lv.get("stop")
+            if target and stop and float(target) <= float(stop):
+                continue  # degenerate bracket (Alpaca rejects target<=stop) — skip, don't retry-fail
             plan.append({"key": key, "symbol": sym, "action": "buy", "notional": NOTIONAL,
                          "target": target, "stop": stop})
         elif verdict == "close":
