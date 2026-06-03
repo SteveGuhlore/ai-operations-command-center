@@ -52,6 +52,24 @@ def mark_learning_ran() -> None:
     _write(data)
 
 
+def tony_self_review_due(interval_days: float = 7.0) -> bool:
+    """True once per ~week — Tony grades his own verdicts vs outcomes and learns."""
+    last = _read().get("last_tony_self_review")
+    if not last:
+        return True
+    try:
+        elapsed = datetime.now() - datetime.fromisoformat(last)
+    except ValueError:
+        return True
+    return elapsed.total_seconds() >= interval_days * 86400
+
+
+def mark_tony_self_review_ran() -> None:
+    data = _read()
+    data["last_tony_self_review"] = datetime.now().isoformat()
+    _write(data)
+
+
 def weekly_sage_due() -> bool:
     """True once on Sundays (weekday 6) if not already run today."""
     data = _read()

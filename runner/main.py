@@ -51,6 +51,7 @@ from runner.scheduler.daily_jobs import (
     scout_due, mark_scout_ran,
     daily_learning_due, mark_learning_ran,
     weekly_sage_due, mark_sage_ran,
+    tony_self_review_due, mark_tony_self_review_ran,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -603,6 +604,29 @@ def _reap_stale_tasks() -> None:
             continue
 
 
+def _maybe_run_tony_self_review() -> None:
+    """Weekly: once enough verdicts are graded against bot outcomes, spawn a self-review
+    task so Tony learns from his own hit-rate. Silent no-op until outcomes exist."""
+    if not tony_self_review_due():
+        return
+    from runner.ledger.tony_scorecard import compute_record
+    rec = compute_record()
+    if rec.get("status") != "scored" or rec.get("graded", 0) < 3:
+        return
+    create_task(
+        title="Tony: Weekly Self-Review",
+        body=("Grade your own record. Read tony_stocks_record.json (your win rate, agreement "
+              "matrix vs the scanner, confidence calibration) and your last 2 weeks of verdicts "
+              "vs outcomes. Where were you right/wrong and WHY? Update "
+              "vault/tony-stocks/pattern-library.md with concrete, evidence-tagged lessons "
+              "(setups/fundamentals you win or lose on). Finish with one write_tony_insight "
+              "naming your single biggest adjustment for next week."),
+        assigned_agent="market_research_worker", task_type="tony_self_review",
+        pod="stock_research_pod", priority="normal")
+    mark_tony_self_review_ran()
+    log.info("Spawned Tony weekly self-review (graded=%d)", rec.get("graded", 0))
+
+
 def run_cycle() -> None:
     if is_budget_exceeded():
         log.warning("Daily budget cap reached — skipping cycle.")
@@ -644,6 +668,7 @@ def run_cycle() -> None:
     _maybe_spawn_planning_task()
     _advance_opportunity_pipeline()
     _maybe_run_learning()
+    _maybe_run_tony_self_review()
     _sync_vault()
 
 
