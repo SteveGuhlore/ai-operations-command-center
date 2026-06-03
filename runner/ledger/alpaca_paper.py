@@ -167,6 +167,19 @@ def _alpaca_broker():
                 ],
             }
 
+        def open_orders(self):
+            from alpaca.trading.requests import GetOrdersRequest
+            from alpaca.trading.enums import QueryOrderStatus
+            ords = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=50))
+            return [{
+                "symbol": o.symbol,
+                "side": str(o.side).rsplit(".", 1)[-1].lower(),
+                "qty": float(o.qty) if o.qty else None,
+                "notional": float(o.notional) if o.notional else None,
+                "order_class": str(o.order_class).rsplit(".", 1)[-1].lower(),
+                "status": str(o.status).rsplit(".", 1)[-1].lower(),
+            } for o in ords]
+
     return _Broker()
 
 
@@ -213,3 +226,19 @@ def account_record() -> dict:
         return acct
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
+
+
+def paper_book() -> dict:
+    """Tony's live paper book for the dashboard: account + open positions + working orders.
+    Pre-open the orders are ACCEPTED/working and positions are empty; intraday they fill into
+    positions. Degrades to status=no_keys so the dashboard never breaks."""
+    broker = _alpaca_broker()
+    if broker is None:
+        return {"status": "no_keys", "open_positions": [], "orders": []}
+    try:
+        acct = broker.account()
+        acct["orders"] = broker.open_orders()
+        acct["status"] = "ok"
+        return acct
+    except Exception as exc:
+        return {"status": "error", "error": str(exc), "open_positions": [], "orders": []}

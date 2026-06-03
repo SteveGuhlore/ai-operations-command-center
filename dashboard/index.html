@@ -1583,6 +1583,36 @@ async function renderTonyStocks() {
     const m = d.metrics || {};
     const sig = d.signals || [];
     const sectors = d.sectors || [];
+    const book = await fetch("/api/tony/book").then(r => r.json()).catch(() => ({}));
+    const bk = book.book || {};
+    const orders = bk.orders || [];
+    const positions = bk.open_positions || [];
+    const verds = book.verdicts || [];
+    const vColor = v => v === "reaffirm" ? "var(--green)" : v === "adjust" ? "var(--cyan)"
+      : v === "override" ? "var(--orange)" : v === "close" ? "var(--red)" : "var(--muted)";
+    const bookRows = orders.length
+      ? orders.map(o => `<tr><td style="font-family:monospace;color:var(--cyan);font-weight:600">${o.symbol}</td><td>${o.side}</td><td style="font-family:monospace">${o.qty != null ? o.qty + " sh" : "$" + o.notional}</td><td style="font-size:8px;text-transform:uppercase">${o.order_class}</td><td style="color:var(--orange)">${o.status}</td></tr>`).join("")
+      : positions.length
+        ? positions.map(p => `<tr><td style="font-family:monospace;color:var(--cyan);font-weight:600">${p.symbol}</td><td>hold</td><td style="font-family:monospace">${p.qty} sh</td><td>—</td><td style="color:${p.unrealized_pl>=0?'var(--green)':'var(--red)'}">${p.unrealized_pl>=0?'+':''}${p.unrealized_pl}</td></tr>`).join("")
+        : `<tr><td colspan="5" style="color:var(--muted)">No paper orders/positions${bk.status==='no_keys'?' (Alpaca not configured)':''}.</td></tr>`;
+    const verdRows = verds.length
+      ? verds.map(v => `<tr><td style="font-family:monospace;color:var(--cyan);font-weight:600">${v.symbol}</td><td style="color:${vColor(v.verdict)};text-transform:uppercase;font-size:9px">${v.verdict}</td><td style="font-family:monospace">${v.tony_score}</td><td style="font-family:monospace;color:var(--muted)">${v.scanner_score ?? '—'}</td><td style="font-family:monospace">${v.target ? '$'+v.target : '—'} / ${v.stop ? '$'+v.stop : '—'}</td></tr>`).join("")
+      : `<tr><td colspan="5" style="color:var(--muted)">No structured verdicts yet.</td></tr>`;
+    const equityTxt = bk.equity != null ? "$" + Number(bk.equity).toLocaleString() : "—";
+    const bookHtml = `
+      <div class="section-title" style="margin-top:12px">
+        <span style="color:var(--green)">●</span> Paper Book — live Alpaca${bk.status && bk.status!=='ok' ? ' · '+bk.status : ''}
+        <span style="font-size:8px;color:var(--muted);text-transform:none"> · equity ${equityTxt}</span>
+      </div>
+      <table class="crm-table">
+        <thead><tr><th>Sym</th><th>Side</th><th>Size</th><th>Type</th><th>Status/PL</th></tr></thead>
+        <tbody>${bookRows}</tbody>
+      </table>
+      <div class="section-title" style="margin-top:8px">Structured Verdicts (what actually trades)</div>
+      <table class="crm-table">
+        <thead><tr><th>Sym</th><th>Verdict</th><th>Tony</th><th>Scan</th><th>Tgt/Stop</th></tr></thead>
+        <tbody>${verdRows}</tbody>
+      </table>`;
     const vital = (v, label, color) =>
       `<div class="funnel-card"><span class="f-num" style="color:${color}">${v ?? "—"}</span><span class="f-label">${label}</span></div>`;
     const rowsHtml = sig.length ? sig.map(s => {
@@ -1625,6 +1655,7 @@ async function renderTonyStocks() {
         <tbody>${rowsHtml}</tbody>
       </table>
       <div style="font-size:8px;color:var(--muted);margin-top:4px">${d.price_note || ""}</div>
+      ${bookHtml}
       <div class="section-title" style="margin-top:10px">Sector Clusters</div>
       <div class="pod-list">${sectorHtml}</div>
     `;

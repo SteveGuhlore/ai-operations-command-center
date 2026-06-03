@@ -98,3 +98,10 @@ def test_account_record_no_keys(monkeypatch):
     monkeypatch.delenv("ALPACA_API_KEY", raising=False)
     monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
     assert ap.account_record()["status"] == "no_keys"
+
+
+def test_paper_book_no_keys(monkeypatch):
+    monkeypatch.delenv("ALPACA_API_KEY", raising=False)
+    monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
+    book = ap.paper_book()
+    assert book["status"] == "no_keys" and book["orders"] == [] and book["open_positions"] == []

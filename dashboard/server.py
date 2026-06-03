@@ -872,3 +872,22 @@ async def api_tony_stocks():
         "sectors": _parse_md_section_table(text, "Sector Clusters"),
         "price_note": "Price & P/L populate when the trading bot runs (live market data).",
     }
+
+
+@app.get("/api/tony/book")
+async def api_tony_book():
+    """Tony's REAL second-layer book — the structured verdicts that drive trades and his live
+    Alpaca paper positions/orders. Distinct from /api/tony/stocks, which is his prose ledger."""
+    from runner.ledger import alpaca_paper as ap
+    verdicts = []
+    try:
+        if ap.VERDICTS_FILE.exists():
+            data = json.loads(ap.VERDICTS_FILE.read_text(encoding="utf-8"))
+            verdicts = data if isinstance(data, list) else []
+    except (json.JSONDecodeError, OSError):
+        verdicts = []
+    try:
+        book = ap.paper_book()
+    except Exception as exc:  # never break the dashboard on a broker hiccup
+        book = {"status": "error", "error": str(exc), "open_positions": [], "orders": []}
+    return {"verdicts": verdicts, "book": book}
