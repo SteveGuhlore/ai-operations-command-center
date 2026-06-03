@@ -122,23 +122,33 @@ paper outcomes; please emit them in a stable file the Command Center can read:
 ```jsonc
 [{
   "symbol": "GTLB",
-  "pick_date": "2026-06-03",      // the date of the bridge/verdict this resolves (JOIN KEY)
+  "pick_date": "2026-06-01",      // FIRST-appearance bridge date (day 1, Tier-3)
+  "resolved_date": "2026-06-09",  // when it closed — REQUIRED for the range join
   "result": "stop_hit",           // target_hit | stop_hit | closed | expired
   "entry": 25.56,
   "exit": 23.21,
   "return_pct": -9.2,
   "days_held": 4,
-  "resolved_date": "2026-06-09"
+  "pick_id": "GTLB-2026-06-01"    // OPTIONAL — if you emit it, we exact-match on it
 }]
 ```
 
-### 4c. The JOIN KEY (critical — read this)
-Tony's verdicts are keyed by **(symbol, date)** where `date` = the bridge date he reviewed.
-Outcomes must carry a **`pick_date`** that equals the bridge date the pick originated on, so
-the Command Center can match each outcome to the right verdict and stamp `returned_pct` +
-grade it (was the verdict right?). If you assign a stable per-pick ID in the bridge instead,
-include that same ID on the outcome and tell us the field name — either works, but it must be
-deterministic.
+### 4c. The JOIN — RESOLVED (range join, no LLM threading needed)
+Your concern is correct: Tony only writes a verdict when a name is in **Tier-1 (day 3+)**, so his
+verdict date never equals the **first-appearance** date. So we do NOT require exact date equality.
+
+**The contract:** send `pick_date` = the pick's **first-appearance** date AND `resolved_date` =
+when it closed. The Command Center matches each outcome to Tony's verdict(s) for that symbol whose
+date falls in **[pick_date, resolved_date]**, grading his **latest (final) call** before it
+resolved. `entry_date` later than `pick_date` is fine — it's inside the window.
+
+**Optional shortcut:** if you also stamp a stable `pick_id` (e.g. `SYMBOL-<first_appearance_date>`)
+on both the bridge entries and the outcome, we'll exact-match on it instead. Either works — the
+range join already handles the common case, so `pick_id` is a bonus, not a requirement.
+
+→ **Answer to your two questions:** (1) path `reports/tony_stocks_outcomes.json`, honoring
+`TONY_OUTCOMES_FILE` — confirmed. (2) Use `pick_date` = first-bridge-date **+ `resolved_date`**;
+`pick_id` optional. We grade the latest verdict in the window, so no ambiguity from multi-day picks.
 
 ### 4d. Cockpit (your project's Next.js `dashboard-web`)
 The Cockpit lives in YOUR repo (CC only has the Python dashboard on :8765). It now has real

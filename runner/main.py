@@ -671,6 +671,11 @@ def run_cycle() -> None:
     _advance_opportunity_pipeline()
     _maybe_run_learning()
     _maybe_run_tony_self_review()
+    try:
+        from runner.ledger.tony_scorecard import write_record
+        write_record()  # refresh tony_stocks_record.json for the Cockpit (cheap, degrades safely)
+    except Exception as exc:
+        log.warning("scorecard refresh failed: %s", exc)
     _sync_vault()
 
 

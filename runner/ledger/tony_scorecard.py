@@ -35,20 +35,37 @@ def _is_right(verdict: str, ret: float) -> bool:
     return ret > 0 if verdict in _BULLISH else ret <= 0
 
 
+def _matched_verdict(o: dict, verdicts: list) -> dict | None:
+    """Match a resolved pick to Tony's verdict. Prefer a shared pick_id; otherwise range-join
+    on symbol + verdict date within [pick_date, resolved_date], taking his LATEST (final) call.
+    This survives entry_date != bridge_date and the fact that Tony only verdicts on Tier-1 days."""
+    pid = o.get("pick_id")
+    if pid:
+        cands = [v for v in verdicts if v.get("pick_id") == pid]
+    else:
+        sym = o.get("symbol")
+        pd = o.get("pick_date")
+        rd = o.get("resolved_date")
+        cands = [v for v in verdicts
+                 if v.get("symbol") == sym and v.get("date")
+                 and (not pd or v["date"] >= pd)
+                 and (not rd or v["date"] <= rd)]
+    return max(cands, key=lambda v: v.get("date", "")) if cands else None
+
+
 def compute_record() -> dict:
     verdicts = _load(VERDICTS_FILE)
     outcomes = _load(OUTCOMES_FILE)
     if not outcomes:
         return {"status": "awaiting_outcomes", "verdicts": len(verdicts), "graded": 0}
 
-    omap = {(o.get("symbol"), o.get("pick_date")): o for o in outcomes}
     graded = tony_right = 0
     agg = {"agreed_right": 0, "agreed_wrong": 0, "override_saved": 0, "override_missed": 0}
     conf_buckets: dict[str, list] = {"low": [], "medium": [], "high": []}
 
-    for v in verdicts:
-        o = omap.get((v.get("symbol"), v.get("date")))
-        if not o:
+    for o in outcomes:  # one grade per RESOLVED pick (his final call before it closed)
+        v = _matched_verdict(o, verdicts)
+        if not v:
             continue
         graded += 1
         ret = float(o.get("return_pct", 0) or 0)
@@ -78,16 +95,15 @@ def compute_record() -> dict:
 
 
 def discover_edges(min_n: int = 5) -> dict:
-    """Mine graded verdicts for evidence-tag → win-rate edges (>= min_n samples each)."""
+    """Mine graded picks for evidence-tag → win-rate edges (>= min_n samples each)."""
     verdicts = _load(VERDICTS_FILE)
     outcomes = _load(OUTCOMES_FILE)
     if not outcomes:
         return {"status": "insufficient_history", "edges": []}
-    omap = {(o.get("symbol"), o.get("pick_date")): o for o in outcomes}
     tally: dict[str, list] = {}
-    for v in verdicts:
-        o = omap.get((v.get("symbol"), v.get("date")))
-        if not o:
+    for o in outcomes:
+        v = _matched_verdict(o, verdicts)
+        if not v:
             continue
         right = int(_is_right(v.get("verdict", ""), float(o.get("return_pct", 0) or 0)))
         for tag in v.get("evidence", []) or []:
