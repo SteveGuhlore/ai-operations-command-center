@@ -65,7 +65,14 @@ def test_own_levels_beat_scanner():
 
 def test_plan_skips_already_done():
     verdicts = [{"date": "2026-06-03", "symbol": "AAA", "verdict": "reaffirm"}]
-    assert ap.plan_orders(verdicts, {"2026-06-03:AAA"}) == []
+    assert ap.plan_orders(verdicts, {"2026-06-03:AAA:open"}) == []
+
+
+def test_intraday_close_fires_after_open():
+    # buying AAA in the morning must NOT block a later same-day discretionary close
+    verdicts = [{"date": "2026-06-03", "symbol": "AAA", "verdict": "close"}]
+    plan = ap.plan_orders(verdicts, {"2026-06-03:AAA:open"})
+    assert plan == [{"key": "2026-06-03:AAA:close", "symbol": "AAA", "action": "close"}]
 
 
 def test_sync_executes_and_is_idempotent(tmp_path, monkeypatch):

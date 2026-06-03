@@ -81,11 +81,15 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
     plan = []
     for v in verdicts:
         sym = v.get("symbol")
-        key = f"{v.get('date')}:{sym}"
-        if not sym or key in already_done:
-            continue
         verdict = v.get("verdict")
+        if not sym:
+            continue
+        # Key by intent (…:open / …:close), not just date+symbol, so an intraday CLOSE still
+        # fires after that day's earlier BUY — exit on either side, all day.
         if verdict in _OPEN:
+            key = f"{v.get('date')}:{sym}:open"
+            if key in already_done:
+                continue
             target, stop = v.get("target"), v.get("stop")
             if not (target and stop):
                 lv = scanner_levels.get(sym, {})
@@ -94,6 +98,9 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
             plan.append({"key": key, "symbol": sym, "action": "buy", "notional": NOTIONAL,
                          "target": target, "stop": stop})
         elif verdict == "close":
+            key = f"{v.get('date')}:{sym}:close"
+            if key in already_done:
+                continue
             plan.append({"key": key, "symbol": sym, "action": "close"})
         # pass -> no action
     return plan
