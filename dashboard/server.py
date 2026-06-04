@@ -886,6 +886,16 @@ async def api_tony_book():
             verdicts = data if isinstance(data, list) else []
     except (json.JSONDecodeError, OSError):
         verdicts = []
+    # Attach the bot's original target/stop (from the latest bridge) so the dashboard can show the
+    # bot -> Tony divergence: what the scanner proposed vs what Tony decided after deeper research.
+    try:
+        levels = ap._latest_scanner_levels()
+    except Exception:
+        levels = {}
+    for v in verdicts:
+        lv = levels.get(v.get("symbol")) or {}
+        v["scanner_target"] = lv.get("target")
+        v["scanner_stop"] = lv.get("stop")
     try:
         book = ap.paper_book()
     except Exception as exc:  # never break the dashboard on a broker hiccup

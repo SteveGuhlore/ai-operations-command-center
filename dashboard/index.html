@@ -1610,9 +1610,40 @@ async function renderTonyStocks() {
           </tr>`;
         }).join("")
       : `<tr><td colspan="7" style="color:var(--muted)">No open positions${bk.status==='no_keys'?' (Alpaca not configured)':''}.</td></tr>`;
-    const verdRows = verds.length
-      ? verds.map(v => `<tr><td style="font-family:monospace;color:var(--cyan);font-weight:600">${v.symbol}</td><td style="color:${vColor(v.verdict)};text-transform:uppercase;font-size:9px">${v.verdict}</td><td style="font-family:monospace">${v.tony_score}</td><td style="font-family:monospace;color:var(--muted)">${v.scanner_score ?? '—'}</td><td style="font-family:monospace">${v.target ? '$'+v.target : '—'} / ${v.stop ? '$'+v.stop : '—'}</td></tr>`).join("")
-      : `<tr><td colspan="5" style="color:var(--muted)">No structured verdicts yet.</td></tr>`;
+    // Each call as a block: the bot -> Tony transformation (what deeper research changed) + thesis.
+    const confColor = c => c === "high" ? "var(--green)" : c === "low" ? "var(--muted)" : "var(--orange)";
+    const callBlock = v => {
+      const c = vColor(v.verdict);
+      const bt = v.scanner_target, bs = v.scanner_stop;
+      const botLv = (bt != null && bs != null) ? `$${bt} / $${bs}` : "—";
+      let transform;
+      if (v.verdict === "adjust" || v.verdict === "override") {
+        const tonyLv = (v.target != null && v.stop != null) ? `$${v.target} / $${v.stop}` : "—";
+        let delta = "";
+        if (bt != null && v.target != null) { const dd = (v.target - bt) / bt * 100; delta = ` <span style="color:${dd >= 0 ? 'var(--green)' : 'var(--orange)'}">tgt ${dd >= 0 ? '+' : ''}${dd.toFixed(1)}%</span>`; }
+        transform = `Bot ${botLv} <span style="color:var(--muted)">&rarr;</span> <span style="color:${c}">Tony ${tonyLv}</span>${delta}`;
+      } else if (v.verdict === "reaffirm") {
+        transform = `Bot ${botLv} <span style="color:var(--muted)">&rarr;</span> <span style="color:var(--green)">agreed (held the bot's plan)</span>`;
+      } else if (v.verdict === "pass") {
+        transform = `Bot ${botLv} <span style="color:var(--muted)">&rarr;</span> <span style="color:var(--muted)">passed &mdash; not traded</span>`;
+      } else if (v.verdict === "close") {
+        transform = `Bot ${botLv} <span style="color:var(--muted)">&rarr;</span> <span style="color:var(--red)">closed / exit</span>`;
+      } else { transform = `Bot ${botLv}`; }
+      const ev = (v.evidence && v.evidence.length) ? `<div style="font-size:8px;color:var(--cyan);margin-top:2px">${v.evidence.slice(0, 4).map(t => "#" + t).join("  ")}</div>` : "";
+      const safeThesis = (v.thesis || "").replace(/"/g, "&quot;");
+      const thesis = v.thesis ? `<div style="font-size:9px;color:var(--muted);margin-top:2px;line-height:1.35" title="${safeThesis}">${v.thesis}</div>` : "";
+      return `<div style="padding:6px 0;border-bottom:1px solid rgba(26,37,64,0.5)">
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <span style="font-family:monospace;color:var(--cyan);font-weight:600;min-width:46px">${v.symbol}</span>
+          <span style="color:${c};text-transform:uppercase;font-size:9px;font-weight:600;min-width:58px">${v.verdict}</span>
+          <span style="font-size:9px;color:var(--muted)">Tony <span style="color:var(--text)">${v.tony_score}</span> &#9656; Bot <span style="color:var(--text)">${v.scanner_score ?? "—"}</span></span>
+          ${v.confidence ? `<span style="font-size:8px;color:${confColor(v.confidence)};text-transform:uppercase;margin-left:auto">${v.confidence}</span>` : ""}
+        </div>
+        <div style="font-size:9px;font-family:monospace;margin-top:3px">${transform}</div>
+        ${thesis}${ev}
+      </div>`;
+    };
+    const callsHtml = verds.length ? verds.map(callBlock).join("") : `<div style="color:var(--muted);font-size:10px">No calls yet.</div>`;
     const equityTxt = bk.equity != null ? "$" + Number(bk.equity).toLocaleString() : "—";
     const bookHtml = `
       <div class="section-title" style="margin-top:12px">
@@ -1623,16 +1654,13 @@ async function renderTonyStocks() {
         <thead><tr><th>Sym</th><th>Qty</th><th>Entry</th><th>Price</th><th>Target</th><th>Stop</th><th>P/L</th></tr></thead>
         <tbody>${bookRows}</tbody>
       </table>
-      <div class="section-title" style="margin-top:8px">Structured Verdicts (what actually trades)</div>
-      <table class="crm-table">
-        <thead><tr><th>Sym</th><th>Verdict</th><th>Tony</th><th>Scan</th><th>Tgt/Stop</th></tr></thead>
-        <tbody>${verdRows}</tbody>
-      </table>
+      <div class="section-title" style="margin-top:10px">Tony's Calls <span style="font-size:8px;color:var(--muted);text-transform:none">&middot; deeper-dive research vs the bot's hand-off</span></div>
+      ${callsHtml}
       <div class="section-title" style="margin-top:12px">
         Head-to-Head Equity <span style="font-size:8px;color:var(--muted);text-transform:none">· indexed to 100 · Tony $1M vs Bot $100k, %-normalized</span>
         <span id="eq-legend" style="font-size:8px;float:right;text-transform:none;letter-spacing:0"></span>
       </div>
-      <canvas id="eq-chart" height="130" style="width:100%;height:130px;display:block"></canvas>`;
+      <canvas id="eq-chart" height="160" style="width:100%;height:160px;display:block"></canvas>`;
     const vital = (v, label, color) =>
       `<div class="funnel-card"><span class="f-num" style="color:${color}">${v ?? "—"}</span><span class="f-label">${label}</span></div>`;
     const rowsHtml = sig.length ? sig.map(s => {
@@ -1703,17 +1731,37 @@ async function drawEquityCurve() {
     ctx.fillText("collecting equity points… (one per runner cycle)", 8, h / 2);
     return;
   }
+  const mL = 40, mB = 16, mT = 6, mR = 8;  // margins for the axes
+  const plotW = w - mL - mR, plotH = h - mT - mB;
   let lo = Math.min(...vals), hi = Math.max(...vals);
-  if (hi - lo < 0.5) { lo -= 0.5; hi += 0.5; }
-  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
-  const X = i => pts.length < 2 ? 3 : (i / (pts.length - 1)) * (w - 6) + 3;
-  const Y = v => h - 4 - ((v - lo) / (hi - lo)) * (h - 8);
-  if (100 >= lo && 100 <= hi) {
-    ctx.strokeStyle = "rgba(90,107,140,0.4)"; ctx.setLineDash([3, 3]);
-    ctx.beginPath(); ctx.moveTo(0, Y(100)); ctx.lineTo(w, Y(100)); ctx.stroke(); ctx.setLineDash([]);
+  if (hi - lo < 0.4) { const mid = (hi + lo) / 2; lo = mid - 0.4; hi = mid + 0.4; }
+  const padv = (hi - lo) * 0.12; lo -= padv; hi += padv;
+  const X = i => mL + (pts.length < 2 ? 0 : (i / (pts.length - 1)) * plotW);
+  const Y = v => mT + plotH - ((v - lo) / (hi - lo)) * plotH;
+  // horizontal gridlines + Y-axis labels as % return (index value - 100)
+  ctx.font = "8px monospace"; ctx.textBaseline = "middle";
+  for (let k = 0; k <= 4; k++) {
+    const val = lo + (hi - lo) * k / 4, y = Y(val);
+    ctx.strokeStyle = "rgba(90,107,140,0.15)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(mL, y); ctx.lineTo(w - mR, y); ctx.stroke();
+    const pct = val - 100;
+    ctx.fillStyle = "#5a6b8c"; ctx.textAlign = "right";
+    ctx.fillText((pct >= 0 ? "+" : "") + pct.toFixed(1) + "%", mL - 5, y);
   }
+  // emphasized baseline at 100 (the start / break-even)
+  if (100 >= lo && 100 <= hi) {
+    ctx.strokeStyle = "rgba(90,107,140,0.5)"; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(mL, Y(100)); ctx.lineTo(w - mR, Y(100)); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // X-axis time labels (start · mid · now)
+  const tLabel = ts => { const dt = new Date(ts); return `${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`; };
+  ctx.fillStyle = "#5a6b8c"; ctx.textBaseline = "top";
+  [0, Math.floor((pts.length - 1) / 2), pts.length - 1].forEach((i, idx) => {
+    ctx.textAlign = idx === 0 ? "left" : idx === 2 ? "right" : "center";
+    ctx.fillText(tLabel(pts[i].ts), X(i), h - mB + 3);
+  });
   const line = (key, color) => {
-    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath(); let started = false;
+    ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.beginPath(); let started = false;
     pts.forEach((p, i) => {
       if (p[key] == null) return;
       const x = X(i), y = Y(p[key]);
