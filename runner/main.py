@@ -636,6 +636,11 @@ def run_cycle() -> None:
 
     _reap_stale_tasks()
     scan_tony_bridge()
+    try:
+        from runner.ledger.equity_history import snapshot as _equity_snapshot
+        _equity_snapshot()  # one Tony-vs-bot equity point each cycle for the head-to-head curve
+    except Exception as exc:
+        log.warning("equity snapshot failed: %s", exc)
     tasks = read_todo_tasks()
     if not tasks:
         log.info("No tasks in queue.")

@@ -891,3 +891,15 @@ async def api_tony_book():
     except Exception as exc:  # never break the dashboard on a broker hiccup
         book = {"status": "error", "error": str(exc), "open_positions": [], "orders": []}
     return {"verdicts": verdicts, "book": book}
+
+
+@app.get("/api/tony/equity-curve")
+async def api_tony_equity_curve():
+    """Normalized head-to-head equity: Tony ($1M) vs the bot ($100k), each indexed to 100 at the
+    first snapshot so the unequal starting capital doesn't distort the curve — a pure %-return
+    comparison. Snapshots are captured once per runner cycle."""
+    try:
+        from runner.ledger.equity_history import curve
+        return curve()
+    except Exception as exc:
+        return {"points": [], "tony_return_pct": None, "bot_return_pct": None, "error": str(exc)}

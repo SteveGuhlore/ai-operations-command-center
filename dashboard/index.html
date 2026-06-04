@@ -1612,7 +1612,12 @@ async function renderTonyStocks() {
       <table class="crm-table">
         <thead><tr><th>Sym</th><th>Verdict</th><th>Tony</th><th>Scan</th><th>Tgt/Stop</th></tr></thead>
         <tbody>${verdRows}</tbody>
-      </table>`;
+      </table>
+      <div class="section-title" style="margin-top:12px">
+        Head-to-Head Equity <span style="font-size:8px;color:var(--muted);text-transform:none">· indexed to 100 · Tony $1M vs Bot $100k, %-normalized</span>
+        <span id="eq-legend" style="font-size:8px;float:right;text-transform:none;letter-spacing:0"></span>
+      </div>
+      <canvas id="eq-chart" height="130" style="width:100%;height:130px;display:block"></canvas>`;
     const vital = (v, label, color) =>
       `<div class="funnel-card"><span class="f-num" style="color:${color}">${v ?? "—"}</span><span class="f-label">${label}</span></div>`;
     const rowsHtml = sig.length ? sig.map(s => {
@@ -1659,8 +1664,55 @@ async function renderTonyStocks() {
       <div class="section-title" style="margin-top:10px">Sector Clusters</div>
       <div class="pod-list">${sectorHtml}</div>
     `;
+    drawEquityCurve();
   } catch (e) {
     el.innerHTML = `<div style="color:var(--red);font-size:10px">Error loading Tony stocks: ${e}</div>`;
+  }
+}
+
+// Normalized head-to-head equity curve (Tony vs bot, each indexed to 100 so unequal capital
+// doesn't distort the comparison). Re-fetched each render; degrades to "collecting…" when sparse.
+async function drawEquityCurve() {
+  const cv = document.getElementById("eq-chart");
+  if (!cv) return;
+  let d;
+  try { d = await fetch("/api/tony/equity-curve").then(r => r.json()); } catch (e) { return; }
+  const pts = d.points || [];
+  const ctx = cv.getContext("2d");
+  const w = cv.clientWidth || 300, h = cv.height;
+  cv.width = w;
+  ctx.clearRect(0, 0, w, h);
+  const leg = document.getElementById("eq-legend");
+  const vals = pts.flatMap(p => [p.tony, p.bot]).filter(v => v != null);
+  if (vals.length < 2) {
+    if (leg) leg.textContent = "collecting…";
+    ctx.fillStyle = "#5a6b8c"; ctx.font = "10px monospace";
+    ctx.fillText("collecting equity points… (one per runner cycle)", 8, h / 2);
+    return;
+  }
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (hi - lo < 0.5) { lo -= 0.5; hi += 0.5; }
+  const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+  const X = i => pts.length < 2 ? 3 : (i / (pts.length - 1)) * (w - 6) + 3;
+  const Y = v => h - 4 - ((v - lo) / (hi - lo)) * (h - 8);
+  if (100 >= lo && 100 <= hi) {
+    ctx.strokeStyle = "rgba(90,107,140,0.4)"; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(0, Y(100)); ctx.lineTo(w, Y(100)); ctx.stroke(); ctx.setLineDash([]);
+  }
+  const line = (key, color) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.beginPath(); let started = false;
+    pts.forEach((p, i) => {
+      if (p[key] == null) return;
+      const x = X(i), y = Y(p[key]);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  };
+  line("tony", "#22d3ee");  // cyan = Tony
+  line("bot", "#fb923c");   // orange = bot
+  if (leg) {
+    const fmt = v => v == null ? "—" : (v >= 0 ? "+" : "") + v + "%";
+    leg.innerHTML = `<span style="color:#22d3ee">Tony ${fmt(d.tony_return_pct)}</span> &nbsp; <span style="color:#fb923c">Bot ${fmt(d.bot_return_pct)}</span>`;
   }
 }
 
