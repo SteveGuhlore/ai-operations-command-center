@@ -7,6 +7,7 @@ class FakeBroker:
         self.buys = []
         self.closes = []
         self.protects = []
+        self.reprices = []
         self._positions = positions or []
         self._orders = orders or []
 
@@ -18,6 +19,9 @@ class FakeBroker:
 
     def protect(self, symbol, qty, target, stop):
         self.protects.append((symbol, qty, target, stop))
+
+    def reprice(self, symbol, qty, target, stop):
+        self.reprices.append((symbol, qty, target, stop))
 
     def account(self):
         return {"equity": 100000.0, "open_positions": self._positions}
@@ -194,6 +198,50 @@ def test_sync_reconciles_unprotected_positions(tmp_path, monkeypatch):
     r = ap.sync(broker=b)
     assert r["protected"] == 1
     assert b.protects == [("CVS", 10, 98.06, 88.73)]
+
+
+def test_plan_reprices_adjusted_held_position():
+    # an intraday 'adjust' on a position already entered earlier -> re-price its live legs
+    verdicts = [{"date": "2026-06-04", "symbol": "AAA", "verdict": "adjust", "target": 30.0, "stop": 25.0}]
+    positions = [{"symbol": "AAA", "qty": 10.0}]
+    plan = ap.plan_reprices(verdicts, positions, {"2026-06-04:AAA:open"})
+    assert plan == [{"key": "2026-06-04:AAA:adjust:30.0:25.0", "symbol": "AAA",
+                     "qty": 10, "target": 30.0, "stop": 25.0}]
+
+
+def test_plan_reprices_requires_prior_entry():
+    # adjust before the open intent executed -> the initial bracket already covers it, no re-price
+    verdicts = [{"date": "2026-06-04", "symbol": "AAA", "verdict": "adjust", "target": 30.0, "stop": 25.0}]
+    positions = [{"symbol": "AAA", "qty": 10.0}]
+    assert ap.plan_reprices(verdicts, positions, set()) == []
+
+
+def test_plan_reprices_idempotent_and_filters():
+    verdicts = [
+        {"date": "2026-06-04", "symbol": "AAA", "verdict": "adjust", "target": 30.0, "stop": 25.0},   # already done
+        {"date": "2026-06-04", "symbol": "BBB", "verdict": "reaffirm", "target": 30.0, "stop": 25.0}, # not an adjust
+        {"date": "2026-06-04", "symbol": "CCC", "verdict": "adjust", "target": 30.0, "stop": 25.0},   # not held
+        {"date": "2026-06-04", "symbol": "DDD", "verdict": "adjust", "target": 30.0, "stop": 25.0},   # opened this cycle
+    ]
+    positions = [{"symbol": "AAA", "qty": 10.0}, {"symbol": "BBB", "qty": 5.0}, {"symbol": "DDD", "qty": 4.0}]
+    done = {"2026-06-04:AAA:open", "2026-06-04:AAA:adjust:30.0:25.0", "2026-06-04:DDD:open"}
+    assert ap.plan_reprices(verdicts, positions, done, skip_symbols={"DDD"}) == []
+
+
+def test_sync_reprices_on_intraday_adjust(tmp_path, monkeypatch):
+    verdicts = [{"date": "2026-06-04", "symbol": "AAA", "verdict": "adjust", "target": 30.0, "stop": 25.0}]
+    (tmp_path / "v.json").write_text(json.dumps(verdicts))
+    (tmp_path / "exec.json").write_text(json.dumps(["2026-06-04:AAA:open"]))  # entered on an earlier cycle
+    monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
+    monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    bd = tmp_path / "bridge"; bd.mkdir()
+    (bd / "2026-06-04T1030.md").write_text("### [[AAA]]\n- Target: $40.0 (+1%) | Stop: $20.0 (-1%)\n")
+    monkeypatch.setattr(ap, "BRIDGE_DIR", bd)
+    b = FakeBroker(positions=[{"symbol": "AAA", "qty": 10.0}],
+                   orders=[{"symbol": "AAA", "side": "sell", "id": "old"}])
+    r = ap.sync(broker=b)
+    assert r["repriced"] == 1
+    assert b.reprices == [("AAA", 10, 30.0, 25.0)]  # Tony's adjust levels, not the scanner's 40/20
 
 
 def test_flush_session_no_keys_still_clears(tmp_path, monkeypatch):

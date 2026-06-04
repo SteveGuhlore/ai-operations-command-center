@@ -88,6 +88,34 @@ def entry_orders_to_cancel(open_orders: list) -> list:
     return [o for o in open_orders if o.get("side") == "buy"]
 
 
+def plan_reprices(verdicts: list, positions: list, already_done: set, skip_symbols=()) -> list:
+    """Pure: an intraday `adjust` on a position already entered earlier should MOVE its live
+    stop/target, not open more shares. Emits a re-price per held symbol whose latest verdict is
+    `adjust` with new levels and whose open intent already executed (so it's a real adjustment,
+    not the initial entry). Keyed by the levels so it fires once per distinct adjustment."""
+    held = {}
+    for p in positions:
+        whole = int(float(p.get("qty", 0) or 0))
+        if whole >= 1:
+            held[p.get("symbol")] = whole
+    out = []
+    for v in verdicts:
+        sym = v.get("symbol")
+        if v.get("verdict") != "adjust" or sym in skip_symbols or sym not in held:
+            continue
+        target, stop = v.get("target"), v.get("stop")
+        if not (target and stop) or float(target) <= float(stop):
+            continue
+        if f"{v.get('date')}:{sym}:open" not in already_done:
+            continue  # not yet entered — the initial bracket already carries these levels
+        tp, sl = round(float(target), 2), round(float(stop), 2)
+        key = f"{v.get('date')}:{sym}:adjust:{tp}:{sl}"
+        if key in already_done:
+            continue
+        out.append({"key": key, "symbol": sym, "qty": held[sym], "target": tp, "stop": sl})
+    return out
+
+
 def whole_share_qty(notional: float, price: float | None) -> int:
     """Bracket orders can't be fractional (Alpaca rejects notional + bracket), so size
     them in whole shares. Floors to budget; always at least 1 share."""
@@ -197,6 +225,17 @@ def _alpaca_broker():
                 stop_loss=StopLossRequest(stop_price=round(float(stop), 2)))
             client.submit_order(req)
 
+        def reprice(self, symbol, qty, target, stop):
+            """Move a held position's protection to new levels: cancel its existing GTC OCO legs,
+            then place a fresh OCO. Used when Tony issues an intraday `adjust`."""
+            for o in self.open_orders():
+                if o.get("symbol") == symbol and o.get("side") == "sell":
+                    try:
+                        client.cancel_order_by_id(o["id"])
+                    except Exception as exc:
+                        _log.info("reprice cancel %s: %s", symbol, exc)
+            self.protect(symbol, qty, target, stop)
+
         def close(self, symbol):
             try:
                 client.close_position(symbol)
@@ -219,16 +258,28 @@ def _alpaca_broker():
         def open_orders(self):
             from alpaca.trading.requests import GetOrdersRequest
             from alpaca.trading.enums import QueryOrderStatus
-            ords = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=50))
-            return [{
-                "id": str(o.id),
-                "symbol": o.symbol,
-                "side": str(o.side).rsplit(".", 1)[-1].lower(),
-                "qty": float(o.qty) if o.qty else None,
-                "notional": float(o.notional) if o.notional else None,
-                "order_class": str(o.order_class).rsplit(".", 1)[-1].lower(),
-                "status": str(o.status).rsplit(".", 1)[-1].lower(),
-            } for o in ords]
+            # status=ALL (not OPEN) so an OCO's stop-loss leg — which sits in HELD, not OPEN —
+            # is surfaced alongside its take-profit; otherwise the dashboard shows only the target.
+            ords = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500))
+            terminal = {"filled", "canceled", "cancelled", "expired", "rejected", "done_for_day", "replaced"}
+            out = []
+            for o in ords:
+                status = str(o.status).rsplit(".", 1)[-1].lower()
+                if status in terminal:
+                    continue
+                out.append({
+                    "id": str(o.id),
+                    "symbol": o.symbol,
+                    "side": str(o.side).rsplit(".", 1)[-1].lower(),
+                    "qty": float(o.qty) if o.qty else None,
+                    "notional": float(o.notional) if o.notional else None,
+                    "order_class": str(o.order_class).rsplit(".", 1)[-1].lower(),
+                    "type": str(o.order_type).rsplit(".", 1)[-1].lower(),
+                    "limit_price": float(o.limit_price) if o.limit_price else None,
+                    "stop_price": float(o.stop_price) if o.stop_price else None,
+                    "status": status,
+                })
+            return out
 
         def cancel_entry_orders(self):
             """Cancel only unfilled BUY entries; leave SELL stop/target legs guarding positions."""
@@ -257,16 +308,20 @@ def sync(broker=None) -> dict:
     plan = plan_orders(verdicts, done, levels)
 
     executed = 0
+    opened_now = set()
     for action in plan:
         try:
             if action["action"] == "buy":
                 broker.buy(action["symbol"], action["notional"], action.get("target"), action.get("stop"))
+                opened_now.add(action["symbol"])
             elif action["action"] == "close":
                 broker.close(action["symbol"])
             done.add(action["key"])
             executed += 1
         except Exception as exc:
             _log.warning("alpaca order failed %s: %s", action.get("symbol"), exc)
+
+    repriced = _reprice_adjusted(broker, verdicts, done, opened_now)
 
     try:
         EXECUTED_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -276,7 +331,30 @@ def sync(broker=None) -> dict:
 
     protected = _reconcile_protection(broker, levels)
 
-    return {"status": "ok", "executed": executed, "planned": len(plan), "protected": protected}
+    return {"status": "ok", "executed": executed, "planned": len(plan),
+            "repriced": repriced, "protected": protected}
+
+
+def _reprice_adjusted(broker, verdicts: list, done: set, opened_now: set) -> int:
+    """Move live stop/target for any held position Tony adjusted intraday (mutates `done` with the
+    reprice keys so it fires once per adjustment). Skips symbols just opened this cycle — their
+    fresh bracket already carries the new levels."""
+    try:
+        positions = broker.account().get("open_positions", [])
+    except Exception as exc:
+        _log.warning("reprice read failed: %s", exc)
+        return 0
+    count = 0
+    for rp in plan_reprices(verdicts, positions, done, opened_now):
+        try:
+            broker.reprice(rp["symbol"], rp["qty"], rp["target"], rp["stop"])
+            done.add(rp["key"])
+            count += 1
+            _log.info("Re-priced %s x%d to target %.2f / stop %.2f",
+                      rp["symbol"], rp["qty"], rp["target"], rp["stop"])
+        except Exception as exc:
+            _log.warning("reprice %s failed: %s", rp["symbol"], exc)
+    return count
 
 
 def _reconcile_protection(broker, levels: dict) -> int:
