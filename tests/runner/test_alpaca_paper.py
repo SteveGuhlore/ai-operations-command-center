@@ -227,11 +227,20 @@ def test_plan_reprices_adjusted_held_position():
                      "qty": 10, "target": 30.0, "stop": 25.0}]
 
 
-def test_plan_reprices_requires_prior_entry():
-    # adjust before the open intent executed -> the initial bracket already covers it, no re-price
+def test_plan_reprices_carried_position_without_open_key():
+    # a position carried from a prior day (open intent cleared by the reset) still re-prices on adjust
     verdicts = [{"date": "2026-06-04", "symbol": "AAA", "verdict": "adjust", "target": 30.0, "stop": 25.0}]
     positions = [{"symbol": "AAA", "qty": 10.0}]
-    assert ap.plan_reprices(verdicts, positions, set()) == []
+    plan = ap.plan_reprices(verdicts, positions, set())
+    assert plan == [{"key": "2026-06-04:AAA:adjust:30.0:25.0", "symbol": "AAA",
+                     "qty": 10, "target": 30.0, "stop": 25.0}]
+
+
+def test_plan_reprices_skips_symbol_opened_this_cycle():
+    # a fresh entry this cycle already has its bracket at the new levels -> no re-price
+    verdicts = [{"date": "2026-06-04", "symbol": "AAA", "verdict": "adjust", "target": 30.0, "stop": 25.0}]
+    positions = [{"symbol": "AAA", "qty": 10.0}]
+    assert ap.plan_reprices(verdicts, positions, set(), skip_symbols={"AAA"}) == []
 
 
 def test_plan_reprices_idempotent_and_filters():

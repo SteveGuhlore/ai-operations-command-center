@@ -91,8 +91,10 @@ def entry_orders_to_cancel(open_orders: list) -> list:
 def plan_reprices(verdicts: list, positions: list, already_done: set, skip_symbols=()) -> list:
     """Pure: an intraday `adjust` on a position already entered earlier should MOVE its live
     stop/target, not open more shares. Emits a re-price per held symbol whose latest verdict is
-    `adjust` with new levels and whose open intent already executed (so it's a real adjustment,
-    not the initial entry). Keyed by the levels so it fires once per distinct adjustment."""
+    `adjust` with new levels. Being in `positions` already proves it's an existing holding;
+    `skip_symbols` excludes names opened THIS cycle (their fresh bracket already carries the new
+    levels). Keyed by the levels so it fires once per distinct adjustment — including positions
+    carried over from a prior day, whose open intent was cleared by the pre-open reset."""
     held = {}
     for p in positions:
         whole = int(float(p.get("qty", 0) or 0))
@@ -106,8 +108,6 @@ def plan_reprices(verdicts: list, positions: list, already_done: set, skip_symbo
         target, stop = v.get("target"), v.get("stop")
         if not (target and stop) or float(target) <= float(stop):
             continue
-        if f"{v.get('date')}:{sym}:open" not in already_done:
-            continue  # not yet entered — the initial bracket already carries these levels
         tp, sl = round(float(target), 2), round(float(stop), 2)
         key = f"{v.get('date')}:{sym}:adjust:{tp}:{sl}"
         if key in already_done:
