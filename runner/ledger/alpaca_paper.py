@@ -132,10 +132,13 @@ def _load(p) -> list:
         return []
 
 
-def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None = None) -> list:
+def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None = None,
+                held_symbols=()) -> list:
     """Pure: turn fresh verdicts into intended paper actions (skips ones already executed).
     An open verdict with no levels of its own (a reaffirm) inherits the scanner's target/stop
-    so it's still a protected bracket — never a naked long."""
+    so it's still a protected bracket — never a naked long. A buy on a name already held is
+    skipped (no pyramiding across days) — the reconciler keeps the existing position protected;
+    a close is always allowed."""
     scanner_levels = scanner_levels or {}
     plan = []
     for v in verdicts:
@@ -147,7 +150,7 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
         # fires after that day's earlier BUY — exit on either side, all day.
         if verdict in _OPEN:
             key = f"{v.get('date')}:{sym}:open"
-            if key in already_done:
+            if key in already_done or sym in held_symbols:
                 continue
             target, stop = v.get("target"), v.get("stop")
             if not (target and stop):
@@ -305,7 +308,13 @@ def sync(broker=None) -> dict:
     verdicts = _load(VERDICTS_FILE)
     done = set(_load(EXECUTED_LOG))
     levels = _latest_scanner_levels()
-    plan = plan_orders(verdicts, done, levels)
+    try:
+        held = {p.get("symbol") for p in broker.account().get("open_positions", [])
+                if float(p.get("qty", 0) or 0) > 0}
+    except Exception as exc:
+        _log.warning("held read failed: %s", exc)
+        held = set()
+    plan = plan_orders(verdicts, done, levels, held)
 
     executed = 0
     opened_now = set()

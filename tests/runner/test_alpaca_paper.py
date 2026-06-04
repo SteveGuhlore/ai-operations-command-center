@@ -76,6 +76,24 @@ def test_own_levels_beat_scanner():
     assert plan[0]["target"] == 40 and plan[0]["stop"] == 35
 
 
+def test_plan_skips_buy_when_already_held():
+    # carried-over position: a reaffirm on a held name must NOT pyramid a second buy;
+    # a new name still opens. The reconciler keeps the held position protected.
+    verdicts = [
+        {"date": "2026-06-04", "symbol": "AAA", "verdict": "reaffirm"},
+        {"date": "2026-06-04", "symbol": "BBB", "verdict": "override", "target": 30, "stop": 25},
+    ]
+    plan = ap.plan_orders(verdicts, set(), {"AAA": {"target": 30.0, "stop": 25.0}}, held_symbols={"AAA"})
+    assert {p["symbol"] for p in plan} == {"BBB"}
+
+
+def test_plan_held_still_allows_close():
+    # holding a name must not block an explicit close of it
+    verdicts = [{"date": "2026-06-04", "symbol": "AAA", "verdict": "close"}]
+    plan = ap.plan_orders(verdicts, set(), {}, held_symbols={"AAA"})
+    assert plan == [{"key": "2026-06-04:AAA:close", "symbol": "AAA", "action": "close"}]
+
+
 def test_plan_skips_already_done():
     verdicts = [{"date": "2026-06-03", "symbol": "AAA", "verdict": "reaffirm"}]
     assert ap.plan_orders(verdicts, {"2026-06-03:AAA:open"}) == []
