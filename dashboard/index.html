@@ -1571,6 +1571,8 @@ async function refreshPnl() {
 }
 
 // ── Tony stock dashboard ──────────────────────────────────────
+let tonyCallsPage = 0;
+function changeTonyCallsPage(d) { tonyCallsPage += d; renderTonyStocks(); }
 async function renderTonyStocks() {
   const el = document.getElementById("podview-tony");
   if (!el) return;
@@ -1643,7 +1645,19 @@ async function renderTonyStocks() {
         ${thesis}${ev}
       </div>`;
     };
-    const callsHtml = verds.length ? verds.map(callBlock).join("") : `<div style="color:var(--muted);font-size:10px">No calls yet.</div>`;
+    const PER = 10;
+    const totalPages = Math.max(1, Math.ceil(verds.length / PER));
+    if (tonyCallsPage > totalPages - 1) tonyCallsPage = totalPages - 1;
+    if (tonyCallsPage < 0) tonyCallsPage = 0;
+    const pageVerds = verds.slice(tonyCallsPage * PER, tonyCallsPage * PER + PER);
+    const btn = (label, dir, disabled) => `<button onclick="changeTonyCallsPage(${dir})" ${disabled ? "disabled" : ""} style="background:none;border:1px solid var(--border2);color:${disabled ? "var(--muted)" : "var(--cyan)"};border-radius:4px;padding:2px 9px;cursor:${disabled ? "default" : "pointer"};font-family:inherit;font-size:9px">${label}</button>`;
+    const pager = totalPages > 1
+      ? `<div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
+          ${btn("&lsaquo; Prev", -1, tonyCallsPage === 0)}
+          <span style="color:var(--muted);font-size:9px">Page ${tonyCallsPage + 1}/${totalPages} &middot; ${verds.length} calls</span>
+          ${btn("Next &rsaquo;", 1, tonyCallsPage >= totalPages - 1)}
+        </div>` : "";
+    const callsHtml = verds.length ? pageVerds.map(callBlock).join("") + pager : `<div style="color:var(--muted);font-size:10px">No calls yet.</div>`;
     const equityTxt = bk.equity != null ? "$" + Number(bk.equity).toLocaleString() : "—";
     const bookHtml = `
       <div class="section-title" style="margin-top:12px">
