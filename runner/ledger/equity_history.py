@@ -20,6 +20,7 @@ HISTORY_FILE = Path(os.environ.get(
     str(Path(__file__).parent.parent.parent / "workspace" / "equity-history.json")))
 BOT_API = os.environ.get("BOT_API_BASE", "http://127.0.0.1:8001")
 BOT_START_CAPITAL = float(os.environ.get("BOT_START_CAPITAL", "100000"))
+TONY_START_CAPITAL = float(os.environ.get("TONY_START_CAPITAL", "1000000"))
 MAX_POINTS = 5000
 
 
@@ -38,28 +39,24 @@ def append_point(points: list, ts: str, tony, bot, *, max_points: int = MAX_POIN
     return (points + [{"ts": ts, "tony": tony, "bot": bot}])[-max_points:]
 
 
-def indexed_curve(points: list) -> dict:
-    """Pure: index each series to 100 at its first non-null value so unequal starting capital
-    doesn't distort the head-to-head — the curve is then a pure %-return comparison."""
-    def _base(key):
-        for p in points:
-            if p.get(key) is not None:
-                return p[key]
-        return None
-
-    tb, bb = _base("tony"), _base("bot")
+def indexed_curve(points: list, tony_base: float = TONY_START_CAPITAL,
+                  bot_base: float = BOT_START_CAPITAL) -> dict:
+    """Pure: index each series to 100 at its STARTING CAPITAL (Tony $1M, bot $100k) so the curve
+    shows total %-return since inception. Indexing to start capital (not the first snapshot) means
+    the real head-to-head difference is visible immediately and stays put through the close —
+    equity only moves when the market is open, so the lines hold their gap overnight."""
     out = []
     for p in points:
         out.append({
             "ts": p.get("ts"),
-            "tony": round(p["tony"] / tb * 100, 3) if (tb and p.get("tony") is not None) else None,
-            "bot": round(p["bot"] / bb * 100, 3) if (bb and p.get("bot") is not None) else None,
+            "tony": round(p["tony"] / tony_base * 100, 3) if (tony_base and p.get("tony") is not None) else None,
+            "bot": round(p["bot"] / bot_base * 100, 3) if (bot_base and p.get("bot") is not None) else None,
         })
     last = points[-1] if points else {}
     return {
         "points": out,
-        "tony_return_pct": round((last["tony"] / tb - 1) * 100, 2) if (tb and last.get("tony") is not None) else None,
-        "bot_return_pct": round((last["bot"] / bb - 1) * 100, 2) if (bb and last.get("bot") is not None) else None,
+        "tony_return_pct": round((last["tony"] / tony_base - 1) * 100, 2) if (tony_base and last.get("tony") is not None) else None,
+        "bot_return_pct": round((last["bot"] / bot_base - 1) * 100, 2) if (bot_base and last.get("bot") is not None) else None,
     }
 
 

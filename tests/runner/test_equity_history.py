@@ -32,6 +32,17 @@ def test_indexed_curve_handles_missing_side():
     assert c["bot_return_pct"] is None
 
 
+def test_indexed_curve_uses_start_capital_not_first_point():
+    # the first snapshot may already carry a gain (tracking started after the close); it must
+    # reflect that against starting capital, NOT reset the first point to 100 — so the real
+    # head-to-head gap is visible and persists through the close.
+    pts = [{"ts": "t1", "tony": 1_000_140.0, "bot": 101_439.0}]
+    c = eh.indexed_curve(pts)  # defaults: Tony $1M, bot $100k
+    assert c["points"][0]["tony"] == 100.014  # +0.014%
+    assert c["points"][0]["bot"] == 101.439   # +1.44% — visibly above Tony
+    assert c["tony_return_pct"] == 0.01 and c["bot_return_pct"] == 1.44
+
+
 def test_indexed_curve_empty():
     c = eh.indexed_curve([])
     assert c["points"] == [] and c["tony_return_pct"] is None and c["bot_return_pct"] is None
