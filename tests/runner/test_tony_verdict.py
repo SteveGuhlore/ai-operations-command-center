@@ -36,3 +36,26 @@ def test_same_day_symbol_replaces(tmp_path, monkeypatch):
     tv.write_tony_verdict(symbol="X", tony_score=50, verdict="pass", thesis="a")
     r = tv.write_tony_verdict(symbol="X", tony_score=90, verdict="reaffirm", thesis="b")
     assert r["total_verdicts"] == 1  # replaced, not stacked
+
+
+def test_concurrent_writes_preserve_all(tmp_path, monkeypatch):
+    # fan-out runs up to MAX_CONCURRENT ticker tasks at once, each calling write_tony_verdict on
+    # the one shared file — the read-modify-write must be locked or verdicts get clobbered.
+    import json
+    import threading
+    monkeypatch.setattr(tv, "VERDICTS_FILE", tmp_path / "v.json")
+    (tmp_path / "v.json").write_text("[]")
+    n = 24
+    barrier = threading.Barrier(n)
+
+    def w(i):
+        barrier.wait()  # maximize contention
+        tv.write_tony_verdict(symbol=f"S{i}", tony_score=50, verdict="reaffirm", thesis="t")
+
+    threads = [threading.Thread(target=w, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    syms = {e["symbol"] for e in json.loads((tmp_path / "v.json").read_text())}
+    assert len(syms) == n, f"lost verdicts under concurrency: {len(syms)}/{n}"

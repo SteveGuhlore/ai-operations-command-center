@@ -10,10 +10,14 @@ the trading-bot project / dashboard pick it up.
 import json
 import logging
 import os
+import threading
 from datetime import date
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
+# Fan-out runs several ticker tasks concurrently (ThreadPoolExecutor); serialize the verdicts
+# file's read-modify-write so concurrent calls don't clobber each other's entries.
+_WRITE_LOCK = threading.Lock()
 
 _default_verdicts = (
     Path(__file__).parent.parent.parent.parent
@@ -75,18 +79,19 @@ def write_tony_verdict(
     }
 
     try:
-        entries: list = []
-        if VERDICTS_FILE.exists():
-            try:
-                entries = json.loads(VERDICTS_FILE.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                entries = []
-        # One verdict per (date, symbol): replace same-day re-runs rather than stacking.
-        entries = [e for e in entries if not (e.get("date") == entry["date"] and e.get("symbol") == sym)]
-        entries.append(entry)
-        VERDICTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        VERDICTS_FILE.write_text(json.dumps(entries, indent=2), encoding="utf-8")
-        return {"success": True, "symbol": sym, "verdict": v, "total_verdicts": len(entries)}
+        with _WRITE_LOCK:
+            entries: list = []
+            if VERDICTS_FILE.exists():
+                try:
+                    entries = json.loads(VERDICTS_FILE.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    entries = []
+            # One verdict per (date, symbol): replace same-day re-runs rather than stacking.
+            entries = [e for e in entries if not (e.get("date") == entry["date"] and e.get("symbol") == sym)]
+            entries.append(entry)
+            VERDICTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            VERDICTS_FILE.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+            return {"success": True, "symbol": sym, "verdict": v, "total_verdicts": len(entries)}
     except OSError as exc:
         _log.warning("write_tony_verdict failed: %s", exc)
         return {"error": str(exc)}

@@ -349,6 +349,12 @@ Then, across the whole brief:
     )
     _log.info("tony_bridge: created intraday update %s", task_id)
 
+    if FANOUT_MIN_TIER1:
+        syms = _extract_tier1_symbols(bridge_md)
+        if len(syms) >= FANOUT_MIN_TIER1:
+            for s in syms[:FANOUT_MAX]:  # one focused deep-dive task per top Tier-1 name this slot
+                _spawn_ticker_task(slug, s)
+
 
 def _extract_tier1_symbols(md: str) -> list[str]:
     """Pull [[TICKER]] names from the Tier 1 section only."""
