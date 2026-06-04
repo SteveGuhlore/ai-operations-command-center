@@ -43,6 +43,22 @@ def test_indexed_curve_uses_start_capital_not_first_point():
     assert c["tony_return_pct"] == 0.01 and c["bot_return_pct"] == 1.44
 
 
+def test_bot_equity_at_reconstructs_mark_to_market():
+    from datetime import datetime, timezone
+    t0 = datetime(2026, 6, 4, 14, tzinfo=timezone.utc)
+    t1 = datetime(2026, 6, 4, 15, tzinfo=timezone.utc)
+    t2 = datetime(2026, 6, 4, 16, tzinfo=timezone.utc)
+    opens = [
+        {"symbol": "AAA", "qty": 10.0, "entry_price": 100.0, "opened_at": t0},
+        {"symbol": "BBB", "qty": 5.0, "entry_price": 50.0, "opened_at": t1},  # opens an hour later
+    ]
+    bars = {"AAA": [(t0, 100.0), (t1, 102.0), (t2, 101.0)],
+            "BBB": [(t0, 50.0), (t1, 50.0), (t2, 52.0)]}
+    assert eh._bot_equity_at(t0, opens, bars, 100_000) == 100_000.0   # only AAA, flat
+    assert eh._bot_equity_at(t1, opens, bars, 100_000) == 100_020.0   # AAA +20, BBB just opened
+    assert eh._bot_equity_at(t2, opens, bars, 100_000) == 100_020.0   # AAA +10, BBB +10
+
+
 def test_indexed_curve_empty():
     c = eh.indexed_curve([])
     assert c["points"] == [] and c["tony_return_pct"] is None and c["bot_return_pct"] is None

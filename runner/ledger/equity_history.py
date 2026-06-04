@@ -120,3 +120,108 @@ def snapshot() -> dict:
 def curve() -> dict:
     """Normalized head-to-head curve for the dashboard."""
     return indexed_curve(_load())
+
+
+def _bot_equity_at(ts, opens: list, bars_by_sym: dict, start_capital: float) -> float:
+    """Pure: reconstruct the bot's mark-to-market equity at time `ts` — start capital plus the
+    unrealized P&L of every position already open by then, priced at the latest bar <= ts."""
+    unrealized = 0.0
+    for o in opens:
+        if o.get("opened_at") and o["opened_at"] > ts:
+            continue  # not yet held at this point in time
+        px = None
+        for bts, close in bars_by_sym.get(o["symbol"], []):  # sorted ascending
+            if bts <= ts:
+                px = close
+            else:
+                break
+        if px is None:
+            continue  # no price yet -> treat as just-entered (0 unrealized)
+        unrealized += o["qty"] * (px - o["entry_price"])
+    return start_capital + unrealized
+
+
+def _tony_portfolio_history(days: int):
+    try:
+        from alpaca.trading.client import TradingClient
+        from alpaca.trading.requests import GetPortfolioHistoryRequest
+        key, secret = os.environ.get("ALPACA_API_KEY"), os.environ.get("ALPACA_SECRET_KEY")
+        if not (key and secret):
+            return []
+        c = TradingClient(key, secret, paper=True)
+        ph = c.get_portfolio_history(GetPortfolioHistoryRequest(
+            period=f"{days}D", timeframe="1H", intraday_reporting="market_hours"))
+        # Drop pre-funding / no-data samples (equity 0 or a tiny placeholder) — a real $1M paper
+        # account never sits below half its base, so this cleanly removes the leading garbage.
+        floor = TONY_START_CAPITAL * 0.5
+        out = []
+        for ts, eq in zip(ph.timestamp or [], ph.equity or []):
+            if eq and eq > floor:
+                out.append((datetime.fromtimestamp(ts, tz=timezone.utc), float(eq)))
+        return out
+    except Exception as exc:
+        _log.warning("tony portfolio history: %s", exc)
+        return []
+
+
+def _bot_open_positions() -> list:
+    try:
+        with urllib.request.urlopen(f"{BOT_API}/api/paper/positions", timeout=8) as resp:
+            data = json.loads(resp.read())
+    except Exception as exc:
+        _log.info("bot positions fetch: %s", exc)
+        return []
+    out = []
+    for o in (data.get("open") or []):
+        try:
+            oa = o.get("opened_at")
+            opened = datetime.fromisoformat(oa.replace("Z", "+00:00")) if oa else datetime(1970, 1, 1, tzinfo=timezone.utc)
+        except ValueError:
+            opened = datetime(1970, 1, 1, tzinfo=timezone.utc)
+        out.append({"symbol": o["symbol"], "qty": float(o["qty"]),
+                    "entry_price": float(o["entry_price"]), "opened_at": opened})
+    return out
+
+
+def _historical_bars(symbols: list, days: int) -> dict:
+    if not symbols:
+        return {}
+    try:
+        from datetime import timedelta
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame
+        key, secret = os.environ.get("ALPACA_API_KEY"), os.environ.get("ALPACA_SECRET_KEY")
+        if not (key and secret):
+            return {}
+        client = StockHistoricalDataClient(key, secret)
+        req = StockBarsRequest(symbol_or_symbols=symbols, timeframe=TimeFrame.Hour,
+                               start=datetime.now(timezone.utc) - timedelta(days=days))
+        data = client.get_stock_bars(req).data
+        return {s: sorted((b.timestamp, float(b.close)) for b in data.get(s, [])) for s in symbols}
+    except Exception as exc:
+        _log.warning("historical bars: %s", exc)
+        return {}
+
+
+def backfill(days: int = 7) -> dict:
+    """Seed the history with REAL intraday equity for both books so the curve has shape before
+    the next open — Tony from his Alpaca portfolio history, the bot reconstructed from its open
+    positions marked to market on historical bars. Keeps any live points newer than the backfill."""
+    tony = _tony_portfolio_history(days)
+    if not tony:
+        return {"status": "no_tony_history", "points": 0}
+    opens = _bot_open_positions()
+    bars = _historical_bars(sorted({o["symbol"] for o in opens}), days)
+    pts = [{"ts": ts.isoformat(), "tony": eq,
+            "bot": round(_bot_equity_at(ts, opens, bars, BOT_START_CAPITAL), 2) if opens else BOT_START_CAPITAL}
+           for ts, eq in tony]
+    last_ts = pts[-1]["ts"] if pts else ""
+    live_newer = [p for p in _load() if str(p.get("ts", "")) > last_ts]  # don't lose live points
+    pts = (pts + live_newer)[-MAX_POINTS:]
+    try:
+        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        HISTORY_FILE.write_text(json.dumps(pts), encoding="utf-8")
+    except OSError as exc:
+        _log.warning("backfill write failed: %s", exc)
+    return {"status": "ok", "points": len(pts)}
