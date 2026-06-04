@@ -30,6 +30,21 @@ class FakeBroker:
         return self._orders
 
 
+def test_risk_based_qty_matches_bot_sizing():
+    # same formula as the bot: shares = min(risk$/risk_per_share, max_notional/price), floored.
+    # 1% of $1,000,000 = $10,000 risk; stop $5 below a $100 entry -> $10k/$5 = 2000 shares,
+    # but capped by max_notional $5000 -> 5000/100 = 50 shares.
+    assert ap.risk_based_qty(1_000_000, 100.0, 95.0, 1.0, 5000) == 50
+    # wide stop so the risk cap binds before the notional cap:
+    # $10k risk / ($100-$50=$50) = 200 sh; notional cap 5000/100=50 -> still 50 (cap binds)
+    assert ap.risk_based_qty(1_000_000, 100.0, 50.0, 1.0, 5000) == 50
+    # small account where risk binds: 1% of $20,000 = $200 risk / $5 = 40 sh; cap 5000/100=50 -> 40
+    assert ap.risk_based_qty(20_000, 100.0, 95.0, 1.0, 5000) == 40
+    # guards: no price / degenerate stop -> at least 1
+    assert ap.risk_based_qty(1_000_000, None, 95.0, 1.0, 5000) == 1
+    assert ap.risk_based_qty(1_000_000, 100.0, 100.0, 1.0, 5000) == 1  # stop>=price
+
+
 def test_whole_share_qty():
     # bracket orders can't be fractional — notional must become a whole-share qty
     assert ap.whole_share_qty(1000, 50) == 20
@@ -92,6 +107,17 @@ def test_plan_held_still_allows_close():
     verdicts = [{"date": "2026-06-04", "symbol": "AAA", "verdict": "close"}]
     plan = ap.plan_orders(verdicts, set(), {}, held_symbols={"AAA"})
     assert plan == [{"key": "2026-06-04:AAA:close", "symbol": "AAA", "action": "close"}]
+
+
+def test_plan_orders_caps_new_buys():
+    # portfolio / daily-order parity with the bot: never emit more new buys than the room allows
+    verdicts = [
+        {"date": "2026-06-04", "symbol": "A", "verdict": "override", "target": 30, "stop": 25},
+        {"date": "2026-06-04", "symbol": "B", "verdict": "override", "target": 30, "stop": 25},
+        {"date": "2026-06-04", "symbol": "C", "verdict": "override", "target": 30, "stop": 25},
+    ]
+    buys = [p for p in ap.plan_orders(verdicts, set(), {}, max_new_buys=2) if p["action"] == "buy"]
+    assert len(buys) == 2
 
 
 def test_plan_skips_already_done():

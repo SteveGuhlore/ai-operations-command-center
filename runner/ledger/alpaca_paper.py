@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import time
+from datetime import date
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
@@ -28,6 +29,13 @@ VERDICTS_FILE = Path(os.environ.get("TONY_VERDICTS_FILE", str(_reports / "tony_s
 EXECUTED_LOG = Path(__file__).parent.parent.parent / "workspace" / "alpaca-executed.json"
 BRIDGE_DIR = Path(os.environ.get("TONY_BRIDGE_DIR", str(Path(__file__).parent.parent.parent / "bridge" / "tony-stocks")))
 NOTIONAL = float(os.environ.get("TONY_PAPER_NOTIONAL", "1000"))
+# Head-to-head parity with the trading bot's paper_trading config: identical risk budget, caps,
+# and order mechanics so the ONLY difference between the two books is the reasoning behind each
+# pick — not the position sizing. Mirror of default_config.yaml `paper_trading`.
+RISK_PCT = float(os.environ.get("TONY_RISK_PER_TRADE_PCT", "1.0"))          # % equity risked entry->stop
+MAX_NOTIONAL = float(os.environ.get("TONY_MAX_NOTIONAL_PER_POSITION", "5000"))
+MAX_OPEN_POSITIONS = int(os.environ.get("TONY_MAX_OPEN_POSITIONS", "50"))
+MAX_DAILY_ORDERS = int(os.environ.get("TONY_MAX_DAILY_ORDERS", "200"))
 
 _OPEN = {"reaffirm", "adjust", "override"}
 _LEVELS_RE = re.compile(r"Target:\s*\$([\d.]+).*?Stop:\s*\$([\d.]+)", re.S)
@@ -125,6 +133,21 @@ def whole_share_qty(notional: float, price: float | None) -> int:
     return max(1, int(notional // price))
 
 
+def risk_based_qty(equity: float, price: float | None, stop, risk_pct: float, max_notional: float) -> int:
+    """Bot-parity sizing: risk a fixed % of equity from entry to stop, capped by a max notional.
+    shares = floor(min(risk$ / (price-stop), max_notional / price)); always >= 1. This is what
+    keeps the head-to-head fair — Tony's stop/target levels are his reasoning, but every trade
+    risks the same % as the bot regardless of how tight/wide those levels are."""
+    if not price or price <= 0:
+        return 1
+    risk_per_share = (price - float(stop)) if stop else 0
+    if risk_per_share <= 0:
+        return 1
+    by_risk = (equity * risk_pct / 100.0) / risk_per_share
+    by_cap = max_notional / price
+    return max(1, int(min(by_risk, by_cap)))
+
+
 def _load(p) -> list:
     try:
         data = json.loads(Path(p).read_text(encoding="utf-8"))
@@ -134,14 +157,16 @@ def _load(p) -> list:
 
 
 def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None = None,
-                held_symbols=()) -> list:
+                held_symbols=(), max_new_buys=None) -> list:
     """Pure: turn fresh verdicts into intended paper actions (skips ones already executed).
     An open verdict with no levels of its own (a reaffirm) inherits the scanner's target/stop
     so it's still a protected bracket — never a naked long. A buy on a name already held is
     skipped (no pyramiding across days) — the reconciler keeps the existing position protected;
-    a close is always allowed."""
+    a close is always allowed. `max_new_buys` caps new entries this run (portfolio / daily-order
+    parity with the bot's max_open_positions and max_daily_orders)."""
     scanner_levels = scanner_levels or {}
     plan = []
+    buys = 0
     for v in verdicts:
         sym = v.get("symbol")
         verdict = v.get("verdict")
@@ -160,8 +185,11 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
                 stop = stop or lv.get("stop")
             if target and stop and float(target) <= float(stop):
                 continue  # degenerate bracket (Alpaca rejects target<=stop) — skip, don't retry-fail
+            if max_new_buys is not None and buys >= max_new_buys:
+                continue  # at the portfolio / daily-order cap — leave for a later run
             plan.append({"key": key, "symbol": sym, "action": "buy", "notional": NOTIONAL,
                          "target": target, "stop": stop})
+            buys += 1
         elif verdict == "close":
             key = f"{v.get('date')}:{sym}:close"
             if key in already_done:
@@ -201,11 +229,12 @@ def _alpaca_broker():
                 return None
 
         def buy(self, symbol, notional, target, stop):
+            price = self._latest_price(symbol)
             if target and stop:
-                # Bracket orders must be whole-share qty — notional is rejected as fractional.
-                # GTC so the take-profit/stop-loss legs survive the 16:00 close and protect the
-                # position overnight (DAY legs were expiring at the close, leaving naked longs).
-                qty = whole_share_qty(notional, self._latest_price(symbol))
+                # Bracket must be whole-share (fractional is rejected). Risk-based sizing matches
+                # the bot's budget; GTC so the take-profit/stop-loss legs survive the 16:00 close.
+                equity = float(self.account()["equity"])
+                qty = risk_based_qty(equity, price, float(stop), RISK_PCT, MAX_NOTIONAL)
                 req = MarketOrderRequest(
                     symbol=symbol, qty=qty, side=OrderSide.BUY,
                     time_in_force=TimeInForce.GTC, order_class=OrderClass.BRACKET,
@@ -328,7 +357,10 @@ def sync(broker=None) -> dict:
     except Exception as exc:
         _log.warning("held read failed: %s", exc)
         held = set()
-    plan = plan_orders(verdicts, done, levels, held)
+    today = str(date.today())
+    today_opens = sum(1 for k in done if isinstance(k, str) and k.startswith(today) and k.endswith(":open"))
+    max_new = max(0, min(MAX_OPEN_POSITIONS - len(held), MAX_DAILY_ORDERS - today_opens))
+    plan = plan_orders(verdicts, done, levels, held, max_new_buys=max_new)
 
     executed = 0
     opened_now = set()
