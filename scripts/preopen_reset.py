@@ -27,10 +27,18 @@ def main() -> None:
         v = ap._load(ap.VERDICTS_FILE)
         e = ap._load(ap.EXECUTED_LOG)
         print(f"[dry-run] would cancel unfilled entry orders (keeping protective stop/target legs), "
-              f"clear {len(e)} executed key(s), and empty {len(v)} verdict(s) from {ap.VERDICTS_FILE.name}")
+              f"clear {len(e)} executed key(s), empty {len(v)} verdict(s) from {ap.VERDICTS_FILE.name}, "
+              f"and queue a pre-open deep-dive task")
         return
 
     print("preopen_reset:", ap.flush_session())
+
+    # Queue a pre-open deep-dive so Tony re-evaluates his book and the watchlist before the open,
+    # rather than waiting on the bot's first intraday bridge (which can land late morning).
+    from datetime import date
+    from runner.bridge import tony_bridge
+    tony_bridge.make_preopen_deepdive(str(date.today()))
+    print("preopen_reset: queued pre-open deep-dive")
 
 
 if __name__ == "__main__":

@@ -356,6 +356,88 @@ Then, across the whole brief:
                 _spawn_ticker_task(slug, s)
 
 
+def _latest_bridge_md() -> tuple[str, str]:
+    """(slug, content) of the most recent bot bridge, or ('', '') if none exist yet."""
+    if not BRIDGE_MD_DIR.exists():
+        return "", ""
+    files = sorted([f for f in BRIDGE_MD_DIR.glob("*.md") if _DATE_RE.match(f.stem)])
+    if not files:
+        return "", ""
+    try:
+        return files[-1].stem, files[-1].read_text(encoding="utf-8")
+    except OSError:
+        return "", ""
+
+
+def make_preopen_deepdive(date_str: str) -> None:
+    """Pre-open (~09:25 ET, right after the reset) deep-dive so Tony walks into the 09:30 open
+    with fresh researched calls instead of waiting for the bot's first intraday bridge (which can
+    land late morning). He re-evaluates every open position first, then reviews the latest
+    bridge's watchlist."""
+    task_id = f"TONY-PREOPEN-{date_str.replace('-', '')}"
+    title = f"Tony Pre-Open Deep-Dive — {date_str}"
+    vault_history = _load_vault_history()
+    slug, bridge_md = _latest_bridge_md()
+    bridge_section = (
+        f"## Latest scanner bridge ({slug}) — your watchlist universe\n\n{bridge_md}"
+        if bridge_md else
+        "## No fresh scanner bridge yet — focus entirely on re-evaluating your open positions."
+    )
+
+    body = f"""\
+You are Tony Stocks. This is your PRE-OPEN deep-dive for {date_str}, run right before the 09:30
+ET open. Goal: walk into the open with fresh, researched calls — do NOT wait for the first
+intraday bridge.
+
+The scanner (TradingBotAgentProject) is the FIRST layer; you are the SECOND — independently
+verify the data, pull real fundamentals, read the news, then make YOUR OWN call.
+
+**Signal Ledger:** `vault/tony-stocks/signal-ledger.md` — read this first, update it last.
+
+## Step 1 — re-evaluate EVERY position you currently hold (do this first)
+Check your live book. For EACH name you hold:
+1. `get_stock_data(symbol)` — live/pre-market price + fundamentals + next earnings date.
+2. `get_price_history(symbol)` — your own RSI/SMA/ATR/volume read.
+3. `web_research(action=search)` — overnight news/catalysts.
+4. `write_tony_verdict(...)` — **reaffirm** (hold as-is), **adjust** (MOVE your target/stop — for a
+   held name this RE-PRICES your live protective stop/target), or **close** (exit if the thesis
+   broke or the risk line is hit).
+
+## Step 2 — review the watchlist below for fresh setups
+For each Tier 1 name you do NOT already hold, run the same get_stock_data + get_price_history +
+web_research, then `write_tony_verdict(...)` — reaffirm/adjust/override to enter (becomes a GTC
+bracket) or pass. Never re-buy a name you already hold.
+
+Then write 1–3 cross-cutting `write_tony_insight` notes and update the signal ledger + ticker memory.
+
+---
+
+{bridge_section}
+
+---
+
+## Recent Session History (last {_VAULT_HISTORY_DAYS} days)
+
+{vault_history}
+"""
+
+    TASKS_DIR.mkdir(parents=True, exist_ok=True)
+    (TASKS_DIR / f"{task_id}.md").write_text(
+        f"---\n"
+        f"task_id: {task_id}\n"
+        f"assigned_agent: market_research_worker\n"
+        f"status: todo\n"
+        f"priority: high\n"
+        f"pod: stock_research_pod\n"
+        f"task_type: market_scan_intraday\n"
+        f"---\n\n"
+        f"# {title}\n\n"
+        f"{body}\n",
+        encoding="utf-8",
+    )
+    _log.info("tony_bridge: created pre-open deep-dive %s", task_id)
+
+
 def _extract_tier1_symbols(md: str) -> list[str]:
     """Pull [[TICKER]] names from the Tier 1 section only."""
     after = md.split("Tier 1", 1)[-1]

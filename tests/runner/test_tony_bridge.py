@@ -170,6 +170,29 @@ def test_fanout_spawns_on_intraday(tmp_path, monkeypatch):
     assert not any("CCC" in n for n in names)  # Tier 2 excluded
 
 
+def test_make_preopen_deepdive(tmp_path, monkeypatch):
+    # pre-open deep-dive: re-evaluate the held book + the latest bridge's watchlist before the open
+    _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    (bridge_dir / "2026-06-03T1530.md").write_text(
+        "## Tier 1\n### [[CVS]]\n- Target: $98 | Stop: $88\n", encoding="utf-8")
+    bridge_module.make_preopen_deepdive("2026-06-04")
+    f = tasks_dir / "TONY-PREOPEN-20260604.md"
+    assert f.exists()
+    body = f.read_text(encoding="utf-8")
+    assert "PRE-OPEN deep-dive" in body
+    assert "re-evaluate EVERY position you currently hold" in body
+    assert "CVS" in body  # latest bridge embedded as the watchlist universe
+    assert "market_research_worker" in body
+
+
+def test_make_preopen_deepdive_no_bridge(tmp_path, monkeypatch):
+    # with no bridge yet, still queue a deep-dive focused on open positions
+    _reports_dir, _bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    bridge_module.make_preopen_deepdive("2026-06-04")
+    body = (tasks_dir / "TONY-PREOPEN-20260604.md").read_text(encoding="utf-8")
+    assert "No fresh scanner bridge yet" in body
+
+
 def test_markdown_wins_when_both_sources_present(tmp_path, monkeypatch):
     reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
     _write_eod(reports_dir, "2026-05-29", ["AAPL"])
