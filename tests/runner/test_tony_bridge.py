@@ -99,10 +99,11 @@ def test_intraday_bridges_each_fire(tmp_path, monkeypatch):
     assert len(names) == 3  # each intraday slot fires its own run
     assert any("TONY-INTRADAY-20260603-1030" in n for n in names)
     assert any("TONY-INTRADAY-20260603-1300" in n for n in names)
-    # intraday tasks are the LIGHT variant, not the heavy deep-dive
+    # intraday tasks are now a FULL deep-dive (every handoff researches deeply), still typed intraday
     body = (tasks_dir / "TONY-INTRADAY-20260603-1030.md").read_text(encoding="utf-8")
-    assert "market_scan_intraday" in body and "LIGHT intraday update" in body
-    assert "for EACH Tier 1 ticker" not in body  # the heavy daily workflow must be absent
+    assert "market_scan_intraday" in body and "intraday deep-dive" in body
+    assert "for EACH Tier 1 ticker" in body  # the full per-ticker workflow is present
+    assert "LIGHT intraday update" not in body
 
 
 def test_daily_bridge_is_full_not_intraday(tmp_path, monkeypatch):

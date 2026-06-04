@@ -275,39 +275,62 @@ Then, across the whole brief:
 
 
 def _make_intraday_brief(slug: str, bridge_md: str) -> None:
-    """Intraday slots (10:30 / 13:00 / 15:30 ET) get a LIGHT update — Tony already did the full
-    morning deep-dive, so here he only reacts to what materially changed since, not re-analyze
-    every name. This keeps 4 runs/day cheap and fast and lets him take/exit intraday trades."""
+    """Intraday slots (10:30 / 13:00 / 15:30 / EOD ET) get a FULL deep-dive — same per-ticker
+    research depth as the morning brief, with intraday framing that also re-assesses open
+    holdings. With only ~4-5 handoffs a day there is ample time between them for real analysis,
+    and an `adjust` here re-prices the live stop/target on a position Tony already holds."""
     date_str = slug[:10]
     slot = slug[11:] or "intraday"  # e.g. "2026-06-02T1030" -> "1030"
     task_id = f"TONY-INTRADAY-{slug.replace('-', '').replace('T', '-')}"
-    title = f"Tony Intraday Update — {date_str} {slot} ET"
+    title = f"Tony Intraday Deep-Dive — {date_str} {slot} ET"
+
+    vault_history = _load_vault_history()
 
     body = f"""\
-You are Tony Stocks. This is a LIGHT intraday update for {date_str} (slot {slot} ET) — NOT a
-full re-analysis. You already ran your deep morning brief and have open verdicts/positions.
+You are Tony Stocks. This is your intraday deep-dive for {date_str} (slot {slot} ET). Markets are
+open 09:30–16:00 ET; you already hold positions and made earlier calls today. This is a FULL
+re-analysis with fresh live data — not a skim.
 
-Market hours are 09:30–16:00 ET. Your job right now: react only to what MATERIALLY changed
-since your last pass, and adjust your book.
+The scanner (TradingBotAgentProject) is the FIRST layer — scripts, charts, technical scores.
+You are the SECOND layer: a research analyst who independently verifies the data, pulls real
+fundamentals, reads the news, then makes YOUR OWN call on each pick and on every open position.
 
-## Do this, fast:
-1. Skim the intraday bridge below for changes vs this morning: newly **Entry triggered: yes**
-   names, big score moves, or names now near their target/stop.
-2. For ONLY those changed names (not every ticker), call `get_stock_data(symbol)` to get the
-   live price, then update your call with `write_tony_verdict(...)`:
-   - **adjust/override** if your target/stop should move, **close** if the thesis broke or it
-     hit your risk line, **reaffirm** if still good. (close/adjust flow straight to the book.)
-3. `web_research` only if a name moved on news you don't understand — at most 1–2 names.
-4. If nothing material changed, write ONE `write_tony_insight` ("no intraday changes, holding")
-   and stop. Do not churn.
+**Signal Ledger:** `vault/tony-stocks/signal-ledger.md` — read this first, update it last.
 
-Keep it tight — this is a check-in, not the morning deep-dive.
+## Your Workflow — for EACH Tier 1 ticker (and every name you currently HOLD), do all of this:
+
+1. **Pull real data** — call `get_stock_data(symbol)` for the live price + fundamentals (P/E,
+   revenue/earnings growth, margins, analyst target & rating, **next earnings date**, 52-week
+   range). The scanner's close is stale; compare it to the live numbers.
+2. **Verify the setup** — call `get_price_history(symbol)` for your OWN RSI/SMA/ATR/volume read.
+   Confirm or reject the scanner's technical setup on your own indicators.
+3. **Research the why** — `web_research(action=search)` for news/catalysts/earnings that moved
+   since your last pass.
+4. **Check your memory** — read `vault/tickers/TICKER.md` for prior history on this name.
+5. **Decide and record** — call `write_tony_verdict(...)` with YOUR independent 0–100 score and a
+   verdict: **reaffirm** (hold as-is), **adjust** (agree but MOVE your target/stop — for a name
+   you already hold this RE-PRICES your live protective stop/target), **override** (trade it
+   differently), **pass** (skip), or **close** (exit/avoid — closes the position). Red flags that
+   push you off a pick: analyst target BELOW price, earnings INSIDE the trade window, deteriorating
+   margins, news risk. For positions you HOLD: explicitly re-assess each one — tighten or raise the
+   stop/target with `adjust` as the setup evolves, or `close` if the thesis broke or risk line hit.
+
+Then, across the whole brief:
+- Review each Cluster Risk Flag — say whether the concentration changes any verdict.
+- Write 1–3 cross-cutting `write_tony_insight` notes (sector/macro context, not per-pick).
+- Update the signal ledger, ticker memory, and sector-rotation notes.
 
 ---
 
 ## Intraday Scanner Bridge — {date_str} {slot} ET
 
 {bridge_md}
+
+---
+
+## Recent Session History (last {_VAULT_HISTORY_DAYS} days)
+
+{vault_history}
 """
 
     TASKS_DIR.mkdir(parents=True, exist_ok=True)
