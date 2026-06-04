@@ -1603,12 +1603,13 @@ async function renderTonyStocks() {
             <td style="font-family:monospace;color:var(--cyan);font-weight:600">${p.symbol}${warn}</td>
             <td style="font-family:monospace">${p.qty}</td>
             <td style="font-family:monospace;color:var(--muted)">${p.avg_entry_price != null ? "$" + p.avg_entry_price.toFixed(2) : "—"}</td>
+            <td style="font-family:monospace;color:var(--text)">${p.current_price != null ? "$" + p.current_price.toFixed(2) : "—"}</td>
             <td style="font-family:monospace;color:var(--green)">${lv.target != null ? "$" + lv.target : "—"}</td>
             <td style="font-family:monospace;color:var(--red)">${lv.stop != null ? "$" + lv.stop : "—"}</td>
             <td style="font-family:monospace;color:${plc}">${p.unrealized_pl >= 0 ? "+" : ""}$${Number(p.unrealized_pl).toFixed(2)}${pct}</td>
           </tr>`;
         }).join("")
-      : `<tr><td colspan="6" style="color:var(--muted)">No open positions${bk.status==='no_keys'?' (Alpaca not configured)':''}.</td></tr>`;
+      : `<tr><td colspan="7" style="color:var(--muted)">No open positions${bk.status==='no_keys'?' (Alpaca not configured)':''}.</td></tr>`;
     const verdRows = verds.length
       ? verds.map(v => `<tr><td style="font-family:monospace;color:var(--cyan);font-weight:600">${v.symbol}</td><td style="color:${vColor(v.verdict)};text-transform:uppercase;font-size:9px">${v.verdict}</td><td style="font-family:monospace">${v.tony_score}</td><td style="font-family:monospace;color:var(--muted)">${v.scanner_score ?? '—'}</td><td style="font-family:monospace">${v.target ? '$'+v.target : '—'} / ${v.stop ? '$'+v.stop : '—'}</td></tr>`).join("")
       : `<tr><td colspan="5" style="color:var(--muted)">No structured verdicts yet.</td></tr>`;
@@ -1619,7 +1620,7 @@ async function renderTonyStocks() {
         <span style="font-size:8px;color:var(--muted);text-transform:none"> · equity ${equityTxt}</span>
       </div>
       <table class="crm-table">
-        <thead><tr><th>Sym</th><th>Qty</th><th>Entry</th><th>Target</th><th>Stop</th><th>P/L</th></tr></thead>
+        <thead><tr><th>Sym</th><th>Qty</th><th>Entry</th><th>Price</th><th>Target</th><th>Stop</th><th>P/L</th></tr></thead>
         <tbody>${bookRows}</tbody>
       </table>
       <div class="section-title" style="margin-top:8px">Structured Verdicts (what actually trades)</div>
@@ -1663,10 +1664,10 @@ async function renderTonyStocks() {
         <span style="font-size:8px;color:var(--muted);letter-spacing:0;text-transform:none"> · market_research_pod${d.last_updated ? " · updated " + d.last_updated : ""}</span>
       </div>
       <div class="funnel-row" style="grid-template-columns:repeat(4,1fr);margin-top:10px">
-        ${vital(m["Active Positions"], "Active", "var(--green)")}
-        ${vital(m["Pending Triggers"], "Pending", "var(--orange)")}
-        ${vital(m["Weakening"], "Weakening", "var(--red)")}
-        ${vital(d.signals_tracked, "Signals Tracked", "var(--cyan)")}
+        ${vital(positions.length, "Positions", "var(--green)")}
+        ${vital(positions.filter(p=>p.unrealized_pl>0).length, "Winners", "var(--cyan)")}
+        ${vital(positions.filter(p=>p.unrealized_pl<0).length, "Losers", "var(--red)")}
+        ${vital(verds.length, "Verdicts", "var(--orange)")}
       </div>
       <div class="section-title">Tracked Signals</div>
       <table class="crm-table">
