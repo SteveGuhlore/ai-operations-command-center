@@ -3,9 +3,12 @@ from runner.ledger import alpaca_paper as ap
 
 
 class FakeBroker:
-    def __init__(self):
+    def __init__(self, positions=None, orders=None):
         self.buys = []
         self.closes = []
+        self.protects = []
+        self._positions = positions or []
+        self._orders = orders or []
 
     def buy(self, symbol, notional, target, stop):
         self.buys.append((symbol, notional, target, stop))
@@ -13,8 +16,14 @@ class FakeBroker:
     def close(self, symbol):
         self.closes.append(symbol)
 
+    def protect(self, symbol, qty, target, stop):
+        self.protects.append((symbol, qty, target, stop))
+
     def account(self):
-        return {"equity": 100000.0, "open_positions": []}
+        return {"equity": 100000.0, "open_positions": self._positions}
+
+    def open_orders(self):
+        return self._orders
 
 
 def test_whole_share_qty():
@@ -125,13 +134,66 @@ def test_flush_session_clears(tmp_path, monkeypatch):
 
     class CancelBroker:
         cancelled = False
-        def cancel_all(self):
+        def cancel_entry_orders(self):
             CancelBroker.cancelled = True
+            return 0
 
     res = ap.flush_session(broker=CancelBroker())
     assert CancelBroker.cancelled and res["cancelled"] == "ok"
     assert json.load(open(tmp_path / "exec.json")) == []
     assert json.load(open(tmp_path / "v.json")) == []
+
+
+def test_entry_orders_to_cancel_keeps_protective_legs():
+    # Only unfilled BUY entries get cancelled; SELL stop/target legs on held positions stay.
+    orders = [
+        {"symbol": "AAA", "side": "buy", "id": "1"},
+        {"symbol": "BBB", "side": "sell", "id": "2"},
+        {"symbol": "CCC", "side": "buy", "id": "3"},
+    ]
+    assert [o["id"] for o in ap.entry_orders_to_cancel(orders)] == ["1", "3"]
+
+
+def test_positions_needing_protection():
+    positions = [
+        {"symbol": "AAA", "qty": 10.0, "unrealized_pl": 1.0},    # whole + unprotected + levels -> protect 10
+        {"symbol": "BBB", "qty": 12.0, "unrealized_pl": 0.0},    # already has a sell leg -> skip
+        {"symbol": "FRAC", "qty": 17.59, "unrealized_pl": -1.0}, # fractional -> protect the whole-share floor (17)
+        {"symbol": "TINY", "qty": 0.4, "unrealized_pl": 0.0},    # sub-1-share sliver -> can't protect -> skip
+        {"symbol": "NOLV", "qty": 5.0, "unrealized_pl": 0.0},    # no known levels -> skip
+    ]
+    orders = [{"symbol": "BBB", "side": "sell", "id": "9"}]
+    levels = {"AAA": {"target": 30.0, "stop": 25.0}, "BBB": {"target": 50.0, "stop": 40.0},
+              "FRAC": {"target": 20.0, "stop": 15.0}, "TINY": {"target": 2.0, "stop": 1.0}}
+    assert ap.positions_needing_protection(positions, orders, levels) == [
+        {"symbol": "AAA", "qty": 10, "target": 30.0, "stop": 25.0},
+        {"symbol": "FRAC", "qty": 17, "target": 20.0, "stop": 15.0}]
+
+
+def test_positions_needing_protection_skips_degenerate():
+    positions = [{"symbol": "D", "qty": 5.0}]
+    assert ap.positions_needing_protection(positions, [], {"D": {"target": 66.53, "stop": 66.53}}) == []
+
+
+def test_latest_scanner_levels_uses_newest_including_intraday(tmp_path, monkeypatch):
+    (tmp_path / "2026-06-03.md").write_text("### [[AAA]]\n- Target: $30.0 (+1%) | Stop: $25.0 (-1%)\n")
+    (tmp_path / "2026-06-03T1530.md").write_text("### [[SLB]]\n- Target: $61.17 (+1%) | Stop: $54.6 (-1%)\n")
+    monkeypatch.setattr(ap, "BRIDGE_DIR", tmp_path)
+    lv = ap._latest_scanner_levels()
+    assert lv.get("SLB") == {"target": 61.17, "stop": 54.6}  # intraday is newest -> used
+
+
+def test_sync_reconciles_unprotected_positions(tmp_path, monkeypatch):
+    monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
+    monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    (tmp_path / "v.json").write_text("[]")
+    bd = tmp_path / "bridge"; bd.mkdir()
+    (bd / "2026-06-03T1530.md").write_text("### [[CVS]]\n- Target: $98.06 (+1%) | Stop: $88.73 (-1%)\n")
+    monkeypatch.setattr(ap, "BRIDGE_DIR", bd)
+    b = FakeBroker(positions=[{"symbol": "CVS", "qty": 10.0, "unrealized_pl": 3.1}], orders=[])
+    r = ap.sync(broker=b)
+    assert r["protected"] == 1
+    assert b.protects == [("CVS", 10, 98.06, 88.73)]
 
 
 def test_flush_session_no_keys_still_clears(tmp_path, monkeypatch):

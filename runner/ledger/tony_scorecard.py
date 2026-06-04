@@ -16,9 +16,12 @@ from pathlib import Path
 _log = logging.getLogger(__name__)
 
 _reports = Path(__file__).parent.parent.parent.parent / "TradingBotAgentProject" / "reports"
+_vault = Path(__file__).parent.parent.parent / "vault"
 VERDICTS_FILE = Path(os.environ.get("TONY_VERDICTS_FILE", str(_reports / "tony_stocks_verdicts.json")))
 OUTCOMES_FILE = Path(os.environ.get("TONY_OUTCOMES_FILE", str(_reports / "tony_stocks_outcomes.json")))
 RECORD_FILE = Path(os.environ.get("TONY_RECORD_FILE", str(_reports / "tony_stocks_record.json")))
+# Tony's weekly self-review reads the record alongside his other vault files, so mirror it there too.
+VAULT_RECORD_FILE = Path(os.environ.get("TONY_VAULT_RECORD_FILE", str(_vault / "tony-stocks" / "tony_stocks_record.json")))
 
 _BULLISH = {"reaffirm", "adjust"}
 
@@ -118,9 +121,11 @@ def discover_edges(min_n: int = 5) -> dict:
 
 def write_record() -> dict:
     rec = compute_record()
-    try:
-        RECORD_FILE.parent.mkdir(parents=True, exist_ok=True)
-        RECORD_FILE.write_text(json.dumps(rec, indent=2), encoding="utf-8")
-    except OSError as exc:
-        _log.warning("write_record failed: %s", exc)
+    payload = json.dumps(rec, indent=2)
+    for target in (RECORD_FILE, VAULT_RECORD_FILE):
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(payload, encoding="utf-8")
+        except OSError as exc:
+            _log.warning("write_record failed for %s: %s", target, exc)
     return rec

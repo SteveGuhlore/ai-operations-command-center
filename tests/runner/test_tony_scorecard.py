@@ -64,6 +64,24 @@ def test_pick_id_join_when_present(tmp_path, monkeypatch):
     assert sc.compute_record()["tony_win_rate"] == 100.0
 
 
+def test_write_record_mirrors_to_vault(tmp_path, monkeypatch):
+    # Tony's weekly self-review reads vault/tony-stocks/tony_stocks_record.json; write_record
+    # must put a copy there, not only in TradingBotAgentProject/reports.
+    verdicts = [{"date": "2026-06-01", "symbol": "AAA", "verdict": "reaffirm", "confidence": "high"}]
+    outcomes = [{"symbol": "AAA", "pick_date": "2026-06-01", "return_pct": 5.0}]
+    _wire(tmp_path, monkeypatch, verdicts, outcomes)
+    reports_file = tmp_path / "reports" / "tony_stocks_record.json"
+    vault_file = tmp_path / "vault" / "tony-stocks" / "tony_stocks_record.json"
+    monkeypatch.setattr(sc, "RECORD_FILE", reports_file)
+    monkeypatch.setattr(sc, "VAULT_RECORD_FILE", vault_file)
+
+    rec = sc.write_record()
+
+    assert rec["status"] == "scored"
+    assert json.loads(reports_file.read_text()) == rec
+    assert json.loads(vault_file.read_text()) == rec
+
+
 def test_discover_edges_needs_min_n(tmp_path, monkeypatch):
     verdicts = [{"date": f"2026-06-0{i}", "symbol": "AAA", "verdict": "reaffirm",
                  "evidence": ["rev_growth"]} for i in range(1, 7)]
