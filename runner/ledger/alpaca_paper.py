@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
@@ -230,14 +231,27 @@ def _alpaca_broker():
 
         def reprice(self, symbol, qty, target, stop):
             """Move a held position's protection to new levels: cancel its existing GTC OCO legs,
-            then place a fresh OCO. Used when Tony issues an intraday `adjust`."""
+            then place a fresh OCO. Used when Tony issues an intraday `adjust`. Alpaca releases the
+            cancelled legs' held qty asynchronously, so retry the new OCO until the qty frees
+            (otherwise it fails 'insufficient qty' and the position is briefly left naked)."""
             for o in self.open_orders():
                 if o.get("symbol") == symbol and o.get("side") == "sell":
                     try:
                         client.cancel_order_by_id(o["id"])
                     except Exception as exc:
                         _log.info("reprice cancel %s: %s", symbol, exc)
-            self.protect(symbol, qty, target, stop)
+            last = None
+            for _ in range(12):
+                try:
+                    self.protect(symbol, qty, target, stop)
+                    return
+                except Exception as exc:
+                    last = exc
+                    if "insufficient qty" in str(exc).lower() or "40310000" in str(exc):
+                        time.sleep(0.5)
+                        continue
+                    raise
+            raise last
 
         def close(self, symbol):
             try:
