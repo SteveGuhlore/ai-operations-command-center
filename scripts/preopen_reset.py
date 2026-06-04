@@ -1,8 +1,9 @@
 """Pre-open paper reset (weekday ~9:25 AM ET, run by a Windows Scheduled Task).
 
-Cancels working Alpaca paper orders, clears the executed-log, and empties the verdicts file so
-each market day — and any overnight test/fake data — starts on a clean book. PAPER ONLY: it
-cancels resting orders, it never closes filled positions. Use --dry-run to preview.
+Cancels UNFILLED entry orders, clears the executed-log, and empties the verdicts file so each
+market day — and any overnight test/fake data — starts on a clean book. PAPER ONLY: it never
+closes filled positions NOR cancels their protective stop/target legs (those guard overnight
+holds). Use --dry-run to preview.
 """
 import argparse
 import sys
@@ -25,8 +26,8 @@ def main() -> None:
     if args.dry_run:
         v = ap._load(ap.VERDICTS_FILE)
         e = ap._load(ap.EXECUTED_LOG)
-        print(f"[dry-run] would cancel all open paper orders, clear {len(e)} executed key(s), "
-              f"and empty {len(v)} verdict(s) from {ap.VERDICTS_FILE.name}")
+        print(f"[dry-run] would cancel unfilled entry orders (keeping protective stop/target legs), "
+              f"clear {len(e)} executed key(s), and empty {len(v)} verdict(s) from {ap.VERDICTS_FILE.name}")
         return
 
     print("preopen_reset:", ap.flush_session())
