@@ -29,11 +29,13 @@ VERDICTS_FILE = Path(os.environ.get("TONY_VERDICTS_FILE", str(_reports / "tony_s
 EXECUTED_LOG = Path(__file__).parent.parent.parent / "workspace" / "alpaca-executed.json"
 BRIDGE_DIR = Path(os.environ.get("TONY_BRIDGE_DIR", str(Path(__file__).parent.parent.parent / "bridge" / "tony-stocks")))
 NOTIONAL = float(os.environ.get("TONY_PAPER_NOTIONAL", "1000"))
-# Head-to-head parity with the trading bot's paper_trading config: identical risk budget, caps,
-# and order mechanics so the ONLY difference between the two books is the reasoning behind each
-# pick — not the position sizing. Mirror of default_config.yaml `paper_trading`.
+# Head-to-head parity with the trading bot: SAME risk-sizing formula, caps, and order mechanics
+# so the only difference between the two books is the reasoning. Accounts are unequal (Tony=$1M,
+# bot=$100k), so the absolute notional cap is account-scaled — Tony deploys $10k/entry (1% of his
+# $1M), the bot $5k (its config) — and the head-to-head is compared on %-returns, not absolute $.
+# (See docs/CONTRACTS/execution-parity.md.) The other params match the bot exactly.
 RISK_PCT = float(os.environ.get("TONY_RISK_PER_TRADE_PCT", "1.0"))          # % equity risked entry->stop
-MAX_NOTIONAL = float(os.environ.get("TONY_MAX_NOTIONAL_PER_POSITION", "5000"))
+MAX_NOTIONAL = float(os.environ.get("TONY_MAX_NOTIONAL_PER_POSITION", "10000"))  # $10k/entry = 1% of $1M
 MAX_OPEN_POSITIONS = int(os.environ.get("TONY_MAX_OPEN_POSITIONS", "50"))
 MAX_DAILY_ORDERS = int(os.environ.get("TONY_MAX_DAILY_ORDERS", "200"))
 
