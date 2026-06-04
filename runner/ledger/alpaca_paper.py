@@ -299,7 +299,11 @@ def _alpaca_broker():
                 "cash": float(a.cash),
                 "open_positions": [
                     {"symbol": p.symbol, "qty": float(p.qty),
-                     "unrealized_pl": float(p.unrealized_pl)} for p in positions
+                     "unrealized_pl": float(p.unrealized_pl),
+                     "avg_entry_price": float(p.avg_entry_price) if p.avg_entry_price else None,
+                     "current_price": float(p.current_price) if p.current_price else None,
+                     "unrealized_plpc": float(p.unrealized_plpc) if p.unrealized_plpc else None}
+                    for p in positions
                 ],
             }
 
