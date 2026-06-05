@@ -686,6 +686,8 @@ def run_cycle() -> None:
         log.info("No tasks in queue.")
         _maybe_spawn_planning_task()
         _advance_opportunity_pipeline()
+        _maybe_run_learning()          # idle-time learning must still fire (queue is empty overnight)
+        _maybe_run_tony_self_review()
         return
 
     batch = tasks[:MAX_CONCURRENT]
