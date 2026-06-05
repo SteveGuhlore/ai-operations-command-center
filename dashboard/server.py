@@ -883,6 +883,16 @@ async def api_tony_stocks():
             if mp:
                 sig["price"] = float(mp.group(1))
 
+    # Live last-trade price per tracked signal — the scanner's bridge close is stale.
+    try:
+        from runner.ledger.equity_history import _latest_prices
+        live = _latest_prices([(s.get("Ticker") or "").strip().upper() for s in signals if s.get("Ticker")])
+        for s in signals:
+            s["live_price"] = live.get((s.get("Ticker") or "").strip().upper())
+    except Exception:
+        for s in signals:
+            s.setdefault("live_price", None)
+
     metrics_rows = _parse_md_section_table(text, "Weekly Metrics")
     return {
         "available": True,

@@ -467,10 +467,18 @@ def _parse_bridge_signals(bridge_md: str) -> dict:
         score = re.search(r"Score:\s*([\d.]+)", block)
         setup = re.search(r"Setup:\s*([^\n|]+)", block)
         trig = re.search(r"Entry triggered:\s*(\w+)", block)
+        target = re.search(r"Target:\s*\$?([\d.]+)", block)
+        stop = re.search(r"Stop:\s*\$?([\d.]+)", block)
+        close = re.search(r"Last close:\s*\$?([\d.]+)", block)
+        rr = re.search(r"R/R:\s*([\d.]+:?[\d.]*)", block)
         tier1.append({"symbol": sym, "days": int(days.group(1)) if days else 0,
                       "score": score.group(1) if score else "",
                       "setup": setup.group(1).strip() if setup else "",
-                      "triggered": bool(trig and trig.group(1).lower() == "yes")})
+                      "triggered": bool(trig and trig.group(1).lower() == "yes"),
+                      "target": target.group(1) if target else "",
+                      "stop": stop.group(1) if stop else "",
+                      "close": close.group(1) if close else "",
+                      "rr": rr.group(1) if rr else ""})
     newer = []
     for tier_name, days in (("Tier 2", 2), ("Tier 3", 1)):
         seg = bridge_md.split(tier_name, 1)
@@ -485,8 +493,11 @@ def _parse_bridge_signals(bridge_md: str) -> dict:
             if not sm:
                 continue
             score = cells[1] if len(cells) > 1 and re.match(r"^[\d.]+$", cells[1]) else ""
+            close = cells[3].lstrip("$") if len(cells) > 3 and re.match(r"^\$?[\d.]+$", cells[3]) else ""
+            rr = cells[6] if len(cells) > 6 else ""
             newer.append({"symbol": sm.group(1), "days": days, "score": score,
-                          "setup": cells[2] if len(cells) > 2 else "", "triggered": False})
+                          "setup": cells[2] if len(cells) > 2 else "", "triggered": False,
+                          "target": "", "stop": "", "close": close, "rr": rr})
     return {"tier1": tier1, "newer": newer}
 
 
@@ -524,17 +535,19 @@ def _refresh_signal_ledger(date_str: str, bridge_md: str) -> bool:
         "live in the live verdict book (dashboard Paper Book / Tony's Calls), not in this file.",
         f"Last updated: {date_str}", "", "---", "",
         "## Persistent Signals (3+ days)", "",
-        "| Ticker | Days Active | Setup Type | Score | Status |",
-        "|--------|-------------|-----------|-------|--------|",
+        "| Ticker | Days Active | Setup Type | Score | Target | Stop | R/R | Status |",
+        "|--------|-------------|-----------|-------|--------|------|-----|--------|",
     ]
     for s in sorted(persistent, key=lambda x: x["days"], reverse=True):
-        lines.append(f"| {s['symbol']} | {s['days']} | {s['setup']} | {s['score']} | "
-                     f"{'triggered' if s['triggered'] else 'watching'} |")
+        tgt = f"${s['target']}" if s.get("target") else ""
+        stp = f"${s['stop']}" if s.get("stop") else ""
+        lines.append(f"| {s['symbol']} | {s['days']} | {s['setup']} | {s['score']} | {tgt} | "
+                     f"{stp} | {s.get('rr', '')} | {'triggered' if s['triggered'] else 'watching'} |")
     lines += ["", "## Active Signals", "",
-              "| Ticker | Days Active | Setup Type | Score |",
-              "|--------|-------------|-----------|-------|"]
+              "| Ticker | Days Active | Setup Type | Score | R/R |",
+              "|--------|-------------|-----------|-------|-----|"]
     for s in sorted(active, key=lambda x: x["days"], reverse=True):
-        lines.append(f"| {s['symbol']} | {s['days']} | {s['setup']} | {s['score']} |")
+        lines.append(f"| {s['symbol']} | {s['days']} | {s['setup']} | {s['score']} | {s.get('rr', '')} |")
     lines.append("")
     ledger.parent.mkdir(parents=True, exist_ok=True)
     ledger.write_text("\n".join(lines), encoding="utf-8")
