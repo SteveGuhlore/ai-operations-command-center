@@ -102,6 +102,23 @@ def cleanup_stale_tasks():
               f"{dead} exceeded retry cap -> failed/. Cleared locks.")
 
 
+def seed_equity_history():
+    """Self-heal the head-to-head equity curve. The runner appends a live point every
+    cycle (snapshot()), so the curve grows on its own — but if equity-history.json is
+    ever wiped or has almost no shape, a fresh launch re-seeds it from real history
+    (Tony's Alpaca portfolio + the bot's positions marked to historical bars). One-shot,
+    only when sparse, so a healthy file is never overwritten."""
+    try:
+        from runner.ledger import equity_history as eh
+        points = eh._load()
+        if len(points) >= 12:
+            return  # already has shape — leave it; snapshot() keeps it growing
+        res = eh.backfill()
+        print(f"Equity history sparse ({len(points)} pts) — re-seeded: {res}")
+    except Exception as exc:  # never let curve-seeding block launch
+        print(f"Equity seed skipped: {exc}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--interval", type=int, default=120, help="Seconds between cycles (default: 120 = 2 min)")
@@ -121,6 +138,7 @@ def main():
     cleanup_stale_tasks()
 
     dashboard_proc = start_dashboard()
+    seed_equity_history()
 
     from runner.main import run_cycle
 
