@@ -152,6 +152,46 @@ def discover_edges(min_n: int = 5) -> dict:
     return {"status": "scored" if edges else "insufficient_history", "edges": edges}
 
 
+_OPEN_VERDICTS = {"reaffirm", "adjust", "override"}  # the verdicts that become sized positions
+
+
+def sizing_attribution() -> dict:
+    """B1 honest-measurement: decompose Tony's realized return into picking vs sizing alpha,
+    WITHOUT a second account. Realized return_pct is sizing-independent, so weighting each pick by
+    its conviction multiplier and comparing to the equal-weight mean isolates what conviction
+    sizing alone contributes. Lets B1 run in shadow (real sizing flat) and still be measured."""
+    verdicts = _load(VERDICTS_FILE)
+    outcomes = _load(OUTCOMES_FILE)
+    if not outcomes:
+        return {"status": "awaiting_outcomes", "graded": 0,
+                "flat_return_pct": None, "conviction_return_pct": None, "sizing_alpha_pct": None}
+    try:
+        from runner.ledger.alpaca_paper import conviction_multiplier
+    except Exception:
+        def conviction_multiplier(_c):  # degrade to flat weighting if sizing module unavailable
+            return 1.0
+    rets, w_sum, w_ret, graded = [], 0.0, 0.0, 0
+    for o in outcomes:
+        v = _matched_verdict(o, verdicts)
+        if not v or (v.get("verdict") or "").lower() not in _OPEN_VERDICTS:
+            continue  # only entries get a conviction-scaled size
+        ret = float(o.get("return_pct", 0) or 0)
+        w = conviction_multiplier(v.get("confidence"))
+        rets.append(ret)
+        w_sum += w
+        w_ret += w * ret
+        graded += 1
+    if not rets:
+        return {"status": "awaiting_outcomes", "graded": 0,
+                "flat_return_pct": None, "conviction_return_pct": None, "sizing_alpha_pct": None}
+    flat = sum(rets) / len(rets)
+    conv = w_ret / w_sum if w_sum else flat
+    return {"status": "scored", "graded": graded,
+            "flat_return_pct": round(flat, 3),
+            "conviction_return_pct": round(conv, 3),
+            "sizing_alpha_pct": round(conv - flat, 3)}
+
+
 def _tony_equity_curve() -> list:
     """Tony's normalized equity series (indexed to 100, live-marked) for the head-to-head, pulled
     from equity_history. Best-effort: returns [] if the history isn't available yet."""
@@ -178,6 +218,7 @@ def _sanitize(obj):
 def write_record() -> dict:
     rec = compute_record()
     rec["equity_curve"] = _tony_equity_curve()  # list[float], indexed to 100, live-marked
+    rec["sizing_attribution"] = sizing_attribution()  # B1: picking vs sizing alpha (optional field)
     rec = _sanitize(rec)
     payload = json.dumps(rec, indent=2, allow_nan=False)
     for target in (RECORD_FILE, VAULT_RECORD_FILE):

@@ -5,14 +5,16 @@ from runner.ledger import alpaca_paper as ap
 class FakeBroker:
     def __init__(self, positions=None, orders=None):
         self.buys = []
+        self.buy_risk_pcts = []
         self.closes = []
         self.protects = []
         self.reprices = []
         self._positions = positions or []
         self._orders = orders or []
 
-    def buy(self, symbol, notional, target, stop):
+    def buy(self, symbol, notional, target, stop, risk_pct=None):
         self.buys.append((symbol, notional, target, stop))
+        self.buy_risk_pcts.append(risk_pct)
 
     def close(self, symbol):
         self.closes.append(symbol)

@@ -43,6 +43,42 @@ _OPEN = {"reaffirm", "adjust", "override"}
 _LEVELS_RE = re.compile(r"Target:\s*\$([\d.]+).*?Stop:\s*\$([\d.]+)", re.S)
 
 
+def conviction_multiplier(confidence) -> float:
+    """B1: map a verdict's confidence to a risk-budget multiplier (read at call time so it's
+    test-overridable). Unknown/missing -> 1.0 (today's flat sizing). The cap in risk_based_qty
+    still binds, so a high-conviction trade can never exceed MAX_NOTIONAL_PER_POSITION."""
+    mults = {
+        "low": float(os.environ.get("TONY_CONV_MULT_LOW", "0.5")),
+        "medium": float(os.environ.get("TONY_CONV_MULT_MEDIUM", "1.0")),
+        "high": float(os.environ.get("TONY_CONV_MULT_HIGH", "1.5")),
+    }
+    return mults.get((confidence or "").strip().lower(), 1.0)
+
+
+def conviction_enabled() -> bool:
+    """B1 gate. off (default) -> flat 1% sizing, B1 inert. on -> always apply the curve. auto ->
+    apply only once Tony's record PROVES calibration: enough graded picks AND high-confidence
+    win-rate beats low by a margin. Fail-safe to False on any error so sizing never breaks."""
+    mode = os.environ.get("TONY_CONVICTION_SIZING", "off").strip().lower()
+    if mode == "on":
+        return True
+    if mode != "auto":
+        return False
+    try:
+        from runner.ledger.tony_scorecard import compute_record
+        rec = compute_record()
+    except Exception as exc:
+        _log.info("conviction gate: record unavailable: %s", exc)
+        return False
+    if int(rec.get("graded", 0) or 0) < int(os.environ.get("TONY_CONV_MIN_GRADED", "20")):
+        return False
+    cal = rec.get("calibration") or {}
+    hi, lo = cal.get("high"), cal.get("low")
+    if hi is None or lo is None:
+        return False
+    return (float(hi) - float(lo)) >= float(os.environ.get("TONY_CONV_MIN_CAL_GAP", "10.0"))
+
+
 def parse_scanner_levels(md: str) -> dict:
     """Pull the scanner's per-symbol Target/Stop out of a bridge markdown so a reaffirm
     (Tony agreeing with the scanner's plan, no levels of his own) still becomes a protected
@@ -190,7 +226,7 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
             if max_new_buys is not None and buys >= max_new_buys:
                 continue  # at the portfolio / daily-order cap — leave for a later run
             plan.append({"key": key, "symbol": sym, "action": "buy", "notional": NOTIONAL,
-                         "target": target, "stop": stop})
+                         "target": target, "stop": stop, "confidence": v.get("confidence", "medium")})
             buys += 1
         elif verdict == "close":
             key = f"{v.get('date')}:{sym}:close"
@@ -230,14 +266,16 @@ def _alpaca_broker():
                 _log.info("latest_price(%s) failed: %s", symbol, exc)
                 return None
 
-        def buy(self, symbol, notional, target, stop):
+        def buy(self, symbol, notional, target, stop, risk_pct=None):
             price = self._latest_price(symbol)
             qty = None
+            rp = RISK_PCT if risk_pct is None else risk_pct
             if target and stop:
                 # Bracket must be whole-share (fractional is rejected). Risk-based sizing matches
                 # the bot's budget; GTC so the take-profit/stop-loss legs survive the 16:00 close.
+                # risk_pct may be conviction-scaled (B1); MAX_NOTIONAL still caps the position.
                 equity = float(self.account()["equity"])
-                qty = risk_based_qty(equity, price, float(stop), RISK_PCT, MAX_NOTIONAL)
+                qty = risk_based_qty(equity, price, float(stop), rp, MAX_NOTIONAL)
                 req = MarketOrderRequest(
                     symbol=symbol, qty=qty, side=OrderSide.BUY,
                     time_in_force=TimeInForce.GTC, order_class=OrderClass.BRACKET,
@@ -379,11 +417,12 @@ def closed_positions(prior: list, current: list) -> list:
             if float(p.get("qty") or 0) > 0 and cur.get(p.get("symbol"), 0) <= 0]
 
 
-def _notify_entry_safe(symbol, qty, entry, stop, target) -> None:
-    """Fire a cosmetic entry alert. Fail-soft: a notify error never touches the trading path."""
+def _notify_entry_safe(symbol, qty, entry, stop, target, risk_pct=RISK_PCT) -> None:
+    """Fire a cosmetic entry alert. Fail-soft: a notify error never touches the trading path.
+    risk_pct is the EFFECTIVE (conviction-scaled) risk so the alert reflects B1 sizing."""
     try:
         from runner.tools.notify import notify_entry
-        notify_entry(symbol, qty if qty is not None else "?", entry, stop, target, RISK_PCT)
+        notify_entry(symbol, qty if qty is not None else "?", entry, stop, target, risk_pct)
     except Exception as exc:
         _log.info("notify entry failed: %s", exc)
 
@@ -435,16 +474,19 @@ def sync(broker=None) -> dict:
     max_new = max(0, min(MAX_OPEN_POSITIONS - len(held), MAX_DAILY_ORDERS - today_opens))
     plan = plan_orders(verdicts, done, levels, held, max_new_buys=max_new)
 
+    conv_on = conviction_enabled()  # B1: scale risk by confidence only when the gate proves out
     executed = 0
     opened_now = set()
     for action in plan:
         try:
             if action["action"] == "buy":
+                mult = conviction_multiplier(action.get("confidence")) if conv_on else 1.0
+                rp = RISK_PCT * mult
                 info = broker.buy(action["symbol"], action["notional"],
-                                  action.get("target"), action.get("stop")) or {}
+                                  action.get("target"), action.get("stop"), risk_pct=rp) or {}
                 opened_now.add(action["symbol"])
                 _notify_entry_safe(action["symbol"], info.get("qty"), info.get("entry"),
-                                   action.get("stop"), action.get("target"))
+                                   action.get("stop"), action.get("target"), risk_pct=rp)
             elif action["action"] == "close":
                 broker.close(action["symbol"])
             done.add(action["key"])

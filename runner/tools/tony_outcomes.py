@@ -14,7 +14,8 @@ vault/bot files (the d5e0583 lesson). Degrades to status="awaiting_outcomes" cle
 import os
 from pathlib import Path
 
-from runner.ledger.tony_scorecard import _load, _is_right, _matched_verdict, discover_edges
+from runner.ledger.tony_scorecard import (
+    _load, _is_right, _matched_verdict, discover_edges, sizing_attribution)
 
 _reports = Path(__file__).parent.parent.parent.parent / "TradingBotAgentProject" / "reports"
 _vault = Path(__file__).parent.parent.parent / "vault"
@@ -184,6 +185,16 @@ def track_record_block() -> str:
             lines.append(f"**Fade these setups:** {worst}")
     else:
         lines.append("**Your graded calls:** none closed yet — your verdicts are still open positions.")
+
+    sa = sizing_attribution()
+    if sa.get("status") == "scored" and sa.get("graded", 0) >= 5 and sa.get("sizing_alpha_pct") is not None:
+        verdict_word = "ARE earning" if sa["sizing_alpha_pct"] > 0 else "are NOT earning"
+        lines.append(
+            f"**Conviction sizing alpha:** {sa['sizing_alpha_pct']:+.2f}% vs flat "
+            f"(conviction-weighted {sa['conviction_return_pct']:+.2f}% vs equal-weight "
+            f"{sa['flat_return_pct']:+.2f}%, n={sa['graded']}) — your high-confidence calls "
+            f"{verdict_word} their bigger size."
+        )
 
     return "\n".join(lines)
 
