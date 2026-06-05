@@ -447,9 +447,14 @@ def _extract_tier1_symbols(md: str) -> list[str]:
     return list(dict.fromkeys(_TIER1_SYM_RE.findall(after)))
 
 
-_SIGNAL_LEDGER = VAULT_DIR / "tony-stocks" / "signal-ledger.md"
 _TIER1_BLOCK_RE = re.compile(
     r"###\s*\[\[([A-Z0-9.\-]+)\]\]\s*\n(.*?)(?=\n###|\n##\s|\Z)", re.DOTALL)
+
+
+def _signal_ledger_path():
+    # Resolve from VAULT_DIR at call time (not a module constant) so tests that monkeypatch
+    # VAULT_DIR are isolated — a bound constant would make every test write the real vault.
+    return VAULT_DIR / "tony-stocks" / "signal-ledger.md"
 
 
 def _parse_bridge_signals(bridge_md: str) -> dict:
@@ -500,9 +505,10 @@ def _refresh_signal_ledger(date_str: str, bridge_md: str) -> bool:
     # Monotonic: never move the ledger backwards in time. Bridges are ingested newest-first,
     # so when several are unprocessed (e.g. after a restart) an older one must not clobber the
     # fresher ledger it already wrote. date_str is YYYY-MM-DD, so a string compare is a date compare.
+    ledger = _signal_ledger_path()
     existing = ""
     try:
-        for line in _SIGNAL_LEDGER.read_text(encoding="utf-8").splitlines():
+        for line in ledger.read_text(encoding="utf-8").splitlines():
             if line.lower().startswith("last updated:"):
                 existing = line.split(":", 1)[1].strip()[:10]
                 break
@@ -530,8 +536,8 @@ def _refresh_signal_ledger(date_str: str, bridge_md: str) -> bool:
     for s in sorted(active, key=lambda x: x["days"], reverse=True):
         lines.append(f"| {s['symbol']} | {s['days']} | {s['setup']} | {s['score']} |")
     lines.append("")
-    _SIGNAL_LEDGER.parent.mkdir(parents=True, exist_ok=True)
-    _SIGNAL_LEDGER.write_text("\n".join(lines), encoding="utf-8")
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    ledger.write_text("\n".join(lines), encoding="utf-8")
     _log.info("tony_bridge: refreshed signal-ledger.md (%d persistent, %d active) for %s",
               len(persistent), len(active), date_str)
     return True
