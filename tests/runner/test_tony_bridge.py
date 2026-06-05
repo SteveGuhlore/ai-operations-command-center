@@ -111,7 +111,7 @@ def test_daily_bridge_is_full_not_intraday(tmp_path, monkeypatch):
     _write_bridge(bridge_dir, "2026-06-03", "## Tier 1\n### [[ZETA]]\nScore 88")
     bridge_module.scan_and_process()
     body = (tasks_dir / "TONY-DAILY-BRIEF-20260603.md").read_text(encoding="utf-8")
-    assert "for EACH Tier 1 ticker" in body  # pure-date stays the full deep-dive
+    assert "daily analytical brief" in body  # pure-date routes to the full daily brief, not intraday
 
 
 def test_intraday_bridge_not_duplicated(tmp_path, monkeypatch):

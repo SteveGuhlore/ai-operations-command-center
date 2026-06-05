@@ -31,7 +31,12 @@ _TIER1_SYM_RE = re.compile(r"\[\[([A-Z][A-Z0-9.\-]{0,9})\]\]")
 # deep-dive verdict task per ticker (up to MAX, in bridge order = score desc) so each gets
 # full depth without one giant task truncating. 0 = off. Healthy medium: MIN=3, MAX=6 —
 # deep per-pick analysis on the conviction set, Tier-2/3 stay in the lighter combined brief.
-FANOUT_MIN_TIER1 = int(os.environ.get("TONY_FANOUT_MIN_TIER1", "0"))
+# Fan-out the top conviction Tier-1 names into focused, complete deep-dive tasks so they
+# never get truncated by the daily brief's 50-step tool cap. Capped modestly because the
+# runner processes ~1 task/cycle — top-6 covers the highest-conviction set without backing
+# up the queue. Tune via env; 0 disables. See the lightened daily brief (synthesis + the
+# names fan-out didn't cover).
+FANOUT_MIN_TIER1 = int(os.environ.get("TONY_FANOUT_MIN_TIER1", "3"))
 FANOUT_MAX = int(os.environ.get("TONY_FANOUT_MAX", "6"))
 
 _REPORT_FILES = ["eod_report", "strategy_proposal", "approval_package"]
@@ -216,9 +221,14 @@ The scanner (TradingBotAgentProject) is the FIRST layer — scripts, charts, tec
 scores. You are the SECOND layer: a research analyst who independently verifies the
 data, pulls real fundamentals, reads the news, then makes YOUR OWN call on each pick.
 
-**Signal Ledger:** `vault/tony-stocks/signal-ledger.md` — read this first, update it last.
+**Signal Ledger:** `vault/tony-stocks/signal-ledger.md` — read it for persistence context.
+It is now auto-maintained from the scanner bridge, so do NOT write to it.
 
-## Your Workflow — for EACH Tier 1 ticker (3+ days active), do all of this:
+The highest-conviction Tier-1 names get their own focused deep-dive tasks (fan-out), so you
+do NOT have to research all 26 here — that just runs you out of tool budget. Prioritise:
+cross-cutting synthesis, cluster risk, and the Tier-1 names fan-out did not cover.
+
+## Per-ticker steps (apply to the names you cover):
 
 1. **Pull real data** — call `get_stock_data(symbol)`. The scanner's close is stale; this
    is your live price + fundamentals (P/E, revenue/earnings growth, margins, analyst target
@@ -236,7 +246,7 @@ data, pulls real fundamentals, reads the news, then makes YOUR OWN call on each 
 Then, across the whole brief:
 - Review each Cluster Risk Flag — say whether the concentration changes any verdict.
 - Write 1–3 cross-cutting `write_tony_insight` notes (sector/macro context, not per-pick).
-- Update the signal ledger, ticker memory, and sector-rotation notes.
+- Update ticker memory and sector-rotation notes. (The signal ledger is auto-maintained — leave it.)
 
 ---
 
@@ -320,7 +330,7 @@ fundamentals, reads the news, then makes YOUR OWN call on each pick and on every
 Then, across the whole brief:
 - Review each Cluster Risk Flag — say whether the concentration changes any verdict.
 - Write 1–3 cross-cutting `write_tony_insight` notes (sector/macro context, not per-pick).
-- Update the signal ledger, ticker memory, and sector-rotation notes.
+- Update ticker memory and sector-rotation notes. (The signal ledger is auto-maintained — leave it.)
 
 ---
 
