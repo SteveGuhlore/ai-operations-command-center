@@ -1729,8 +1729,8 @@ async function renderTonyStocks() {
     const equityTxt = bk.equity != null ? "$" + Number(bk.equity).toLocaleString() : "—";
     const paperBookHtml = `
       <div class="section-title" style="margin-top:12px">
-        <span style="color:var(--green)">●</span> Paper Book — live Alpaca${bk.status && bk.status!=='ok' ? ' · '+bk.status : ''}
-        <span style="font-size:8px;color:var(--muted);text-transform:none"> · equity ${equityTxt}${bk.priced_live === true ? ' · <span style="color:var(--green)">live prices</span>' : bk.priced_live === false ? ' · <span style="color:var(--orange)">stale Alpaca marks</span>' : ''}</span>
+        <span style="color:var(--green)">●</span> Paper Book — <span style="color:var(--green)">Tony's</span> live positions${bk.status && bk.status!=='ok' ? ' · '+bk.status : ''}
+        <span style="font-size:8px;color:var(--muted);text-transform:none"> · what Tony actually holds · equity ${equityTxt}${bk.priced_live === true ? ' · <span style="color:var(--green)">live prices</span>' : bk.priced_live === false ? ' · <span style="color:var(--orange)">stale Alpaca marks</span>' : ''}</span>
       </div>
       <table class="crm-table">
         <thead><tr><th>Sym</th><th>Qty</th><th>Entry</th><th>Price</th><th>Target</th><th>Stop</th><th>P/L</th></tr></thead>
@@ -1753,6 +1753,18 @@ async function renderTonyStocks() {
     if (tonySignalsPage < 0) tonySignalsPage = 0;
     const pageSig = sig.slice(tonySignalsPage * SIG_PER, tonySignalsPage * SIG_PER + SIG_PER);
     const sigStat = st => st.includes("trigger") ? "var(--green)" : st.includes("weak") ? "var(--orange)" : "var(--muted)";
+    // Style C badge: what Tony did with this scanner pick (held / adjusted / passed / not analyzed).
+    const tonyPill = (txt, col, bg, bd) => `<span style="display:inline-block;padding:2px 7px;border-radius:10px;font-size:8px;letter-spacing:.5px;text-transform:uppercase;font-weight:600;color:${col};background:${bg};border:1px solid ${bd}">${txt}</span>`;
+    const tonyBadge = s => {
+      const v = s.tony_verdict || "";
+      if (s.tony_state === "held-on") return (v === "adjust" || v === "override")
+        ? tonyPill("held·" + v, "var(--cyan)", "rgba(34,211,238,.13)", "rgba(34,211,238,.35)")
+        : tonyPill("held·" + v, "var(--green)", "rgba(0,245,160,.13)", "rgba(0,245,160,.35)");
+      if (s.tony_state === "held-pass") return tonyPill("held·" + v + " ⚠", "var(--orange)", "rgba(255,179,64,.13)", "rgba(255,179,64,.35)");
+      if (s.tony_state === "held-none") return tonyPill("held", "var(--green)", "rgba(0,245,160,.13)", "rgba(0,245,160,.35)");
+      if (s.tony_state === "passed") return tonyPill(v || "passed", "var(--muted)", "rgba(74,90,128,.18)", "rgba(74,90,128,.4)");
+      return `<span style="color:var(--muted);opacity:.5">—</span>`;
+    };
     const rowsHtml = sig.length ? pageSig.map(s => {
       const tc = s.tier === "persistent" ? "var(--green)" : "var(--cyan)";
       const st = (s.Status || "").toLowerCase();
@@ -1769,8 +1781,9 @@ async function renderTonyStocks() {
         <td style="font-family:monospace;color:var(--red)">${s.Stop || "—"}</td>
         <td style="color:${tc};font-size:8px;text-transform:uppercase">${s.tier || ""}</td>
         <td style="color:${sigStat(st)};font-size:8px">${s.Status || "—"}</td>
+        <td>${tonyBadge(s)}</td>
       </tr>`;
-    }).join("") : `<tr><td colspan="9" style="color:var(--muted)">No signals.</td></tr>`;
+    }).join("") : `<tr><td colspan="10" style="color:var(--muted)">No signals.</td></tr>`;
     const sigBtn = (label, dir, disabled) => `<button onclick="changeTonySignalsPage(${dir})" ${disabled ? "disabled" : ""} style="background:none;border:1px solid var(--border2);color:${disabled ? "var(--muted)" : "var(--cyan)"};border-radius:4px;padding:2px 9px;cursor:${disabled ? "default" : "pointer"};font-family:inherit;font-size:9px">${label}</button>`;
     const sigPager = sigPages > 1 ? `<div style="display:flex;align-items:center;justify-content:space-between;margin-top:6px">
         ${sigBtn("&lsaquo; Prev", -1, tonySignalsPage === 0)}
@@ -1801,9 +1814,15 @@ async function renderTonyStocks() {
         ${vital(verds.length, "Verdicts", "var(--orange)")}
       </div>
       ${paperBookHtml}
-      <div class="section-title" style="margin-top:14px">Tracked Signals <span style="font-size:8px;color:var(--muted);text-transform:none">&middot; live scanner slate · ${sig.length} names</span></div>
+      <div class="section-title" style="margin-top:16px">Scanner Signals — <span style="color:var(--blue)">the bot's</span> candidate slate <span style="font-size:8px;color:var(--muted);text-transform:none">&middot; what the scanner flagged, NOT trades · ${sig.length} names · the <b style="color:var(--green)">Tony</b> column = his call on each</span></div>
+      <div style="display:flex;gap:6px;align-items:center;font-size:8px;color:var(--muted);margin:0 0 5px;flex-wrap:wrap">
+        <span style="padding:2px 8px;border-radius:4px;border:1px solid rgba(77,159,255,.4);color:var(--blue)">BOT scanner flags</span> &#9656;
+        <span style="padding:2px 8px;border-radius:4px;border:1px solid var(--border2)">Tony researches</span> &#9656;
+        <span style="padding:2px 8px;border-radius:4px;border:1px solid rgba(0,245,160,.4);color:var(--green)">Tony's call &rarr; Paper Book above</span>
+      </div>
+      <div style="font-size:8px;color:var(--muted);margin-bottom:5px">Tony: <span style="color:var(--green)">green</span>=held on-plan · <span style="color:var(--cyan)">cyan</span>=held &amp; adjusted · <span style="color:var(--orange)">amber</span>=held despite pass · slate=passed · faint &mdash;=not analyzed yet</div>
       <table class="crm-table">
-        <thead><tr><th>Ticker</th><th>Days</th><th>Setup</th><th>Score</th><th>Price</th><th>Target</th><th>Stop</th><th>Tier</th><th>Status</th></tr></thead>
+        <thead><tr><th>Ticker</th><th>Days</th><th>Setup</th><th>Score</th><th>Price</th><th>Target</th><th>Stop</th><th>Tier</th><th>Status</th><th>Tony</th></tr></thead>
         <tbody>${rowsHtml}</tbody>
       </table>
       ${sigPager}

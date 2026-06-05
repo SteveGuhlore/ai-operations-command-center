@@ -893,6 +893,34 @@ async def api_tony_stocks():
         for s in signals:
             s.setdefault("live_price", None)
 
+    # Join each scanner signal to Tony's actual book + verdict so the dashboard shows what
+    # Tony did with the bot's pick: held(+call) / held-despite-pass / passed / not-analyzed.
+    try:
+        from runner.ledger import alpaca_paper as _ap
+        held = {p["symbol"].upper() for p in (_ap.paper_book().get("open_positions") or []) if p.get("symbol")}
+        vmap = {}
+        if _ap.VERDICTS_FILE.exists():
+            for v in (json.loads(_ap.VERDICTS_FILE.read_text(encoding="utf-8")) or []):
+                if v.get("symbol"):
+                    vmap[v["symbol"].upper()] = v.get("verdict")
+        for s in signals:
+            t = (s.get("Ticker") or "").strip().upper()
+            verd, is_held = vmap.get(t), t in held
+            if is_held and verd in ("reaffirm", "adjust", "override"):
+                s["tony_state"], s["tony_verdict"] = "held-on", verd
+            elif is_held and verd in ("pass", "close"):
+                s["tony_state"], s["tony_verdict"] = "held-pass", verd
+            elif is_held:
+                s["tony_state"], s["tony_verdict"] = "held-none", None
+            elif verd:
+                s["tony_state"], s["tony_verdict"] = "passed", verd
+            else:
+                s["tony_state"], s["tony_verdict"] = "none", None
+    except Exception:
+        for s in signals:
+            s.setdefault("tony_state", "none")
+            s.setdefault("tony_verdict", None)
+
     metrics_rows = _parse_md_section_table(text, "Weekly Metrics")
     return {
         "available": True,
