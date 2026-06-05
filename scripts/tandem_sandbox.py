@@ -263,7 +263,7 @@ def _test_execution_and_notify(root: Path) -> bool:
         nf.notify = orig_notify
 
 
-def run(root: Path, self_test: bool) -> int:
+def run(root: Path, self_test: bool, keep: bool = False) -> int:
     assert "tandem-sandbox" in str(root).lower(), "refusing to run outside a 'tandem-sandbox' dir"
     print(f"== Tandem sandbox @ {root} (self_test={self_test}) ==")
 
@@ -351,13 +351,14 @@ def run(root: Path, self_test: bool) -> int:
         ok = False
         print(f"[!] run error: {exc}")
     finally:
-        # --- Teardown: always delete the sandbox, then prove production is untouched ---
-        if root.exists() and "tandem-sandbox" in str(root).lower():
+        # --- Teardown: delete the sandbox (unless --keep), then prove production is untouched ---
+        if not keep and root.exists() and "tandem-sandbox" in str(root).lower():
             shutil.rmtree(root, ignore_errors=True)
-        removed = not root.exists()
+        removed = keep or not root.exists()
         after = _snapshot()
         changed = _diff(before, after)
-        print(f"\n[7] sandbox deleted: {removed}")
+        print(f"\n[7] sandbox {'KEPT for inspection at ' + str(root) if keep else 'deleted'}: "
+              f"{'(kept)' if keep else removed}")
         if changed:
             print("[7] !! PRODUCTION FILES CHANGED — CORRUPTION:")
             for c in changed:
@@ -376,8 +377,10 @@ def main():
     ap.add_argument("--root", default=str(REPO.parent / "tandem-sandbox"))
     ap.add_argument("--self-test", action="store_true",
                     help="generate a fake bridge+outcomes instead of using the scanner's")
+    ap.add_argument("--keep", action="store_true",
+                    help="do NOT delete the sandbox afterward, so you can inspect the artifacts")
     args = ap.parse_args()
-    sys.exit(run(Path(args.root), args.self_test))
+    sys.exit(run(Path(args.root), args.self_test, args.keep))
 
 
 if __name__ == "__main__":
