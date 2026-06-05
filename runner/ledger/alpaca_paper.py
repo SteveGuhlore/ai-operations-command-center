@@ -287,10 +287,30 @@ def _alpaca_broker():
             raise last
 
         def close(self, symbol):
-            try:
-                client.close_position(symbol)
-            except Exception as exc:
-                _log.info("close_position(%s): %s", symbol, exc)
+            # Cancel the GTC stop/target SELL legs first — they HOLD the shares, so a bare
+            # close_position fails on held qty and the close silently no-ops (the position stays
+            # open against Tony's decision). Alpaca frees the held qty asynchronously after the
+            # cancel, so retry the liquidation briefly until it goes through.
+            for o in self.open_orders():
+                if o.get("symbol") == symbol and o.get("side") == "sell":
+                    try:
+                        client.cancel_order_by_id(o["id"])
+                    except Exception as exc:
+                        _log.info("close cancel %s: %s", symbol, exc)
+            last = None
+            for _ in range(12):
+                try:
+                    client.close_position(symbol)
+                    return
+                except Exception as exc:
+                    last = exc
+                    s = str(exc).lower()
+                    if "insufficient qty" in s or "held" in s or "40310000" in s:
+                        time.sleep(0.5)
+                        continue
+                    _log.info("close_position(%s): %s", symbol, exc)
+                    return
+            _log.info("close_position(%s) gave up after retries: %s", symbol, last)
 
         def account(self):
             a = client.get_account()
@@ -363,7 +383,7 @@ def _notify_entry_safe(symbol, qty, entry, stop, target) -> None:
     """Fire a cosmetic entry alert. Fail-soft: a notify error never touches the trading path."""
     try:
         from runner.tools.notify import notify_entry
-        notify_entry(symbol, qty if qty is not None else "?", entry, stop, target, RISK_PCT * 100)
+        notify_entry(symbol, qty if qty is not None else "?", entry, stop, target, RISK_PCT)
     except Exception as exc:
         _log.info("notify entry failed: %s", exc)
 
@@ -464,6 +484,11 @@ def _reprice_adjusted(broker, verdicts: list, done: set, opened_now: set) -> int
             count += 1
             _log.info("Re-priced %s x%d to target %.2f / stop %.2f",
                       rp["symbol"], rp["qty"], rp["target"], rp["stop"])
+            try:
+                from runner.tools.notify import notify_reprice
+                notify_reprice(rp["symbol"], rp["qty"], rp["target"], rp["stop"])
+            except Exception as nexc:
+                _log.info("notify reprice failed: %s", nexc)
         except Exception as exc:
             _log.warning("reprice %s failed: %s", rp["symbol"], exc)
     return count

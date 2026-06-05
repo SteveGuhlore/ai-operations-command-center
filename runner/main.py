@@ -688,6 +688,19 @@ def run_cycle() -> None:
         _advance_opportunity_pipeline()
         _maybe_run_learning()          # idle-time learning must still fire (queue is empty overnight)
         _maybe_run_tony_self_review()
+        # Keep the paper book healthy between bridges: re-attach protection to any naked
+        # position, detect/notify exits (stop/target fills), and refresh the record — these
+        # must NOT wait for the next bridge or stop-outs go unprotected and unannounced.
+        try:
+            from runner.ledger.alpaca_paper import sync as alpaca_sync
+            alpaca_sync()
+        except Exception as exc:
+            log.warning("idle alpaca sync failed: %s", exc)
+        try:
+            from runner.ledger.tony_scorecard import write_record
+            write_record()
+        except Exception as exc:
+            log.warning("idle scorecard refresh failed: %s", exc)
         return
 
     batch = tasks[:MAX_CONCURRENT]

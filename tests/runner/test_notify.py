@@ -49,12 +49,15 @@ def test_entry_and_exit_formatting(monkeypatch):
     msgs = []
     monkeypatch.setattr(nf.httpx, "post",
                         lambda url, json=None, timeout=None: (msgs.append(json["text"]), _R())[1])
-    nf.notify_entry("NVDA", 66, 100.0, 94.0, 115.0)
+    nf.notify_entry("NVDA", 66, 100.0, 94.0, 115.0)        # default risk_pct=1.0 -> "1% risk"
     nf.notify_exit("NVDA", 66, 114.0, 924.0)
     nf.notify_exit("FCX", 50, 45.0, -310.0)
+    nf.notify_reprice("FCX", 152, 74.62, 61.88)
     assert "entered NVDA" in msgs[0] and "$100.00" in msgs[0] and "1% risk" in msgs[0]
+    assert "100% risk" not in msgs[0]                       # regression guard for the label bug
     assert "closed NVDA" in msgs[1] and "+$924" in msgs[1]
     assert "closed FCX" in msgs[2] and "-$310" in msgs[2]
+    assert "re-priced FCX" in msgs[3] and "stop $61.88" in msgs[3] and "target $74.62" in msgs[3]
 
 
 def test_network_error_soft_fails(monkeypatch):

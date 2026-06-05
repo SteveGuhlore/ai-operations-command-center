@@ -90,6 +90,13 @@ def notify_exit(symbol: str, qty, exit_price, pnl, r_mult=None, reason: str = ""
     return notify(text)
 
 
+def notify_reprice(symbol: str, qty, target, stop) -> dict:
+    """🔧 Tony moved a held position's protective stop/target (an intraday `adjust`)."""
+    text = (f"🔧 <b>Tony re-priced {symbol}</b>\n"
+            f"{qty} sh · new stop {_px(stop)} / target {_px(target)}")
+    return notify(text)
+
+
 def notify_daily(summary: str) -> dict:
     """📊 Once-a-day digest of Tony's book/performance."""
     return notify(f"📊 <b>Tony — daily summary</b>\n{summary}")
