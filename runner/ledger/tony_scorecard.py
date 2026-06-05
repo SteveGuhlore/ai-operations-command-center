@@ -10,6 +10,7 @@ yet — see docs/handoffs/2026-06-02-tony-loop-and-cockpit.md §4.
 """
 import json
 import logging
+import math
 import os
 from pathlib import Path
 
@@ -56,14 +57,33 @@ def _matched_verdict(o: dict, verdicts: list) -> dict | None:
     return max(cands, key=lambda v: v.get("date", "")) if cands else None
 
 
+# Agreement-block keys are the EXACT contract the bot's CommandCenterAgreement schema reads
+# (schemas.py). Do not rename without coordinating: agreed_right, agreed_wrong,
+# cc_overrode_saved, cc_overrode_missed.
+def _empty_agreement() -> dict:
+    return {"agreed_right": 0, "agreed_wrong": 0, "cc_overrode_saved": 0, "cc_overrode_missed": 0}
+
+
 def compute_record() -> dict:
     verdicts = _load(VERDICTS_FILE)
     outcomes = _load(OUTCOMES_FILE)
     if not outcomes:
-        return {"status": "awaiting_outcomes", "verdicts": len(verdicts), "graded": 0}
+        return {
+            "status": "awaiting_outcomes",
+            "verdicts": len(verdicts),
+            "graded": 0,
+            "win_rate": 0.0,
+            "tony_win_rate": 0.0,
+            "avg_pl_per_trade": None,
+            "target_hits": 0,
+            "stop_hits": 0,
+            "agreement": _empty_agreement(),
+            "calibration": {"low": None, "medium": None, "high": None},
+        }
 
-    graded = tony_right = 0
-    agg = {"agreed_right": 0, "agreed_wrong": 0, "override_saved": 0, "override_missed": 0}
+    graded = tony_right = target_hits = stop_hits = 0
+    pl_values: list = []
+    agg = _empty_agreement()
     conf_buckets: dict[str, list] = {"low": [], "medium": [], "high": []}
 
     for o in outcomes:  # one grade per RESOLVED pick (his final call before it closed)
@@ -72,12 +92,19 @@ def compute_record() -> dict:
             continue
         graded += 1
         ret = float(o.get("return_pct", 0) or 0)
+        if o.get("return_pct") is not None:
+            pl_values.append(ret)
+        result = o.get("result")
+        if result == "target_hit":
+            target_hits += 1
+        elif result == "stop_hit":
+            stop_hits += 1
         right = _is_right(v.get("verdict", ""), ret)
         tony_right += int(right)
         if v.get("verdict") in _BULLISH:
             agg["agreed_right" if ret > 0 else "agreed_wrong"] += 1
         else:
-            agg["override_saved" if ret <= 0 else "override_missed"] += 1
+            agg["cc_overrode_saved" if ret <= 0 else "cc_overrode_missed"] += 1
         bucket = conf_buckets.get(v.get("confidence", "medium"))
         if bucket is not None:
             bucket.append(int(right))
@@ -86,12 +113,18 @@ def compute_record() -> dict:
         k: round(sum(b) / len(b) * 100, 1) if b else None
         for k, b in conf_buckets.items()
     }
+    win_rate = round(tony_right / graded * 100, 1) if graded else 0.0
+    avg_pl = round(sum(pl_values) / len(pl_values), 2) if pl_values else None
 
     return {
         "status": "scored",
         "verdicts": len(verdicts),
         "graded": graded,
-        "tony_win_rate": round(tony_right / graded * 100, 1) if graded else 0.0,
+        "win_rate": win_rate,
+        "tony_win_rate": win_rate,          # back-compat alias (tony_live_guard reads this)
+        "avg_pl_per_trade": avg_pl,
+        "target_hits": target_hits,
+        "stop_hits": stop_hits,
         "agreement": agg,
         "calibration": calibration,
     }
@@ -119,9 +152,34 @@ def discover_edges(min_n: int = 5) -> dict:
     return {"status": "scored" if edges else "insufficient_history", "edges": edges}
 
 
+def _tony_equity_curve() -> list:
+    """Tony's normalized equity series (indexed to 100, live-marked) for the head-to-head, pulled
+    from equity_history. Best-effort: returns [] if the history isn't available yet."""
+    try:
+        from runner.ledger import equity_history
+        pts = equity_history.curve().get("points", [])
+        return [p["tony"] for p in pts if p.get("tony") is not None]
+    except Exception as exc:
+        _log.info("equity_curve for record unavailable: %s", exc)
+        return []
+
+
+def _sanitize(obj):
+    """NaN/inf -> None: the bot's record reader requires strict-JSON-safe numbers."""
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    return obj
+
+
 def write_record() -> dict:
     rec = compute_record()
-    payload = json.dumps(rec, indent=2)
+    rec["equity_curve"] = _tony_equity_curve()  # list[float], indexed to 100, live-marked
+    rec = _sanitize(rec)
+    payload = json.dumps(rec, indent=2, allow_nan=False)
     for target in (RECORD_FILE, VAULT_RECORD_FILE):
         try:
             target.parent.mkdir(parents=True, exist_ok=True)

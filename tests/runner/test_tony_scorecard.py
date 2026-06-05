@@ -23,10 +23,12 @@ def test_scorecard_grades_and_matrix(tmp_path, monkeypatch):
     _wire(tmp_path, monkeypatch, verdicts, outcomes)
     rec = sc.compute_record()
     assert rec["graded"] == 2
-    assert rec["tony_win_rate"] == 100.0  # reaffirm hit + override avoided a stop
-    assert rec["agreement"]["override_saved"] == 1
+    assert rec["win_rate"] == 100.0 == rec["tony_win_rate"]  # reaffirm hit + override avoided a stop
+    assert rec["agreement"]["cc_overrode_saved"] == 1
     assert rec["agreement"]["agreed_right"] == 1
     assert rec["calibration"]["high"] == 100.0
+    assert rec["target_hits"] == 1 and rec["stop_hits"] == 1
+    assert rec["avg_pl_per_trade"] == 1.5  # mean(12.0, -9.0)
 
 
 def test_awaiting_when_no_outcomes(tmp_path, monkeypatch):
@@ -41,7 +43,7 @@ def test_override_missed_counts(tmp_path, monkeypatch):
     outcomes = [{"symbol": "AAA", "pick_date": "2026-06-01", "return_pct": 8.0}]  # he was wrong to bail
     _wire(tmp_path, monkeypatch, verdicts, outcomes)
     rec = sc.compute_record()
-    assert rec["agreement"]["override_missed"] == 1
+    assert rec["agreement"]["cc_overrode_missed"] == 1
     assert rec["tony_win_rate"] == 0.0
 
 
@@ -53,7 +55,7 @@ def test_range_join_matches_tier1_verdict_after_first_appearance(tmp_path, monke
     _wire(tmp_path, monkeypatch, verdicts, outcomes)
     rec = sc.compute_record()
     assert rec["graded"] == 1
-    assert rec["agreement"]["override_saved"] == 1  # he correctly bailed before the -7%
+    assert rec["agreement"]["cc_overrode_saved"] == 1  # he correctly bailed before the -7%
 
 
 def test_pick_id_join_when_present(tmp_path, monkeypatch):
@@ -74,12 +76,39 @@ def test_write_record_mirrors_to_vault(tmp_path, monkeypatch):
     vault_file = tmp_path / "vault" / "tony-stocks" / "tony_stocks_record.json"
     monkeypatch.setattr(sc, "RECORD_FILE", reports_file)
     monkeypatch.setattr(sc, "VAULT_RECORD_FILE", vault_file)
+    monkeypatch.setattr(sc, "_tony_equity_curve", lambda: [])  # isolate from the real equity history
 
     rec = sc.write_record()
 
     assert rec["status"] == "scored"
     assert json.loads(reports_file.read_text()) == rec
     assert json.loads(vault_file.read_text()) == rec
+
+
+def test_record_full_schema_for_bot_reader(tmp_path, monkeypatch):
+    # The bot's CommandCenterAgreement + record reader require this exact shape.
+    verdicts = [{"date": "2026-06-01", "symbol": "AAA", "verdict": "reaffirm", "confidence": "high"}]
+    outcomes = [{"symbol": "AAA", "pick_date": "2026-06-01", "result": "target_hit", "return_pct": 5.0}]
+    _wire(tmp_path, monkeypatch, verdicts, outcomes)
+    monkeypatch.setattr(sc, "RECORD_FILE", tmp_path / "rec.json")
+    monkeypatch.setattr(sc, "VAULT_RECORD_FILE", tmp_path / "vrec.json")
+    monkeypatch.setattr(sc, "_tony_equity_curve", lambda: [100.0, 101.5, 103.2])
+    rec = sc.write_record()
+    for k in ("win_rate", "avg_pl_per_trade", "target_hits", "stop_hits", "equity_curve", "agreement"):
+        assert k in rec
+    assert rec["equity_curve"] == [100.0, 101.5, 103.2]
+    assert set(rec["agreement"]) == {"agreed_right", "agreed_wrong", "cc_overrode_saved", "cc_overrode_missed"}
+
+
+def test_awaiting_record_has_full_schema(tmp_path, monkeypatch):
+    (tmp_path / "v.json").write_text("[]")
+    monkeypatch.setattr(sc, "VERDICTS_FILE", tmp_path / "v.json")
+    monkeypatch.setattr(sc, "OUTCOMES_FILE", tmp_path / "missing.json")
+    rec = sc.compute_record()
+    assert rec["status"] == "awaiting_outcomes"
+    for k in ("win_rate", "avg_pl_per_trade", "target_hits", "stop_hits", "agreement", "calibration"):
+        assert k in rec
+    assert set(rec["agreement"]) == {"agreed_right", "agreed_wrong", "cc_overrode_saved", "cc_overrode_missed"}
 
 
 def test_discover_edges_needs_min_n(tmp_path, monkeypatch):

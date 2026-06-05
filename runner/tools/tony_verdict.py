@@ -67,6 +67,7 @@ def write_tony_verdict(
         "scanner_score": round(float(scanner_score), 2) if scanner_score is not None else None,
         "verdict": v,
         "thesis": thesis,
+        "tony_reasoning": thesis,  # the bot's load_cc_verdicts reads `tony_reasoning` for its teaching ledger
         "target": target,
         "stop": stop,
         "evidence": evidence or [],
