@@ -4,9 +4,15 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Set
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse
 from dashboard.watcher import StateFileWatcher
+
+# Load .env so the dashboard has Alpaca keys (for the live Paper Book) regardless of
+# how uvicorn is launched. Previously keys were only inherited from launch.py's env,
+# so starting the dashboard standalone silently lost live-broker access.
+load_dotenv()
 
 STATE_FILE = Path(__file__).parent.parent / "workspace" / "dashboard-state.json"
 SITES_DIR = Path(__file__).parent.parent / "workspace" / "sites"
@@ -838,6 +844,21 @@ async def api_tony_stocks():
         if line.lower().startswith("last updated:"):
             last_updated = line.split(":", 1)[1].strip()
             break
+    # Staleness: this prose ledger only updates when Tony writes it, so the panel can
+    # lag the live book. Surface the age so the lag is visible instead of silent.
+    age_days, stale = None, None
+    if last_updated:
+        from datetime import datetime, date
+        parsed = None
+        for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+            try:
+                parsed = datetime.strptime(last_updated[:len(fmt) + 4], fmt)
+                break
+            except ValueError:
+                continue
+        if parsed:
+            age_days = (date.today() - parsed.date()).days
+            stale = age_days >= 1
     persistent = _parse_md_section_table(text, "Persistent Signals")
     active = _parse_md_section_table(text, "Active Signals")
     for r in persistent:
@@ -866,6 +887,8 @@ async def api_tony_stocks():
     return {
         "available": True,
         "last_updated": last_updated,
+        "age_days": age_days,
+        "stale": stale,
         "signals": signals,
         "signals_tracked": len(signals),
         "metrics": metrics_rows[-1] if metrics_rows else {},
@@ -898,6 +921,11 @@ async def api_tony_book():
         v["scanner_stop"] = lv.get("stop")
     try:
         book = ap.paper_book()
+        if book.get("status") == "ok":
+            # Alpaca's paper marks lag — re-price positions + equity to live last-trade prices
+            # so the Paper Book shows true live prices/P&L (symmetric with the bot's book).
+            from runner.ledger.equity_history import mark_live
+            mark_live(book)
     except Exception as exc:  # never break the dashboard on a broker hiccup
         book = {"status": "error", "error": str(exc), "open_positions": [], "orders": []}
     return {"verdicts": verdicts, "book": book}

@@ -77,11 +77,45 @@ def _latest_prices(symbols: list) -> dict:
         return {}
 
 
+def mark_live(acct: dict) -> dict:
+    """Re-price an Alpaca account dict to LIVE last-trade prices (mutates in place).
+
+    Alpaca's paper-position `current_price` lags the real market badly (often by several
+    percent), so the book and the equity it implies are stale. This recomputes each
+    position's current_price / unrealized_pl / unrealized_plpc from a fresh last trade and
+    sets equity = cash + sum(qty * live_price). It keeps Tony symmetric with the bot, whose
+    equity already marks to live prices. Degrades to the original Alpaca values (priced_live
+    False) when the live feed is unavailable, so the book never breaks."""
+    positions = acct.get("open_positions") or []
+    prices = _latest_prices([p["symbol"] for p in positions if p.get("symbol")])
+    if not prices:
+        acct["priced_live"] = False
+        return acct
+    cash = float(acct.get("cash") or 0)
+    market_value = 0.0
+    for p in positions:
+        live = prices.get(p.get("symbol"))
+        qty = float(p.get("qty") or 0)
+        entry = p.get("avg_entry_price")
+        if live is not None:
+            p["current_price"] = live
+            if entry:
+                p["unrealized_pl"] = round(qty * (live - float(entry)), 2)
+                p["unrealized_plpc"] = (live - float(entry)) / float(entry)
+        px = p.get("current_price")
+        market_value += qty * (px if px is not None else 0)
+    acct["equity"] = round(cash + market_value, 2)
+    acct["priced_live"] = True
+    return acct
+
+
 def tony_equity():
     try:
         from runner.ledger.alpaca_paper import account_record
         rec = account_record()
-        return float(rec["equity"]) if rec.get("status") == "ok" else None
+        if rec.get("status") != "ok":
+            return None
+        return mark_live(rec).get("equity")
     except Exception as exc:
         _log.info("tony_equity: %s", exc)
         return None
