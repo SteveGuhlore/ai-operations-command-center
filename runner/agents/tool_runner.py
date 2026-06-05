@@ -32,6 +32,7 @@ from runner.tools.task_creator import create_task
 from runner.tools.tony_insights import write_tony_insight
 from runner.tools.tony_verdict import write_tony_verdict
 from runner.tools.tony_outcomes import get_tony_outcomes
+from runner.tools.tony_book import get_tony_book
 from runner.tools.stock_news import get_stock_news
 from runner.tools.stock_catalysts import get_catalysts
 from runner.tools.stock_data import get_stock_data
@@ -65,6 +66,7 @@ register_tool("create_task",        create_task)
 register_tool("write_tony_insight", write_tony_insight)
 register_tool("write_tony_verdict", write_tony_verdict)
 register_tool("tony_outcomes",      get_tony_outcomes)
+register_tool("get_tony_book",      get_tony_book)
 register_tool("get_stock_news",     get_stock_news)
 register_tool("get_catalysts",      get_catalysts)
 register_tool("get_stock_data",     get_stock_data)

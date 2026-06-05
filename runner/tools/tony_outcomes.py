@@ -14,9 +14,10 @@ vault/bot files (the d5e0583 lesson). Degrades to status="awaiting_outcomes" cle
 import os
 from pathlib import Path
 
-from runner.ledger.tony_scorecard import _load, _is_right, _matched_verdict
+from runner.ledger.tony_scorecard import _load, _is_right, _matched_verdict, discover_edges
 
 _reports = Path(__file__).parent.parent.parent.parent / "TradingBotAgentProject" / "reports"
+_vault = Path(__file__).parent.parent.parent / "vault"
 
 
 def _outcomes_path() -> Path:
@@ -25,6 +26,10 @@ def _outcomes_path() -> Path:
 
 def _verdicts_path() -> Path:
     return Path(os.environ.get("TONY_VERDICTS_FILE", str(_reports / "tony_stocks_verdicts.json")))
+
+
+def _pattern_library_path() -> Path:
+    return Path(os.environ.get("TONY_PATTERN_LIBRARY", str(_vault / "tony-stocks" / "pattern-library.md")))
 
 
 def _num(x):
@@ -181,6 +186,53 @@ def track_record_block() -> str:
         lines.append("**Your graded calls:** none closed yet — your verdicts are still open positions.")
 
     return "\n".join(lines)
+
+
+def _pattern_library_excerpt(max_chars: int = 1400) -> str:
+    """Pull the most recent bullet lessons Tony wrote in his weekly self-review, bounded so a
+    growing library never blows the brief's token budget. Empty when the file doesn't exist yet."""
+    try:
+        txt = _pattern_library_path().read_text(encoding="utf-8")
+    except (OSError, FileNotFoundError):
+        return ""
+    bullets = [ln.strip() for ln in txt.splitlines() if ln.strip().startswith(("-", "*"))]
+    if not bullets:
+        return ""
+    recent, total = [], 0
+    for ln in reversed(bullets):                # newest lessons are appended at the end
+        if total + len(ln) > max_chars:
+            break
+        recent.append(ln)
+        total += len(ln)
+    return "\n".join(reversed(recent))
+
+
+def lessons_block(min_edge_n: int = 5) -> str:
+    """The learn->apply hop: surface the evidence-tag edges Tony's own graded record reveals, plus
+    the bullet lessons from his pattern library, so a brief actively reminds him what wins and what
+    to fade — instead of those lessons sitting unread. Empty string until there's something to say,
+    so it never pads a brief before any record exists."""
+    parts = []
+
+    edges = discover_edges(min_n=min_edge_n)
+    if edges.get("status") == "scored" and edges.get("edges"):
+        ranked = edges["edges"]
+        winners = [e for e in ranked if e["win_rate"] >= 55][:3]
+        losers = [e for e in ranked if e["win_rate"] <= 45][-3:]
+        if winners:
+            parts.append("**Setups that win for you:** "
+                         + " · ".join(f"{e['tag']} {e['win_rate']}% (n={e['n']})" for e in winners))
+        if losers:
+            parts.append("**Setups that lose for you — fade these:** "
+                         + " · ".join(f"{e['tag']} {e['win_rate']}% (n={e['n']})" for e in losers))
+
+    excerpt = _pattern_library_excerpt()
+    if excerpt:
+        parts.append("**From your pattern library:**\n" + excerpt)
+
+    if not parts:
+        return ""
+    return "## Lessons From Your Own Record — apply these now\n\n" + "\n\n".join(parts) + "\n"
 
 
 TOOL_SPEC = {

@@ -463,6 +463,12 @@ def sync(broker=None) -> dict:
     protected = _reconcile_protection(broker, levels)
     _notify_closed(broker)  # exit alerts for anything closed since last cycle (target/stop/close)
 
+    try:  # snapshot the book so briefs can inject it without a network call (fail-soft)
+        from runner.tools.tony_book import write_book_cache
+        write_book_cache(broker)
+    except Exception as exc:
+        _log.info("book cache update skipped: %s", exc)
+
     return {"status": "ok", "executed": executed, "planned": len(plan),
             "repriced": repriced, "protected": protected}
 

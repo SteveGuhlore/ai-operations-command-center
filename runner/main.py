@@ -3,6 +3,7 @@ import logging
 import re
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +32,7 @@ from runner.tools.flag_issue import TOOL_SPEC as FLAG_ISSUE_TOOL_SPEC
 from runner.tools.tony_insights import TOOL_SPEC as TONY_INSIGHTS_TOOL_SPEC
 from runner.tools.tony_verdict import TOOL_SPEC as TONY_VERDICT_TOOL_SPEC
 from runner.tools.tony_outcomes import TOOL_SPEC as TONY_OUTCOMES_TOOL_SPEC
+from runner.tools.tony_book import TOOL_SPEC as TONY_BOOK_TOOL_SPEC
 from runner.tools.stock_news import TOOL_SPEC as STOCK_NEWS_TOOL_SPEC
 from runner.tools.stock_catalysts import TOOL_SPEC as CATALYSTS_TOOL_SPEC
 from runner.tools.stock_data import TOOL_SPEC as STOCK_DATA_TOOL_SPEC
@@ -111,7 +113,7 @@ ROLE_TOOLS: dict[str, list[dict]] = {
     "digital_product_worker": [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "content_worker":         [FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "debug_worker":           [WEB_TOOL_SPEC, FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, MEMORY_TOOL_SPEC],
-    "market_research_worker": [WEB_TOOL_SPEC, STOCK_DATA_TOOL_SPEC, PRICE_HIST_TOOL_SPEC, REGIME_TOOL_SPEC, STOCK_NEWS_TOOL_SPEC, CATALYSTS_TOOL_SPEC, FILE_TOOL_SPEC, TONY_INSIGHTS_TOOL_SPEC, TONY_VERDICT_TOOL_SPEC, TONY_OUTCOMES_TOOL_SPEC, TONY_IDEA_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "market_research_worker": [WEB_TOOL_SPEC, STOCK_DATA_TOOL_SPEC, PRICE_HIST_TOOL_SPEC, REGIME_TOOL_SPEC, STOCK_NEWS_TOOL_SPEC, CATALYSTS_TOOL_SPEC, FILE_TOOL_SPEC, TONY_INSIGHTS_TOOL_SPEC, TONY_VERDICT_TOOL_SPEC, TONY_OUTCOMES_TOOL_SPEC, TONY_BOOK_TOOL_SPEC, TONY_IDEA_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "outreach_worker":        [PLACES_TOOL_SPEC, WEB_TOOL_SPEC, EMAIL_TOOL_SPEC, SOCIAL_DM_TOOL_SPEC, FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, INBOX_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "marketing_worker":       [ETSY_TOOL_SPEC, FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "manager":                [FILE_TOOL_SPEC, TASK_CREATOR_TOOL_SPEC, FLAG_ISSUE_TOOL_SPEC, MEMORY_TOOL_SPEC],
@@ -609,6 +611,26 @@ def _reap_stale_tasks() -> None:
             continue
 
 
+def _maybe_refresh_regime() -> None:
+    """Refresh the macro-regime cache in a fire-and-forget daemon thread when it's stale, so the
+    networked yfinance/FRED fetch can NEVER stall the cycle. Briefs read the cache, not the fetch."""
+    try:
+        from runner.tools.market_regime import cache_stale, refresh_regime_cache
+        if not cache_stale(30.0):
+            return
+    except Exception as exc:
+        log.info("regime refresh skip: %s", exc)
+        return
+
+    def _run():
+        try:
+            refresh_regime_cache(30.0)
+        except Exception as exc:
+            log.info("regime refresh failed: %s", exc)
+
+    threading.Thread(target=_run, daemon=True, name="regime-refresh").start()
+
+
 def _maybe_run_tony_self_review() -> None:
     """Weekly: once enough verdicts are graded against bot outcomes, spawn a self-review
     task so Tony learns from his own hit-rate. Silent no-op until outcomes exist."""
@@ -675,6 +697,7 @@ def run_cycle() -> None:
         return
 
     _reap_stale_tasks()
+    _maybe_refresh_regime()   # off-path: keeps the macro cache warm for the briefs below
     scan_tony_bridge()
     try:
         from runner.ledger.equity_history import snapshot as _equity_snapshot

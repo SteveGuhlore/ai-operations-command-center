@@ -6,12 +6,17 @@ risk_off). The scanner's regime is equity-only; this also layers the rates pictu
 Treasury yields + the 2s10s curve) from FRED when FRED_API_KEY is set — an inverted curve is
 a macro risk flag a price-based scanner never sees. Network fetches are isolated for testing.
 """
+import json
 import logging
 import os
+from datetime import datetime
+from pathlib import Path
 
 import httpx
 
 _log = logging.getLogger(__name__)
+
+_WORKSPACE = Path(__file__).parent.parent.parent / "workspace"
 
 _SECTORS = {"XLK": "Tech", "XLE": "Energy", "XLF": "Financials", "XLV": "Health",
             "XLI": "Industrials", "XLY": "Discretionary", "XLP": "Staples", "XLU": "Utilities"}
@@ -110,6 +115,81 @@ def get_market_regime() -> dict:
         if rates.get("curve") == "inverted":
             out["macro_flags"] = ["yield_curve_inverted"]
     return out
+
+
+def _regime_cache_path() -> Path:
+    return Path(os.environ.get("TONY_REGIME_CACHE", str(_WORKSPACE / "regime-cache.json")))
+
+
+def read_regime_cache() -> dict:
+    try:
+        return json.loads(_regime_cache_path().read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, FileNotFoundError):
+        return {}
+
+
+def _cache_age_min(cache: dict) -> float | None:
+    ts = cache.get("ts")
+    if not ts:
+        return None
+    try:
+        return (datetime.now() - datetime.fromisoformat(ts)).total_seconds() / 60.0
+    except ValueError:
+        return None
+
+
+def cache_stale(max_age_min: float = 30.0) -> bool:
+    age = _cache_age_min(read_regime_cache())
+    return age is None or age >= max_age_min
+
+
+def refresh_regime_cache(max_age_min: float = 30.0) -> dict:
+    """Refresh the macro cache from the (networked) regime fetch, but only when stale. Meant to be
+    called OFF the cycle-critical path (a fire-and-forget thread in main) so a slow yfinance/FRED
+    call can never stall the trading loop. Keeps the last good cache on any fetch error."""
+    if not cache_stale(max_age_min):
+        return read_regime_cache()
+    d = get_market_regime()
+    if d.get("error"):
+        _log.info("regime refresh skipped: %s", d["error"])
+        return read_regime_cache()
+    d = {"ts": datetime.now().isoformat(timespec="seconds"), **d}
+    try:
+        p = _regime_cache_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(d, indent=2), encoding="utf-8")
+    except OSError as exc:
+        _log.info("regime cache write failed: %s", exc)
+    return d
+
+
+def regime_header() -> str:
+    """Compact macro line for the top of a brief, read purely from the cache (NO network). Empty
+    string when no cache exists yet, so a brief simply omits it rather than blocking on a fetch."""
+    c = read_regime_cache()
+    regime = c.get("regime")
+    if not regime:
+        return ""
+    bits = [f"**{regime}**", f"VIX {c.get('vix', '?')}",
+            "SPY above 50d" if c.get("spy_above_sma50") else "SPY below 50d"]
+    rates = c.get("rates") or {}
+    if rates.get("dgs10") is not None:
+        rate_bit = f"10Y {rates['dgs10']}%"
+        if rates.get("dgs2") is not None:
+            rate_bit += f" / 2Y {rates['dgs2']}%"
+        if rates.get("curve"):
+            rate_bit += f" (2s10s {rates['curve']})"
+        bits.append(rate_bit)
+    if c.get("leaders"):
+        bits.append("leaders " + ", ".join(c["leaders"][:3]))
+    flags = c.get("macro_flags") or []
+    flag_bit = f" · ⚠️ {', '.join(flags)}" if flags else ""
+    return (
+        "## Macro Regime — gate your conviction to the tape\n\n"
+        f"{' · '.join(bits)}{flag_bit}\n\n"
+        f"_As of {c.get('ts', '?')}._ In **risk_off** or an inverted curve, downgrade conviction "
+        "one tier and favor the leading sectors; in **risk_on** you can lean in.\n"
+    )
 
 
 TOOL_SPEC = {

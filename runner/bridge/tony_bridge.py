@@ -4,9 +4,21 @@ import os
 import re
 from pathlib import Path
 
-from runner.tools.tony_outcomes import track_record_block
+from runner.tools.tony_outcomes import track_record_block, lessons_block
+from runner.tools.tony_book import book_block, execution_feedback_block
+from runner.tools.market_regime import regime_header
 
 _log = logging.getLogger(__name__)
+
+
+def _safe_block(fn) -> str:
+    """Render a brief enrichment block, swallowing any failure so a bad cache / missing file never
+    blocks brief creation (the trading loop must keep moving). Returns '' on any error."""
+    try:
+        return fn() or ""
+    except Exception as exc:  # noqa: BLE001 - enrichment is strictly best-effort
+        _log.info("brief block %s failed: %s", getattr(fn, "__name__", fn), exc)
+        return ""
 
 _default_reports = (
     Path(__file__).parent.parent.parent.parent
@@ -216,6 +228,10 @@ def _make_brief_from_bridge(slug: str, bridge_md: str) -> None:
 
     vault_history = _load_vault_history()
     track_record = track_record_block()
+    regime = _safe_block(regime_header)
+    book = _safe_block(book_block)
+    exec_fb = _safe_block(execution_feedback_block)
+    lessons = _safe_block(lessons_block)
 
     body = f"""\
 You are Tony Stocks. This is your daily analytical brief for {date_str}.
@@ -231,8 +247,12 @@ The highest-conviction Tier-1 names get their own focused deep-dive tasks (fan-o
 do NOT have to research all 26 here — that just runs you out of tool budget. Prioritise:
 cross-cutting synthesis, cluster risk, and the Tier-1 names fan-out did not cover.
 
+{regime}
+{book}
+{exec_fb}
 {track_record}
 
+{lessons}
 ## Per-ticker steps (apply to the names you cover):
 
 1. **Pull real data** — call `get_stock_data(symbol)`. The scanner's close is stale; this
@@ -308,6 +328,10 @@ def _make_intraday_brief(slug: str, bridge_md: str) -> None:
 
     vault_history = _load_vault_history()
     track_record = track_record_block()
+    regime = _safe_block(regime_header)
+    book = _safe_block(book_block)
+    exec_fb = _safe_block(execution_feedback_block)
+    lessons = _safe_block(lessons_block)
 
     body = f"""\
 You are Tony Stocks. This is your intraday deep-dive for {date_str} (slot {slot} ET). Markets are
@@ -320,7 +344,12 @@ fundamentals, reads the news, then makes YOUR OWN call on each pick and on every
 
 **Signal Ledger:** `vault/tony-stocks/signal-ledger.md` — read this first, update it last.
 
+{regime}
+{book}
+{exec_fb}
 {track_record}
+
+{lessons}
 
 ## Your Workflow — for EACH Tier 1 ticker (and every name you currently HOLD), do all of this:
 
@@ -406,6 +435,10 @@ def make_preopen_deepdive(date_str: str) -> None:
     title = f"Tony Pre-Open Deep-Dive — {date_str}"
     vault_history = _load_vault_history()
     slug, bridge_md = _latest_bridge_md()
+    regime = _safe_block(regime_header)
+    book = _safe_block(book_block)
+    exec_fb = _safe_block(execution_feedback_block)
+    lessons = _safe_block(lessons_block)
     bridge_section = (
         f"## Latest scanner bridge ({slug}) — your watchlist universe\n\n{bridge_md}"
         if bridge_md else
@@ -422,6 +455,10 @@ verify the data, pull real fundamentals, read the news, then make YOUR OWN call.
 
 **Signal Ledger:** `vault/tony-stocks/signal-ledger.md` — read this first, update it last.
 
+{regime}
+{book}
+{exec_fb}
+{lessons}
 ## Step 1 — re-evaluate EVERY position you currently hold (do this first)
 Check your live book. For EACH name you hold:
 1. `get_stock_data(symbol)` — live/pre-market price + fundamentals + next earnings date.
