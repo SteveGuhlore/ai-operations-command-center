@@ -163,7 +163,7 @@ def sizing_attribution() -> dict:
     verdicts = _load(VERDICTS_FILE)
     outcomes = _load(OUTCOMES_FILE)
     if not outcomes:
-        return {"status": "awaiting_outcomes", "graded": 0,
+        return {"status": "awaiting_outcomes", "graded": 0, "picking_alpha_pct": None,
                 "flat_return_pct": None, "conviction_return_pct": None, "sizing_alpha_pct": None}
     try:
         from runner.ledger.alpaca_paper import conviction_multiplier
@@ -182,12 +182,15 @@ def sizing_attribution() -> dict:
         w_ret += w * ret
         graded += 1
     if not rets:
-        return {"status": "awaiting_outcomes", "graded": 0,
+        return {"status": "awaiting_outcomes", "graded": 0, "picking_alpha_pct": None,
                 "flat_return_pct": None, "conviction_return_pct": None, "sizing_alpha_pct": None}
     flat = sum(rets) / len(rets)
     conv = w_ret / w_sum if w_sum else flat
+    # picking_alpha = selection quality at equal (flat) sizing; sizing_alpha = the extra from
+    # conviction weighting. The execution-parity v1.1 §B.1 contract names these two explicitly.
     return {"status": "scored", "graded": graded,
-            "flat_return_pct": round(flat, 3),
+            "picking_alpha_pct": round(flat, 3),
+            "flat_return_pct": round(flat, 3),          # alias kept for the brief's wording
             "conviction_return_pct": round(conv, 3),
             "sizing_alpha_pct": round(conv - flat, 3)}
 

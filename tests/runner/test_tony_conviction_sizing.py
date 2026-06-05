@@ -143,6 +143,7 @@ def test_sizing_attribution_decomposes(tmp_path, monkeypatch):
     sa = tsc.sizing_attribution()
     assert sa["status"] == "scored" and sa["graded"] == 2
     assert sa["flat_return_pct"] == 0.0                       # (10 + -10)/2
+    assert sa["picking_alpha_pct"] == 0.0                     # selection quality at flat sizing
     # conviction: (1.5*10 + 0.5*-10) / (1.5+0.5) = 10/2 = 5.0
     assert sa["conviction_return_pct"] == 5.0
     assert sa["sizing_alpha_pct"] == 5.0                      # sizing added +5% here
