@@ -232,6 +232,7 @@ def _alpaca_broker():
 
         def buy(self, symbol, notional, target, stop):
             price = self._latest_price(symbol)
+            qty = None
             if target and stop:
                 # Bracket must be whole-share (fractional is rejected). Risk-based sizing matches
                 # the bot's budget; GTC so the take-profit/stop-loss legs survive the 16:00 close.
@@ -246,6 +247,7 @@ def _alpaca_broker():
                 req = MarketOrderRequest(symbol=symbol, notional=round(notional, 2),
                                          side=OrderSide.BUY, time_in_force=TimeInForce.DAY)
             client.submit_order(req)
+            return {"qty": qty, "entry": price}
 
         def protect(self, symbol, qty, target, stop):
             """Attach a GTC OCO exit (take-profit limit + stop-loss) to an already-open position
@@ -347,6 +349,51 @@ def _alpaca_broker():
     return _Broker()
 
 
+NOTIFY_STATE = Path(__file__).parent.parent.parent / "workspace" / "notify-state.json"
+
+
+def closed_positions(prior: list, current: list) -> list:
+    """Pure: positions held last cycle but gone (or zeroed) now = closed since then."""
+    cur = {p.get("symbol"): float(p.get("qty") or 0) for p in current}
+    return [p for p in prior
+            if float(p.get("qty") or 0) > 0 and cur.get(p.get("symbol"), 0) <= 0]
+
+
+def _notify_entry_safe(symbol, qty, entry, stop, target) -> None:
+    """Fire a cosmetic entry alert. Fail-soft: a notify error never touches the trading path."""
+    try:
+        from runner.tools.notify import notify_entry
+        notify_entry(symbol, qty if qty is not None else "?", entry, stop, target, RISK_PCT * 100)
+    except Exception as exc:
+        _log.info("notify entry failed: %s", exc)
+
+
+def _notify_closed(broker) -> None:
+    """Diff open positions vs the last cycle's snapshot; alert on any that closed (target/stop/
+    Tony's close), then persist the new snapshot. Cosmetic + fail-soft — never raises."""
+    try:
+        current = broker.account().get("open_positions", [])
+    except Exception as exc:
+        _log.info("notify closed read failed: %s", exc)
+        return
+    for p in closed_positions(_load(NOTIFY_STATE), current):
+        sym, qty, entry = p.get("symbol"), p.get("qty"), p.get("avg_entry_price")
+        try:
+            from runner.tools.notify import notify_exit
+            last = broker._latest_price(sym)
+            pnl = (float(last) - float(entry)) * float(qty) if (last and entry and qty) else 0.0
+            notify_exit(sym, qty, last, round(pnl, 2))
+        except Exception as exc:
+            _log.info("notify exit %s failed: %s", sym, exc)
+    snap = [{"symbol": p.get("symbol"), "qty": p.get("qty"),
+             "avg_entry_price": p.get("avg_entry_price")} for p in current]
+    try:
+        NOTIFY_STATE.parent.mkdir(parents=True, exist_ok=True)
+        NOTIFY_STATE.write_text(json.dumps(snap), encoding="utf-8")
+    except OSError as exc:
+        _log.info("notify state write failed: %s", exc)
+
+
 def sync(broker=None) -> dict:
     """Execute fresh verdicts into the paper account. Returns a summary; safe no-op w/o keys."""
     if broker is None:
@@ -373,8 +420,11 @@ def sync(broker=None) -> dict:
     for action in plan:
         try:
             if action["action"] == "buy":
-                broker.buy(action["symbol"], action["notional"], action.get("target"), action.get("stop"))
+                info = broker.buy(action["symbol"], action["notional"],
+                                  action.get("target"), action.get("stop")) or {}
                 opened_now.add(action["symbol"])
+                _notify_entry_safe(action["symbol"], info.get("qty"), info.get("entry"),
+                                   action.get("stop"), action.get("target"))
             elif action["action"] == "close":
                 broker.close(action["symbol"])
             done.add(action["key"])
@@ -391,6 +441,7 @@ def sync(broker=None) -> dict:
         _log.warning("executed-log write failed: %s", exc)
 
     protected = _reconcile_protection(broker, levels)
+    _notify_closed(broker)  # exit alerts for anything closed since last cycle (target/stop/close)
 
     return {"status": "ok", "executed": executed, "planned": len(plan),
             "repriced": repriced, "protected": protected}

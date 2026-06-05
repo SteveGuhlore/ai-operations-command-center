@@ -632,6 +632,43 @@ def _maybe_run_tony_self_review() -> None:
     log.info("Spawned Tony weekly self-review (graded=%d)", rec.get("graded", 0))
 
 
+def _maybe_send_daily_summary() -> None:
+    """Once a day, push a Telegram digest of Tony's book + record to the operator. Cosmetic,
+    fail-soft, no-op when TONY_NOTIFY is off."""
+    try:
+        import json
+        from datetime import date as _date
+        from pathlib import Path as _Path
+        from runner.tools.notify import notify_daily, _channel
+        if _channel() in ("", "off"):
+            return
+        state = _Path(__file__).parent.parent / "workspace" / "notify-daily-state.json"
+        today = str(_date.today())
+        try:
+            if json.loads(state.read_text()).get("date") == today:
+                return
+        except Exception:
+            pass
+        from runner.ledger.alpaca_paper import account_record
+        from runner.ledger.tony_scorecard import compute_record
+        acct = account_record()
+        if acct.get("status") != "ok":
+            return
+        rec = compute_record()
+        equity, pos, wr = acct.get("equity"), acct.get("open_positions", []), rec.get("win_rate")
+        lines = [
+            f"Equity: ${equity:,.0f}" if isinstance(equity, (int, float)) else "Equity: n/a",
+            f"Open positions: {len(pos)}",
+            (f"Graded win-rate: {wr}% ({rec.get('graded', 0)} graded)"
+             if wr is not None else "Win-rate: n/a yet"),
+        ]
+        notify_daily("\n".join(lines))
+        state.parent.mkdir(parents=True, exist_ok=True)
+        state.write_text(json.dumps({"date": today}))
+    except Exception as exc:
+        log.info("daily summary failed: %s", exc)
+
+
 def run_cycle() -> None:
     if is_budget_exceeded():
         log.warning("Daily budget cap reached — skipping cycle.")
@@ -679,6 +716,7 @@ def run_cycle() -> None:
     _advance_opportunity_pipeline()
     _maybe_run_learning()
     _maybe_run_tony_self_review()
+    _maybe_send_daily_summary()
     try:
         from runner.ledger.tony_scorecard import write_record
         write_record()  # refresh tony_stocks_record.json for the Cockpit (cheap, degrades safely)
