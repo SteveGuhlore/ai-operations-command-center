@@ -203,6 +203,7 @@ Follow the workflow in your system prompt exactly. Key focus for today:
 
 def _make_brief_from_bridge(slug: str, bridge_md: str) -> None:
     date_str = slug[:10]  # slug may carry an intraday slot suffix; the body shows the trading day
+    _refresh_signal_ledger(date_str, bridge_md)  # keep the prose ledger fresh even if the brief truncates
     task_id = f"TONY-DAILY-BRIEF-{slug.replace('-', '')}"
     title = f"Tony Brief — {slug}"
 
@@ -280,6 +281,7 @@ def _make_intraday_brief(slug: str, bridge_md: str) -> None:
     holdings. With only ~4-5 handoffs a day there is ample time between them for real analysis,
     and an `adjust` here re-prices the live stop/target on a position Tony already holds."""
     date_str = slug[:10]
+    _refresh_signal_ledger(date_str, bridge_md)  # keep the prose ledger fresh through the day
     slot = slug[11:] or "intraday"  # e.g. "2026-06-02T1030" -> "1030"
     task_id = f"TONY-INTRADAY-{slug.replace('-', '').replace('T', '-')}"
     title = f"Tony Intraday Deep-Dive — {date_str} {slot} ET"
@@ -443,6 +445,96 @@ def _extract_tier1_symbols(md: str) -> list[str]:
     after = md.split("Tier 1", 1)[-1]
     after = after.split("Tier 2", 1)[0]
     return list(dict.fromkeys(_TIER1_SYM_RE.findall(after)))
+
+
+_SIGNAL_LEDGER = VAULT_DIR / "tony-stocks" / "signal-ledger.md"
+_TIER1_BLOCK_RE = re.compile(
+    r"###\s*\[\[([A-Z0-9.\-]+)\]\]\s*\n(.*?)(?=\n###|\n##\s|\Z)", re.DOTALL)
+
+
+def _parse_bridge_signals(bridge_md: str) -> dict:
+    """Extract the scanner's ticker rows from a bridge for the signal ledger: Tier 1 = rich
+    `### [[SYM]]` detail blocks (3+ days); Tier 2/3 = lighter table rows (2-day / 1-day)."""
+    tier1 = []
+    for m in _TIER1_BLOCK_RE.finditer(bridge_md):
+        sym, block = m.group(1), m.group(2)
+        days = re.search(r"Days active:\s*(\d+)", block)
+        score = re.search(r"Score:\s*([\d.]+)", block)
+        setup = re.search(r"Setup:\s*([^\n|]+)", block)
+        trig = re.search(r"Entry triggered:\s*(\w+)", block)
+        tier1.append({"symbol": sym, "days": int(days.group(1)) if days else 0,
+                      "score": score.group(1) if score else "",
+                      "setup": setup.group(1).strip() if setup else "",
+                      "triggered": bool(trig and trig.group(1).lower() == "yes")})
+    newer = []
+    for tier_name, days in (("Tier 2", 2), ("Tier 3", 1)):
+        seg = bridge_md.split(tier_name, 1)
+        if len(seg) < 2:
+            continue
+        body = re.split(r"\n##\s", seg[1], maxsplit=1)[0]
+        for row in body.splitlines():
+            if not row.strip().startswith("|"):
+                continue
+            cells = [c.strip() for c in row.strip().strip("|").split("|")]
+            sm = _TIER1_SYM_RE.search(cells[0]) if cells else None
+            if not sm:
+                continue
+            score = cells[1] if len(cells) > 1 and re.match(r"^[\d.]+$", cells[1]) else ""
+            newer.append({"symbol": sm.group(1), "days": days, "score": score,
+                          "setup": cells[2] if len(cells) > 2 else "", "triggered": False})
+    return {"tier1": tier1, "newer": newer}
+
+
+def _refresh_signal_ledger(date_str: str, bridge_md: str) -> bool:
+    """Deterministically rebuild signal-ledger.md from the authoritative scanner bridge so the
+    prose ledger is never stale — even when Tony's brief truncates before its 'update ledger'
+    step (the 50-step tool cap is exhausted by per-ticker research on a big slate). The signal
+    tables + day counts come straight from the bridge; Tony's qualitative calls live in the
+    live verdict book, not here. No-op (returns False) when the bridge has no parseable signals,
+    so a malformed bridge never wipes the ledger."""
+    sig = _parse_bridge_signals(bridge_md)
+    persistent = [s for s in sig["tier1"] if s["days"] >= 3]
+    active = [s for s in sig["tier1"] if s["days"] < 3] + sig["newer"]
+    if not persistent and not active:
+        return False
+    # Monotonic: never move the ledger backwards in time. Bridges are ingested newest-first,
+    # so when several are unprocessed (e.g. after a restart) an older one must not clobber the
+    # fresher ledger it already wrote. date_str is YYYY-MM-DD, so a string compare is a date compare.
+    existing = ""
+    try:
+        for line in _SIGNAL_LEDGER.read_text(encoding="utf-8").splitlines():
+            if line.lower().startswith("last updated:"):
+                existing = line.split(":", 1)[1].strip()[:10]
+                break
+    except OSError:
+        pass
+    if existing and date_str < existing:
+        _log.info("tony_bridge: skip ledger refresh — bridge %s older than ledger %s", date_str, existing)
+        return False
+    lines = [
+        "---", "tags: [tony]", "---", "",
+        "# Tony Stocks — Signal Ledger", "",
+        "Auto-maintained from the scanner bridge on each ingestion. Tony's qualitative calls "
+        "live in the live verdict book (dashboard Paper Book / Tony's Calls), not in this file.",
+        f"Last updated: {date_str}", "", "---", "",
+        "## Persistent Signals (3+ days)", "",
+        "| Ticker | Days Active | Setup Type | Score | Status |",
+        "|--------|-------------|-----------|-------|--------|",
+    ]
+    for s in sorted(persistent, key=lambda x: x["days"], reverse=True):
+        lines.append(f"| {s['symbol']} | {s['days']} | {s['setup']} | {s['score']} | "
+                     f"{'triggered' if s['triggered'] else 'watching'} |")
+    lines += ["", "## Active Signals", "",
+              "| Ticker | Days Active | Setup Type | Score |",
+              "|--------|-------------|-----------|-------|"]
+    for s in sorted(active, key=lambda x: x["days"], reverse=True):
+        lines.append(f"| {s['symbol']} | {s['days']} | {s['setup']} | {s['score']} |")
+    lines.append("")
+    _SIGNAL_LEDGER.parent.mkdir(parents=True, exist_ok=True)
+    _SIGNAL_LEDGER.write_text("\n".join(lines), encoding="utf-8")
+    _log.info("tony_bridge: refreshed signal-ledger.md (%d persistent, %d active) for %s",
+              len(persistent), len(active), date_str)
+    return True
 
 
 def _spawn_ticker_task(slug: str, sym: str) -> None:
