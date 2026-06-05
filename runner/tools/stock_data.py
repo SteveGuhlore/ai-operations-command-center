@@ -6,9 +6,49 @@ stale close. Degrades field-by-field: if Yahoo rate-limits the heavy `.info`, th
 fast quote still returns so Tony at least has a current price.
 """
 import logging
-from datetime import datetime, timezone
+import os
+from datetime import date, datetime, timedelta, timezone
+
+import httpx
 
 _log = logging.getLogger(__name__)
+
+_FINNHUB_REC_URL = "https://finnhub.io/api/v1/stock/recommendation"
+_FINNHUB_EARN_URL = "https://finnhub.io/api/v1/calendar/earnings"
+
+
+def _finnhub_enrich(sym: str) -> dict:
+    """Analyst recommendation TREND (the delta the scanner's static target misses) + a reliable
+    next-earnings date. Key-gated; every call degrades to {} on missing key / error / premium gate."""
+    key = os.environ.get("FINNHUB_API_KEY")
+    if not key:
+        return {}
+    out: dict = {}
+    try:
+        r = httpx.get(_FINNHUB_REC_URL, params={"symbol": sym, "token": key}, timeout=10)
+        r.raise_for_status()
+        recs = r.json()
+        if isinstance(recs, list) and recs:
+            latest = recs[0]
+            out["analyst_trend"] = {
+                k: latest.get(k) for k in ("period", "strongBuy", "buy", "hold", "sell", "strongSell")
+            }
+    except (httpx.HTTPError, ValueError):
+        pass
+    try:
+        today = date.today()
+        r = httpx.get(_FINNHUB_EARN_URL, params={
+            "symbol": sym, "from": today.isoformat(),
+            "to": (today + timedelta(days=120)).isoformat(), "token": key,
+        }, timeout=10)
+        r.raise_for_status()
+        cal = r.json().get("earningsCalendar", []) or []
+        dates = sorted(e["date"] for e in cal if e.get("date"))
+        if dates:
+            out["finnhub_next_earnings"] = dates[0]
+    except (httpx.HTTPError, ValueError, AttributeError):
+        pass
+    return out
 
 
 def _round(v, n: int = 2):
@@ -87,6 +127,15 @@ def get_stock_data(symbol: str) -> dict:
     except Exception as exc:
         out["fundamentals_note"] = f"fundamentals partial (Yahoo throttled): {exc}"
 
+    # Finnhub enrichment (key-gated, no-op without FINNHUB_API_KEY): analyst rating trend + a
+    # reliable next-earnings date that supersedes Yahoo's flaky timestamp when present.
+    fh = _finnhub_enrich(sym)
+    if fh.get("analyst_trend"):
+        out["analyst_trend"] = fh["analyst_trend"]
+    if fh.get("finnhub_next_earnings"):
+        out["next_earnings_date"] = fh["finnhub_next_earnings"]
+        out["earnings_source"] = "finnhub"
+
     return out
 
 
@@ -96,8 +145,10 @@ TOOL_SPEC = {
         "Pull live price + fundamentals for a ticker (real market data, not the scanner's "
         "stale close). Returns: price, day_change_pct, 52-week high/low, market_cap, "
         "pe_trailing/pe_forward, revenue_growth_pct, earnings_growth_pct, profit_margin_pct, "
-        "beta, analyst_target_mean + analyst_upside_pct + analyst_rating, next_earnings_date, "
-        "short_pct_float. Call this for every ticker you give a verdict on — it is your "
+        "beta, analyst_target_mean + analyst_upside_pct + analyst_rating, next_earnings_date "
+        "(Finnhub-backed when available), short_pct_float, and analyst_trend (the strongBuy/buy/"
+        "hold/sell/strongSell distribution — a downgrade trend is a catalyst the scanner's static "
+        "target misses). Call this for every ticker you give a verdict on — it is your "
         "independent check on the scanner's numbers and your fundamentals source. "
         "Example: get_stock_data(symbol='GTLB')"
     ),

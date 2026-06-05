@@ -31,6 +31,9 @@ from runner.tools.video import assemble_video
 from runner.tools.task_creator import create_task
 from runner.tools.tony_insights import write_tony_insight
 from runner.tools.tony_verdict import write_tony_verdict
+from runner.tools.tony_outcomes import get_tony_outcomes
+from runner.tools.stock_news import get_stock_news
+from runner.tools.stock_catalysts import get_catalysts
 from runner.tools.stock_data import get_stock_data
 from runner.tools.stock_technicals import get_price_history
 from runner.tools.market_regime import get_market_regime
@@ -61,6 +64,9 @@ register_tool("assemble_video",     assemble_video)
 register_tool("create_task",        create_task)
 register_tool("write_tony_insight", write_tony_insight)
 register_tool("write_tony_verdict", write_tony_verdict)
+register_tool("tony_outcomes",      get_tony_outcomes)
+register_tool("get_stock_news",     get_stock_news)
+register_tool("get_catalysts",      get_catalysts)
 register_tool("get_stock_data",     get_stock_data)
 register_tool("get_price_history",  get_price_history)
 register_tool("get_market_regime",  get_market_regime)

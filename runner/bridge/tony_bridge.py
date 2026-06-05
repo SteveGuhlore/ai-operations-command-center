@@ -4,6 +4,8 @@ import os
 import re
 from pathlib import Path
 
+from runner.tools.tony_outcomes import track_record_block
+
 _log = logging.getLogger(__name__)
 
 _default_reports = (
@@ -213,6 +215,7 @@ def _make_brief_from_bridge(slug: str, bridge_md: str) -> None:
     title = f"Tony Brief — {slug}"
 
     vault_history = _load_vault_history()
+    track_record = track_record_block()
 
     body = f"""\
 You are Tony Stocks. This is your daily analytical brief for {date_str}.
@@ -228,6 +231,8 @@ The highest-conviction Tier-1 names get their own focused deep-dive tasks (fan-o
 do NOT have to research all 26 here — that just runs you out of tool budget. Prioritise:
 cross-cutting synthesis, cluster risk, and the Tier-1 names fan-out did not cover.
 
+{track_record}
+
 ## Per-ticker steps (apply to the names you cover):
 
 1. **Pull real data** — call `get_stock_data(symbol)`. The scanner's close is stale; this
@@ -235,9 +240,14 @@ cross-cutting synthesis, cluster risk, and the Tier-1 names fan-out did not cove
    & rating, **next earnings date**, 52-week range). Compare it to the scanner's numbers.
 2. **Verify the setup** — call `get_price_history(symbol)` for your OWN RSI/SMA/ATR/volume
    read. Confirm (or reject) the scanner's technical setup on your own indicators.
-3. **Research the why** — `web_research(action=search)` for news/catalysts/earnings.
-4. **Check your memory** — read `vault/tickers/TICKER.md` for prior history on this name.
-5. **Decide and record** — call `write_tony_verdict(...)` with YOUR independent 0–100 score
+3. **Research the why** — call `get_stock_news(symbol)` first for timestamped, ticker-tagged
+   headlines (the scanner can't read news — this is your edge), then `web_research(action=search)`
+   to dig into any catalyst/earnings/legal item the headlines surface.
+4. **Check hard events** — call `get_catalysts(symbol)` for recent SEC filings (8-K material
+   events, Form 4 insider buying/selling, 13D/G stakes) + insider bias. Insider dumping or a
+   surprise 8-K is a red flag the scanner can't see.
+5. **Check your memory** — read `vault/tickers/TICKER.md` for prior history on this name.
+6. **Decide and record** — call `write_tony_verdict(...)` with YOUR independent 0–100 score
    and a verdict: **reaffirm** (agree), **adjust** (agree, change target/stop), **override**
    (you'd trade it differently), **pass** (skip), or **close** (avoid/exit). Ground the thesis
    in the data you pulled. Red flags that should push you off the scanner's pick: analyst
@@ -297,6 +307,7 @@ def _make_intraday_brief(slug: str, bridge_md: str) -> None:
     title = f"Tony Intraday Deep-Dive — {date_str} {slot} ET"
 
     vault_history = _load_vault_history()
+    track_record = track_record_block()
 
     body = f"""\
 You are Tony Stocks. This is your intraday deep-dive for {date_str} (slot {slot} ET). Markets are
@@ -309,6 +320,8 @@ fundamentals, reads the news, then makes YOUR OWN call on each pick and on every
 
 **Signal Ledger:** `vault/tony-stocks/signal-ledger.md` — read this first, update it last.
 
+{track_record}
+
 ## Your Workflow — for EACH Tier 1 ticker (and every name you currently HOLD), do all of this:
 
 1. **Pull real data** — call `get_stock_data(symbol)` for the live price + fundamentals (P/E,
@@ -316,10 +329,13 @@ fundamentals, reads the news, then makes YOUR OWN call on each pick and on every
    range). The scanner's close is stale; compare it to the live numbers.
 2. **Verify the setup** — call `get_price_history(symbol)` for your OWN RSI/SMA/ATR/volume read.
    Confirm or reject the scanner's technical setup on your own indicators.
-3. **Research the why** — `web_research(action=search)` for news/catalysts/earnings that moved
-   since your last pass.
-4. **Check your memory** — read `vault/tickers/TICKER.md` for prior history on this name.
-5. **Decide and record** — call `write_tony_verdict(...)` with YOUR independent 0–100 score and a
+3. **Research the why** — call `get_stock_news(symbol)` first for fresh timestamped, ticker-tagged
+   headlines (your edge over the scanner), then `web_research(action=search)` for anything that
+   moved since your last pass.
+4. **Check hard events** — call `get_catalysts(symbol)` for recent SEC filings (8-K, Form 4
+   insider activity, 13D/G) + insider bias — a surprise 8-K or insider dumping overrides a clean chart.
+5. **Check your memory** — read `vault/tickers/TICKER.md` for prior history on this name.
+6. **Decide and record** — call `write_tony_verdict(...)` with YOUR independent 0–100 score and a
    verdict: **reaffirm** (hold as-is), **adjust** (agree but MOVE your target/stop — for a name
    you already hold this RE-PRICES your live protective stop/target), **override** (trade it
    differently), **pass** (skip), or **close** (exit/avoid — closes the position). Red flags that
