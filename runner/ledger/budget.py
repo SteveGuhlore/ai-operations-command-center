@@ -75,8 +75,24 @@ def get_poc_run_cost(pod: str = "opportunity_pod") -> float:
     return float(cost) if cost is not None else 0.05
 
 
-def is_budget_exceeded() -> bool:
-    return get_daily_spend() >= get_daily_cap()
+def get_offhours_cap() -> float:
+    """Separate high/uncapped lane for the off-market research wave so it can run past the daytime
+    cap ("token-maxx" the research). Default infinite; set TONY_OFFHOURS_BUDGET_USD to bound it."""
+    import os
+    raw = os.environ.get("TONY_OFFHOURS_BUDGET_USD", "").strip()
+    if not raw:
+        return float("inf")
+    try:
+        return float(raw)
+    except ValueError:
+        return float("inf")
+
+
+def is_budget_exceeded(off_hours: bool = False) -> bool:
+    """Daytime (off_hours=False) uses the normal daily cap — unchanged. The off-hours research lane
+    consults its own separate cap so a depleted daytime budget never aborts the overnight wave."""
+    cap = get_offhours_cap() if off_hours else get_daily_cap()
+    return get_daily_spend() >= cap
 
 
 def is_pod_budget_exceeded(pod: str) -> bool:

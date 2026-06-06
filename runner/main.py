@@ -716,9 +716,35 @@ def _maybe_send_daily_summary() -> None:
         log.info("daily summary failed: %s", exc)
 
 
+def _is_market_closed() -> bool:
+    try:
+        from runner.ledger.market_clock import market_session
+        return market_session() == "closed"
+    except Exception as exc:
+        log.info("market session check failed: %s", exc)
+        return False
+
+
+def _maybe_stage_research_wave() -> None:
+    """Component B: when the market is closed, stage one off-market research wave for the next open.
+    Cosmetic / fail-soft — never breaks the cycle."""
+    try:
+        from runner.bridge.research_wave import maybe_stage_research_wave
+        res = maybe_stage_research_wave()
+        if res.get("staged"):
+            log.info("Off-market research wave staged: %d tasks for the %s open",
+                     res.get("task_count", 0), res.get("open_date"))
+    except Exception as exc:
+        log.warning("research wave staging failed: %s", exc)
+
+
 def run_cycle() -> None:
-    if is_budget_exceeded():
-        log.warning("Daily budget cap reached — skipping cycle.")
+    # Off-hours research runs in its own high/uncapped budget lane so a depleted daytime budget
+    # never aborts the overnight wave; the daytime cap is unchanged when the market is open.
+    off_hours = _is_market_closed()
+    if is_budget_exceeded(off_hours=off_hours):
+        log.warning("Budget cap reached (%s lane) — skipping cycle.",
+                    "off-hours" if off_hours else "daytime")
         return
 
     _reap_stale_tasks()
@@ -736,6 +762,7 @@ def run_cycle() -> None:
         _advance_opportunity_pipeline()
         _maybe_run_learning()          # idle-time learning must still fire (queue is empty overnight)
         _maybe_run_tony_self_review()
+        _maybe_stage_research_wave()   # Component B: off-market research wave for the next open
         # Keep the paper book healthy between bridges: re-attach protection to any naked
         # position, detect/notify exits (stop/target fills), and refresh the record — these
         # must NOT wait for the next bridge or stop-outs go unprotected and unannounced.
