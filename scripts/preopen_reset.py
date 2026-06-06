@@ -33,6 +33,17 @@ def main() -> None:
 
     print("preopen_reset:", ap.flush_session())
 
+    # Component C — open re-check gate: after the flush wipes the verdicts/executed-log, re-validate
+    # the off-market research queue (a SEPARATE file the flush does not touch) against FRESH prices
+    # and write execution verdicts for the survivors. Stale closed-market prices never execute.
+    try:
+        from runner.ledger.research_queue import recheck_queue
+        res = recheck_queue()
+        print(f"preopen_reset: research-queue re-check — {len(res['validated'])} validated, "
+              f"{len(res['discarded'])} discarded")
+    except Exception as exc:
+        print(f"preopen_reset: research-queue re-check skipped: {exc}")
+
     # Queue a pre-open deep-dive so Tony re-evaluates his book and the watchlist before the open,
     # rather than waiting on the bot's first intraday bridge (which can land late morning).
     from datetime import date
