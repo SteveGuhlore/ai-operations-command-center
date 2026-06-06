@@ -300,6 +300,26 @@ def test_sync_reprices_on_intraday_adjust(tmp_path, monkeypatch):
     assert b.reprices == [("AAA", 10, 30.0, 25.0)]  # Tony's adjust levels, not the scanner's 40/20
 
 
+def test_notify_closed_records_realized(tmp_path, monkeypatch):
+    # When a held position disappears, _notify_closed must append a realized-trade record.
+    from runner.ledger import tony_realized as tr
+    monkeypatch.setattr(ap, "NOTIFY_STATE", tmp_path / "notify.json")
+    monkeypatch.setattr(tr, "REALIZED_FILE", tmp_path / "realized.json")
+    monkeypatch.setattr(ap, "BRIDGE_DIR", tmp_path / "nobridge")  # no levels -> reason unknown/close
+    (tmp_path / "notify.json").write_text(json.dumps(
+        [{"symbol": "AAA", "qty": 10.0, "avg_entry_price": 20.0}]))
+
+    class ExitBroker(FakeBroker):
+        def _latest_price(self, symbol):
+            return 30.0
+
+    b = ExitBroker(positions=[])  # AAA gone -> closed
+    ap._notify_closed(b)
+    rows = json.load(open(tmp_path / "realized.json"))
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "AAA" and rows[0]["realized_pl"] == 100.0
+
+
 def test_sync_skips_buy_when_market_closed(tmp_path, monkeypatch):
     # Component A gate: a closed-market buy must NOT submit, NOT enter `done`, NOT alert.
     monkeypatch.setenv("TONY_MARKET_SESSION", "closed")

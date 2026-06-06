@@ -435,8 +435,10 @@ def _notify_closed(broker) -> None:
     except Exception as exc:
         _log.info("notify closed read failed: %s", exc)
         return
+    levels = _latest_scanner_levels()  # best-effort prior protective levels for exit-reason inference
     for p in closed_positions(_load(NOTIFY_STATE), current):
         sym, qty, entry = p.get("symbol"), p.get("qty"), p.get("avg_entry_price")
+        last = None
         try:
             from runner.tools.notify import notify_exit
             last = broker._latest_price(sym)
@@ -444,6 +446,12 @@ def _notify_closed(broker) -> None:
             notify_exit(sym, qty, last, round(pnl, 2))
         except Exception as exc:
             _log.info("notify exit %s failed: %s", sym, exc)
+        try:  # Component D: persist the realized trade (fail-soft — never touches the trading path)
+            from runner.ledger.tony_realized import record_realized
+            lv = levels.get(sym) or {}
+            record_realized(sym, qty, entry, last, lv.get("target"), lv.get("stop"))
+        except Exception as exc:
+            _log.info("realized record %s failed: %s", sym, exc)
     snap = [{"symbol": p.get("symbol"), "qty": p.get("qty"),
              "avg_entry_price": p.get("avg_entry_price")} for p in current]
     try:

@@ -654,6 +654,36 @@ def _maybe_run_tony_self_review() -> None:
     log.info("Spawned Tony weekly self-review (graded=%d)", rec.get("graded", 0))
 
 
+def _build_recap_lines(acct: dict, rec: dict, realized: dict) -> list:
+    """Pure (testable) recap body per spec §3.D: equity + day Δ, open positions + unrealized P/L,
+    closed-today realized P/L, and the RELABELED scanner-verdict accuracy line."""
+    equity = acct.get("equity")
+    last_equity = acct.get("last_equity")
+    pos = acct.get("open_positions", []) or []
+    if isinstance(equity, (int, float)):
+        line_eq = f"Equity: ${equity:,.0f}"
+        if isinstance(last_equity, (int, float)) and last_equity:
+            delta = equity - last_equity
+            pct = delta / last_equity * 100
+            arrow = "▲" if delta >= 0 else "▼"
+            line_eq += f"  ({arrow} ${delta:,.0f} / {pct:+.2f}% on the day)"
+    else:
+        line_eq = "Equity: n/a"
+
+    unreal = sum(float(p.get("unrealized_pl", 0) or 0) for p in pos)
+    line_open = f"Open: {len(pos)} positions · unrealized P/L ${unreal:,.2f}"
+
+    t = realized.get("today", {})
+    line_closed = (f"Closed today: {t.get('count', 0)}  "
+                   f"({t.get('wins', 0)} win / {t.get('losses', 0)} loss) "
+                   f"· realized P/L ${float(t.get('realized_pl', 0) or 0):,.2f}")
+
+    wr = rec.get("win_rate")
+    line_acc = (f"Scanner-verdict accuracy: {wr}% ({rec.get('graded', 0)})"
+                if wr is not None else "Scanner-verdict accuracy: n/a yet")
+    return [line_eq, line_open, line_closed, line_acc]
+
+
 def _maybe_send_daily_summary() -> None:
     """Once a day, push a Telegram digest of Tony's book + record to the operator. Cosmetic,
     fail-soft, no-op when TONY_NOTIFY is off."""
@@ -673,18 +703,13 @@ def _maybe_send_daily_summary() -> None:
             pass
         from runner.ledger.alpaca_paper import account_record
         from runner.ledger.tony_scorecard import compute_record
+        from runner.ledger.tony_realized import summary as realized_summary
         acct = account_record()
         if acct.get("status") != "ok":
             return
         rec = compute_record()
-        equity, pos, wr = acct.get("equity"), acct.get("open_positions", []), rec.get("win_rate")
-        lines = [
-            f"Equity: ${equity:,.0f}" if isinstance(equity, (int, float)) else "Equity: n/a",
-            f"Open positions: {len(pos)}",
-            (f"Graded win-rate: {wr}% ({rec.get('graded', 0)} graded)"
-             if wr is not None else "Win-rate: n/a yet"),
-        ]
-        notify_daily("\n".join(lines))
+        realized = realized_summary()
+        notify_daily("\n".join(_build_recap_lines(acct, rec, realized)))
         state.parent.mkdir(parents=True, exist_ok=True)
         state.write_text(json.dumps({"date": today}))
     except Exception as exc:
