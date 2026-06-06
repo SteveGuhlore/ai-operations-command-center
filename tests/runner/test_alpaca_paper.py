@@ -145,6 +145,7 @@ def test_intraday_close_fires_after_open():
 
 
 def test_sync_executes_and_is_idempotent(tmp_path, monkeypatch):
+    monkeypatch.setenv("TONY_MARKET_SESSION", "open")
     verdicts = [{"date": "2026-06-03", "symbol": "AAA", "verdict": "override", "target": 30, "stop": 25}]
     (tmp_path / "v.json").write_text(json.dumps(verdicts))
     monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
@@ -297,6 +298,51 @@ def test_sync_reprices_on_intraday_adjust(tmp_path, monkeypatch):
     r = ap.sync(broker=b)
     assert r["repriced"] == 1
     assert b.reprices == [("AAA", 10, 30.0, 25.0)]  # Tony's adjust levels, not the scanner's 40/20
+
+
+def test_sync_skips_buy_when_market_closed(tmp_path, monkeypatch):
+    # Component A gate: a closed-market buy must NOT submit, NOT enter `done`, NOT alert.
+    monkeypatch.setenv("TONY_MARKET_SESSION", "closed")
+    verdicts = [{"date": "2026-06-03", "symbol": "AAA", "verdict": "override", "target": 30, "stop": 25}]
+    (tmp_path / "v.json").write_text(json.dumps(verdicts))
+    monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
+    monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    alerts = []
+    monkeypatch.setattr(ap, "_notify_entry_safe", lambda *a, **k: alerts.append(a))
+    b = FakeBroker()
+    r = ap.sync(broker=b)
+    assert b.buys == []                     # not submitted
+    assert r["executed"] == 0
+    assert alerts == []                     # no entry alert
+    assert json.load(open(tmp_path / "exec.json")) == []   # key NOT added to done
+
+
+def test_sync_closed_market_still_protects_and_closes(tmp_path, monkeypatch):
+    # close / reprice / protect must keep running while the market is closed.
+    monkeypatch.setenv("TONY_MARKET_SESSION", "closed")
+    verdicts = [{"date": "2026-06-03", "symbol": "DDD", "verdict": "close"}]
+    (tmp_path / "v.json").write_text(json.dumps(verdicts))
+    monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
+    monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    bd = tmp_path / "bridge"; bd.mkdir()
+    (bd / "2026-06-03T1530.md").write_text("### [[CVS]]\n- Target: $98.06 (+1%) | Stop: $88.73 (-1%)\n")
+    monkeypatch.setattr(ap, "BRIDGE_DIR", bd)
+    b = FakeBroker(positions=[{"symbol": "CVS", "qty": 10.0}], orders=[])
+    r = ap.sync(broker=b)
+    assert b.closes == ["DDD"]              # close still fires when closed
+    assert r["protected"] == 1             # protection still reconciles when closed
+
+
+def test_sync_buy_executes_when_market_open(tmp_path, monkeypatch):
+    monkeypatch.setenv("TONY_MARKET_SESSION", "open")
+    verdicts = [{"date": "2026-06-03", "symbol": "AAA", "verdict": "override", "target": 30, "stop": 25}]
+    (tmp_path / "v.json").write_text(json.dumps(verdicts))
+    monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
+    monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    b = FakeBroker()
+    r = ap.sync(broker=b)
+    assert b.buys[0][0] == "AAA" and r["executed"] == 1
+    assert json.load(open(tmp_path / "exec.json")) == ["2026-06-03:AAA:open"]
 
 
 def test_flush_session_no_keys_still_clears(tmp_path, monkeypatch):

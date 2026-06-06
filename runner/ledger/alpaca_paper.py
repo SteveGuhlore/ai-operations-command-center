@@ -475,11 +475,18 @@ def sync(broker=None) -> dict:
     plan = plan_orders(verdicts, done, levels, held, max_new_buys=max_new)
 
     conv_on = conviction_enabled()  # B1: scale risk by confidence only when the gate proves out
+    # Market-hours gate (Component A): a closed-market `buy` would open on stale closed prices and
+    # gap over the weekend — block entries when closed. close/reprice/protect/reconcile still run
+    # (they only reduce risk and the GTC OCO legs must keep reconciling overnight).
+    from runner.ledger.market_clock import market_session
+    session = market_session()
     executed = 0
     opened_now = set()
     for action in plan:
         try:
             if action["action"] == "buy":
+                if session == "closed":
+                    continue  # do NOT submit, add to done, or alert — re-evaluated at the next open
                 mult = conviction_multiplier(action.get("confidence")) if conv_on else 1.0
                 rp = RISK_PCT * mult
                 info = broker.buy(action["symbol"], action["notional"],
