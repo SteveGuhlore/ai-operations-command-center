@@ -47,28 +47,28 @@ healthy (Brave is now tier-2 behind the newly-added SerpAPI key).
 
 ---
 
-## 2. ⭐ THE #1 JOB: make the wave continuous AND cost-bounded
-**Current behavior (live now):** `research_wave.maybe_stage_research_wave` stages exactly ONE
-full-universe wave per upcoming open (de-dup `staged_for == open_date`). So this weekend Tony does
-**one ~3h pass for Monday, then idles ~57h.** Operator wants it **continuously researching while the
-market is closed** — *but bounded* ("fine with spending, don't waste a million dollars in API").
+## 2. ⭐ THE #1 JOB: add MORE genuine research to fill the idle off-time (don't pad, don't cap)
+**Current behavior (live now):** `research_wave.maybe_stage_research_wave` stages ONE full-universe
+wave per upcoming open (de-dup `staged_for == open_date`). So this weekend Tony does **one ~3h pass
+for Monday, then idles ~57h.**
 
-**Design to implement (small, in `runner/bridge/research_wave.py` + tests):**
-- Re-stage on an interval instead of once per open: add `TONY_RESEARCH_WAVE_INTERVAL_HOURS`
-  (default ~4–6h). Re-stage when the market is closed AND `elapsed_since(staged_at) >= interval`.
-  The idle hook only fires when the queue is empty, so cadence ≈ `max(drain_time, interval)` — no
-  pile-up. Make each wave's task IDs unique (e.g. suffix with a `YYYYMMDD-HHMM` stamp) so re-passes
-  don't collide with the previous wave's files in `done/`.
-- **Cost cap (do together):** the off-hours budget lane `TONY_OFFHOURS_BUDGET_USD` currently
-  defaults to **uncapped (inf)** in `runner/ledger/budget.py`. Set a real per-night cap in `.env`
-  (e.g. `$20–50`/closed-window) so continuous re-staging can't run away. Confirm `is_budget_exceeded(off_hours=True)`
-  actually halts staging when the cap is hit.
-- Update `tests/runner/test_research_wave.py` (currently asserts the once-per-open de-dup + open-date
-  suffix — both change).
-- Restart the runner after editing (module caching — see §4).
+**What the operator wants (explicit — do not "improve" past this):**
+- Keep the existing wave EXACTLY as-is. Do **NOT** stretch the ~3h pass to 4–6h, and do **NOT** add
+  an interval/delay to space it out. No fluffing or throttling to "make it last."
+- Do **NOT** add a dollar cap. If Tony is doing genuine research, let him spend — no
+  `TONY_OFFHOURS_BUDGET_USD` ceiling that throttles real work. (The lane stays uncapped by default.)
+- Instead, give Tony **more real research to do** in the remaining closed hours — additional depth
+  and breadth, NOT a repeat of the same pass. The point is genuine new analysis, not filling time.
 
-Net effect: Tony grinds the universe, finishes, and (after the interval) starts a fresh pass with new
-overnight news — busy all weekend, with a hard dollar ceiling.
+**This needs design research FIRST — figure out the right approach before building.** Open question:
+once the universe deep-dive + 6 synthesis tasks are done, what *additional, high-value* research
+should Tony do with the rest of the closed window? Candidates to evaluate (none decided yet):
+deeper multi-angle / second-pass analysis on top-conviction names; broader-universe scans beyond the
+scanner; continuous re-checks as fresh overnight news lands; cross-asset / macro / sector deep-dives;
+competitor & supply-chain reads; back-testing his own patterns against history; thesis pre-mortems.
+**Research which of these are actually worth Tony's time and how to sequence them**, then implement
+(likely a richer/extended wave or a follow-on research backlog) in `runner/bridge/research_wave.py`,
+update `tests/runner/test_research_wave.py`, and restart the runner (module caching — see §4).
 
 ---
 
@@ -112,7 +112,8 @@ Start-Process python -ArgumentList "scripts/launch.py","--interval","180" `
 ## 5. Do NOT
 - Don't add conviction/market-hours/research logic to the BOT — it's the flat-1% control; CC-only.
 - Don't edit `runner/**` and expect it live without a runner restart.
-- Don't let continuous re-staging run without the off-hours `$` cap (§2) — that's the "million dollars" risk.
+- Don't add a dollar cap or an interval/delay to throttle Tony's research, and don't pad the wave to
+  stretch it — fill the off-time with genuine NEW research instead (§2).
 - Don't reintroduce closed-market entries — the gate is the whole point of Component A.
 - Don't `git add -A` for these commits (the working tree has ~700 untracked files); stage explicit paths.
 
@@ -125,6 +126,8 @@ Start-Process python -ArgumentList "scripts/launch.py","--interval","180" `
   `test_tony_realized.py`, `test_recap.py`, `test_realized_defer.py`, `test_alpaca_paper.py`.
 - Spec: `docs/superpowers/specs/2026-06-06-tony-off-market-research-engine-design.md`.
 
-**Bottom line:** the engine is live and already prepping Monday. The one thing left to make it match the
-"research all weekend, autonomously, without my input" goal is **continuous interval re-staging + a hard
-off-hours $ cap** (§2). Everything else is verified and committed. 🚀
+**Bottom line:** the engine is live and already prepping Monday. The one thing left to match the
+"research all weekend, autonomously, without my input" goal is to **give Tony MORE genuine research to
+fill the idle off-hours** — keep the ~3h pass as-is, no padding, no interval, no dollar cap. The right
+set of additional research needs to be designed/researched first (§2). Everything else is verified and
+committed. 🚀
