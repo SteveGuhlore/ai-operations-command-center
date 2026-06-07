@@ -152,12 +152,16 @@ def positions_needing_protection(positions: list, open_orders: list, levels: dic
     `fallback_pct=(stop_pct, target_pct)` derives a catastrophic bracket from the entry price so
     the position is NEVER left naked overnight. Off by default (preserves the old skip behavior);
     skips when the entry price is unknown."""
-    protected = {o.get("symbol") for o in open_orders if o.get("side") == "sell"}
+    # "Protected" means a working STOP leg — NOT just any sell order. A lone take-profit (limit)
+    # with no stop is a half-bracket: the position still has unlimited downside, so it must be
+    # re-protected (protect() cancels the lone TP and places a full OCO).
+    has_stop = {o.get("symbol") for o in open_orders
+                if o.get("side") == "sell" and str(o.get("type") or "").startswith("stop")}
     out = []
     for p in positions:
         sym = p.get("symbol")
         whole = int(float(p.get("qty", 0) or 0))  # floor — legs can only cover whole shares
-        if whole < 1 or sym in protected:
+        if whole < 1 or sym in has_stop:
             continue
         lv = levels.get(sym) or {}
         target, stop = lv.get("target"), lv.get("stop")
@@ -383,10 +387,7 @@ def _alpaca_broker():
             client.submit_order(req)
             return {"qty": qty, "entry": price}
 
-        def protect(self, symbol, qty, target, stop):
-            """Attach a GTC OCO exit (take-profit limit + stop-loss) to an already-open position
-            that lost its bracket legs at the close. OCO carries both sides so the position is
-            never naked overnight."""
+        def _place_oco(self, symbol, qty, target, stop):
             tp = round(float(target), 2)
             req = LimitOrderRequest(
                 symbol=symbol, qty=int(qty), side=OrderSide.SELL,
@@ -396,21 +397,21 @@ def _alpaca_broker():
                 stop_loss=StopLossRequest(stop_price=round(float(stop), 2)))
             client.submit_order(req)
 
-        def reprice(self, symbol, qty, target, stop):
-            """Move a held position's protection to new levels: cancel its existing GTC OCO legs,
-            then place a fresh OCO. Used when Tony issues an intraday `adjust`. Alpaca releases the
-            cancelled legs' held qty asynchronously, so retry the new OCO until the qty frees
-            (otherwise it fails 'insufficient qty' and the position is briefly left naked)."""
+        def protect(self, symbol, qty, target, stop):
+            """Attach a GTC OCO exit (take-profit limit + stop-loss) to an open position. FIRST
+            cancels any existing sell legs — e.g. a lone take-profit with NO stop, which would
+            otherwise both block a fresh OCO (oversell) AND leave the position with no downside
+            protection. Alpaca frees the cancelled qty asynchronously, so retry until it places."""
             for o in self.open_orders():
                 if o.get("symbol") == symbol and o.get("side") == "sell":
                     try:
                         client.cancel_order_by_id(o["id"])
                     except Exception as exc:
-                        _log.info("reprice cancel %s: %s", symbol, exc)
+                        _log.info("protect cancel %s: %s", symbol, exc)
             last = None
             for _ in range(12):
                 try:
-                    self.protect(symbol, qty, target, stop)
+                    self._place_oco(symbol, qty, target, stop)
                     return
                 except Exception as exc:
                     last = exc
@@ -418,7 +419,13 @@ def _alpaca_broker():
                         time.sleep(0.5)
                         continue
                     raise
-            raise last
+            if last:
+                raise last
+
+        def reprice(self, symbol, qty, target, stop):
+            """Move a held position's protection to new levels (Tony's intraday `adjust`) — same
+            cancel-then-replace-with-retry as protect()."""
+            self.protect(symbol, qty, target, stop)
 
         def close(self, symbol):
             # Cancel the GTC stop/target SELL legs first — they HOLD the shares, so a bare

@@ -207,17 +207,21 @@ def test_entry_orders_to_cancel_keeps_protective_legs():
 
 def test_positions_needing_protection():
     positions = [
-        {"symbol": "AAA", "qty": 10.0, "unrealized_pl": 1.0},    # whole + unprotected + levels -> protect 10
-        {"symbol": "BBB", "qty": 12.0, "unrealized_pl": 0.0},    # already has a sell leg -> skip
+        {"symbol": "AAA", "qty": 10.0, "unrealized_pl": 1.0},    # whole + no stop leg + levels -> protect 10
+        {"symbol": "BBB", "qty": 12.0, "unrealized_pl": 0.0},    # has a STOP leg -> skip (protected)
+        {"symbol": "TPONLY", "qty": 8.0, "unrealized_pl": 0.0},  # lone take-profit, NO stop -> needs protection
         {"symbol": "FRAC", "qty": 17.59, "unrealized_pl": -1.0}, # fractional -> protect the whole-share floor (17)
         {"symbol": "TINY", "qty": 0.4, "unrealized_pl": 0.0},    # sub-1-share sliver -> can't protect -> skip
         {"symbol": "NOLV", "qty": 5.0, "unrealized_pl": 0.0},    # no known levels -> skip
     ]
-    orders = [{"symbol": "BBB", "side": "sell", "id": "9"}]
+    orders = [{"symbol": "BBB", "side": "sell", "type": "stop", "id": "9"},
+              {"symbol": "TPONLY", "side": "sell", "type": "limit", "id": "10"}]  # take-profit only, no stop
     levels = {"AAA": {"target": 30.0, "stop": 25.0}, "BBB": {"target": 50.0, "stop": 40.0},
+              "TPONLY": {"target": 60.0, "stop": 50.0},
               "FRAC": {"target": 20.0, "stop": 15.0}, "TINY": {"target": 2.0, "stop": 1.0}}
     assert ap.positions_needing_protection(positions, orders, levels) == [
         {"symbol": "AAA", "qty": 10, "target": 30.0, "stop": 25.0},
+        {"symbol": "TPONLY", "qty": 8, "target": 60.0, "stop": 50.0},
         {"symbol": "FRAC", "qty": 17, "target": 20.0, "stop": 15.0}]
 
 
