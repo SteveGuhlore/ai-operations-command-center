@@ -417,12 +417,37 @@ def closed_positions(prior: list, current: list) -> list:
             if float(p.get("qty") or 0) > 0 and cur.get(p.get("symbol"), 0) <= 0]
 
 
-def _notify_entry_safe(symbol, qty, entry, stop, target, risk_pct=RISK_PCT) -> None:
+def _verdict_thesis(verdicts, symbol) -> str:
+    """One-line thesis from Tony's latest verdict on `symbol`, so the entry alert says WHY.
+    Best-effort: empty string if none. Bounded so a long thesis never bloats the message."""
+    sym = (symbol or "").upper()
+    cands = [v for v in verdicts
+             if (v.get("symbol") or "").upper() == sym and v.get("thesis")]
+    if not cands:
+        return ""
+    thesis = " ".join(str(max(cands, key=lambda v: v.get("date", "")).get("thesis", "")).split())
+    return thesis[:160] + ("…" if len(thesis) > 160 else "")
+
+
+def _r_multiple(entry, exit_price, stop):
+    """Return the trade's R-multiple ((exit-entry)/(entry-stop) for a long) or None if not computable.
+    R is how many 'units of risk' the result was — a +1.8R win made 1.8× what was risked."""
+    try:
+        en, ex, st = float(entry), float(exit_price), float(stop)
+    except (TypeError, ValueError):
+        return None
+    risk = en - st
+    if risk <= 0:
+        return None
+    return round((ex - en) / risk, 2)
+
+
+def _notify_entry_safe(symbol, qty, entry, stop, target, risk_pct=RISK_PCT, reason="") -> None:
     """Fire a cosmetic entry alert. Fail-soft: a notify error never touches the trading path.
     risk_pct is the EFFECTIVE (conviction-scaled) risk so the alert reflects B1 sizing."""
     try:
         from runner.tools.notify import notify_entry
-        notify_entry(symbol, qty if qty is not None else "?", entry, stop, target, risk_pct)
+        notify_entry(symbol, qty if qty is not None else "?", entry, stop, target, risk_pct, reason)
     except Exception as exc:
         _log.info("notify entry failed: %s", exc)
 
@@ -448,15 +473,18 @@ def _notify_closed(broker) -> None:
             # No price yet — don't alert/record on a phantom fill; defer to a later cycle.
             unresolved.append(p)
             continue
+        lv = levels.get(sym) or {}
         try:
             from runner.tools.notify import notify_exit
+            from runner.ledger.tony_realized import infer_reason
             pnl = (float(last) - float(entry)) * float(qty) if (entry and qty) else 0.0
-            notify_exit(sym, qty, last, round(pnl, 2))
+            reason = infer_reason(last, lv.get("target"), lv.get("stop"))
+            r_mult = _r_multiple(entry, last, lv.get("stop"))
+            notify_exit(sym, qty, last, round(pnl, 2), r_mult=r_mult, reason=reason)
         except Exception as exc:
             _log.info("notify exit %s failed: %s", sym, exc)
         try:  # Component D: persist the realized trade (fail-soft — never touches the trading path)
             from runner.ledger.tony_realized import record_realized
-            lv = levels.get(sym) or {}
             record_realized(sym, qty, entry, last, lv.get("target"), lv.get("stop"))
         except Exception as exc:
             _log.info("realized record %s failed: %s", sym, exc)
@@ -509,7 +537,8 @@ def sync(broker=None) -> dict:
                                   action.get("target"), action.get("stop"), risk_pct=rp) or {}
                 opened_now.add(action["symbol"])
                 _notify_entry_safe(action["symbol"], info.get("qty"), info.get("entry"),
-                                   action.get("stop"), action.get("target"), risk_pct=rp)
+                                   action.get("stop"), action.get("target"), risk_pct=rp,
+                                   reason=_verdict_thesis(verdicts, action["symbol"]))
             elif action["action"] == "close":
                 broker.close(action["symbol"])
             done.add(action["key"])

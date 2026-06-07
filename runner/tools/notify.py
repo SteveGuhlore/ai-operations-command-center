@@ -53,50 +53,25 @@ def _telegram(text: str, parse_mode: str) -> dict:
         return {"sent": False, "reason": str(exc)}
 
 
-def _money(x) -> str:
-    try:
-        return f"{float(x):,.0f}"
-    except (TypeError, ValueError):
-        return "?"
-
-
-def _px(x) -> str:
-    try:
-        return f"${float(x):.2f}"
-    except (TypeError, ValueError):
-        return "$?"
-
-
-def notify_entry(symbol: str, qty, entry, stop, target, risk_pct: float = 1.0) -> dict:
-    """🟢 Tony placed a new entry bracket."""
-    text = (f"🟢 <b>Tony entered {symbol}</b>\n"
-            f"{qty} sh @ {_px(entry)} · stop {_px(stop)} / target {_px(target)} · "
-            f"{risk_pct:.0f}% risk")
-    return notify(text)
+def notify_entry(symbol: str, qty, entry, stop, target, risk_pct: float = 1.0, reason: str = "") -> dict:
+    """🟢 Tony placed a new entry bracket — spoken in his own voice, with the thesis."""
+    from runner.tools.tony_voice import say_entry
+    return notify(say_entry(symbol, qty, entry, stop, target, risk_pct, reason))
 
 
 def notify_exit(symbol: str, qty, exit_price, pnl, r_mult=None, reason: str = "") -> dict:
-    """🟩/🟥 Tony closed a position (target/stop/his own close)."""
-    try:
-        pnl_f = float(pnl)
-    except (TypeError, ValueError):
-        pnl_f = 0.0
-    emoji = "🟩" if pnl_f >= 0 else "🟥"
-    sign = "+" if pnl_f >= 0 else "-"
-    r = f" ({r_mult:+.1f}R)" if isinstance(r_mult, (int, float)) else ""
-    why = f" · {reason}" if reason else ""
-    text = (f"{emoji} <b>Tony closed {symbol}</b>\n"
-            f"{qty} sh @ {_px(exit_price)} · {sign}${_money(abs(pnl_f))}{r}{why}")
-    return notify(text)
+    """🟩/🟥 Tony closed a position (target/stop/his own close) — first person, with the why + R."""
+    from runner.tools.tony_voice import say_exit
+    return notify(say_exit(symbol, qty, exit_price, pnl, reason, r_mult))
 
 
 def notify_reprice(symbol: str, qty, target, stop) -> dict:
     """🔧 Tony moved a held position's protective stop/target (an intraday `adjust`)."""
-    text = (f"🔧 <b>Tony re-priced {symbol}</b>\n"
-            f"{qty} sh · new stop {_px(stop)} / target {_px(target)}")
-    return notify(text)
+    from runner.tools.tony_voice import say_reprice
+    return notify(say_reprice(symbol, qty, target, stop))
 
 
 def notify_daily(summary: str) -> dict:
-    """📊 Once-a-day digest of Tony's book/performance."""
-    return notify(f"📊 <b>Tony — daily summary</b>\n{summary}")
+    """📊 Once-a-day digest of Tony's book/performance. The caller leads with a first-person header
+    (tony_voice.say_daily_header), so this sends the message as-is."""
+    return notify(summary)

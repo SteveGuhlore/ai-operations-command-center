@@ -712,7 +712,12 @@ def _maybe_send_daily_summary() -> None:
             return
         rec = compute_record()
         realized = realized_summary()
-        notify_daily("\n".join(_build_recap_lines(acct, rec, realized)))
+        from runner.tools.tony_voice import say_daily_header
+        equity, last_eq = acct.get("equity"), acct.get("last_equity")
+        day_delta = (float(equity) - float(last_eq)) if isinstance(equity, (int, float)) \
+            and isinstance(last_eq, (int, float)) else None
+        header = say_daily_header(equity, day_delta)
+        notify_daily("\n".join([header] + _build_recap_lines(acct, rec, realized)))
         state.parent.mkdir(parents=True, exist_ok=True)
         state.write_text(json.dumps({"date": today}))
     except Exception as exc:
