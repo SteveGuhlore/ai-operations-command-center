@@ -165,3 +165,45 @@ def test_start_poller_is_idempotent(monkeypatch):
     t2 = ti.start_poller()
     assert t1 is not None and t2 is t1                     # only one thread ever starts
     ti._POLLER_STARTED = False                              # reset for other tests
+
+
+def test_operator_freetext_skips_faq_uses_llm(monkeypatch):
+    # C: a broad FAQ keyword must NOT hijack the operator's question; it reaches the LLM.
+    from runner.tools import telegram_policy as tp
+    from runner.tools import tony_synthesis as ts
+    monkeypatch.setattr(tp, "faq_answer", lambda t: "CANNED")        # would hijack if consulted
+    monkeypatch.setattr(ts, "synth_enabled", lambda: True)
+    monkeypatch.setattr(ts, "answer", lambda q, public=True: "REAL_ANSWER")
+    assert ti.reply_for("what stocks do you have?", tier="operator")["text"] == "REAL_ANSWER"
+
+
+def test_public_freetext_still_uses_faq(monkeypatch):
+    # C: the public tier still gets the canned FAQ (the cost saver) before any LLM call.
+    monkeypatch.setenv("TONY_PUBLIC", "on")
+    from runner.tools import telegram_policy as tp
+    monkeypatch.setattr(tp, "faq_answer", lambda t: "CANNED")
+    assert ti.reply_for("are you real money?", tier="public", user_id="5")["text"] == "CANNED"
+
+
+def test_nl_off_message_is_distinct(monkeypatch):
+    # F: when synthesis is off, say so distinctly instead of a generic deflection.
+    from runner.tools import tony_synthesis as ts
+    monkeypatch.setattr(ts, "synth_enabled", lambda: False)
+    assert "off" in ti.reply_for("how's it going?", tier="operator")["text"].lower()
+
+
+def test_explain_no_arg_lists_current_names(monkeypatch):
+    # D: /explain with no symbol lists what Tony actually has, so the user never guesses.
+    monkeypatch.setattr(ti, "_current_names", lambda limit=12: ["ANET", "CSX"])
+    rep = ti.reply_for("/explain")
+    assert "ANET" in rep["text"] and "explain" in rep["text"].lower()
+
+
+def test_explain_unknown_symbol_offers_discovery(monkeypatch):
+    # E: an unknown symbol points the user at the names Tony does have, not a dead-end.
+    monkeypatch.setattr(ti, "_current_names", lambda limit=12: ["ANET", "CSX"])
+    from runner.ledger import alpaca_paper as ap
+    monkeypatch.setattr(ap, "_verdict_thesis", lambda verdicts, sym: "")
+    monkeypatch.setattr(ap, "account_record", lambda: {"open_positions": []})
+    rep = ti.reply_for("/explain ZZZZ")
+    assert "ZZZZ" in rep["text"] and "ANET" in rep["text"]

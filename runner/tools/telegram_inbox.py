@@ -89,8 +89,42 @@ def _record_reply(page: int = 0) -> dict:
                                  page=page, page_size=_RECORD_PAGE)
 
 
+def _current_names(limit: int = 12) -> list:
+    """Names Tony can actually talk about right now: open positions first (he's in them), then
+    recently-verdicted symbols. Powers /explain discovery so the user never has to guess a ticker."""
+    names: list = []
+    try:
+        from runner.ledger.alpaca_paper import account_record
+        for p in account_record().get("open_positions", []) or []:
+            s = (p.get("symbol") or "").upper()
+            if s and s not in names:
+                names.append(s)
+    except Exception:
+        pass
+    try:
+        from runner.tools.tony_verdict import VERDICTS_FILE
+        verdicts = json.loads(VERDICTS_FILE.read_text(encoding="utf-8"))
+        for v in sorted(verdicts, key=lambda e: e.get("date", ""), reverse=True):
+            s = (v.get("symbol") or "").upper()
+            if s and s not in names:
+                names.append(s)
+            if len(names) >= limit:
+                break
+    except (json.JSONDecodeError, OSError, FileNotFoundError):
+        pass
+    return names[:limit]
+
+
+def _names_line(names: list) -> str:
+    return ", ".join(f"<b>{n}</b>" for n in names)
+
+
 def _explain_reply(symbol: str) -> str:
+    names = _current_names()
     if not symbol:
+        if names:
+            return ("Pick one and I'll explain my thinking — I've got notes on "
+                    f"{_names_line(names)}.\nLike <code>/explain {names[0]}</code>.")
         return voice.say_explain("", "", False)
     from runner.ledger.alpaca_paper import _verdict_thesis, account_record
     from runner.tools.tony_verdict import VERDICTS_FILE
@@ -106,6 +140,11 @@ def _explain_reply(symbol: str) -> str:
                    for p in acct.get("open_positions", []) or [])
     except Exception:
         pass
+    if not thesis:
+        msg = f"I don't have a fresh note on <b>{symbol.upper()}</b> yet."
+        if names:
+            msg += f" Here's what I'm in right now: {_names_line(names)} — try one of those."
+        return msg
     return voice.say_explain(symbol, thesis, held)
 
 
@@ -150,17 +189,25 @@ def reply_for(text: str, tier: str = "operator", user_id: str = "") -> dict:
                          "answer."), "reply_markup": _MENU}
 
     # --- free-text (natural language) ---
-    faq = policy.faq_answer(t)
-    if faq:
-        return {"text": faq, "reply_markup": _MENU}
-    if tier == "public" and not policy.allow_nl(user_id):
-        return {"text": "I'm chatting with a lot of people right now — tap a button below or try "
-                        "<code>/status</code> and I'll answer instantly.", "reply_markup": _MENU}
+    # The canned FAQ is a PUBLIC-tier cost saver only; the operator's questions always reach the LLM
+    # (a broad keyword like "what stocks" must never hijack a real operator question).
+    if tier == "public":
+        faq = policy.faq_answer(t)
+        if faq:
+            return {"text": faq, "reply_markup": _MENU}
+        if not policy.allow_nl(user_id):
+            return {"text": "I'm chatting with a lot of people right now — tap a button below or try "
+                            "<code>/status</code> and I'll answer instantly.", "reply_markup": _MENU}
     from runner.tools.tony_synthesis import answer, synth_enabled
-    out = answer(t, public=(tier == "public")) if synth_enabled() else ""
+    if not synth_enabled():
+        return {"text": "My live Q&amp;A is off right now — but I can still show you "
+                        "<code>/status</code>, <code>/record</code>, or <code>/explain SYM</code>.",
+                "reply_markup": _MENU}
+    out = answer(t, public=(tier == "public"))
     if not out:
-        return {"text": "I'm best with <code>/status</code>, <code>/record</code>, or "
-                        "<code>/explain SYM</code> — tap below.", "reply_markup": _MENU}
+        return {"text": "I couldn't pull that together just now — ask me again, or tap "
+                        "<code>/status</code> / <code>/record</code> / <code>/explain SYM</code>.",
+                "reply_markup": _MENU}
     return {"text": out, "reply_markup": _MENU}
 
 
