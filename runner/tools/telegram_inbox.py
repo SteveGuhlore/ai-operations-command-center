@@ -119,13 +119,51 @@ def _names_line(names: list) -> str:
     return ", ".join(f"<b>{n}</b>" for n in names)
 
 
-def _explain_reply(symbol: str) -> str:
+def _ticker_writeup(symbol: str) -> str:
+    """Tony's FULL per-ticker deep-dive from vault/tickers/<SYM>.md, lightly converted to Telegram
+    HTML (notify() chunks it past 4096 chars). '' when there's no page. OPERATOR-ONLY — this
+    forward-looking research must never leak to the public (front-running guard)."""
+    import html
+    sym = (symbol or "").upper()
+    page = Path(__file__).parent.parent.parent / "vault" / "tickers" / f"{sym}.md"
+    try:
+        raw = page.read_text(encoding="utf-8")
+    except (OSError, FileNotFoundError):
+        return ""
+    if raw.startswith("---"):                       # drop YAML frontmatter
+        parts = raw.split("---", 2)
+        raw = parts[2] if len(parts) == 3 else raw
+    out = []
+    for line in raw.splitlines():
+        s = line.rstrip()
+        if not s.strip():
+            out.append("")
+            continue
+        if s.lstrip().startswith("#"):
+            out.append(f"<b>{html.escape(s.lstrip('#').strip())}</b>")
+        else:
+            body = s.lstrip()
+            for bullet in ("*   ", "* ", "- "):
+                if body.startswith(bullet):
+                    body = "• " + body[len(bullet):]
+                    break
+            out.append(html.escape(body))
+    return "\n".join(out).strip()
+
+
+def _explain_reply(symbol: str, tier: str = "operator") -> str:
     names = _current_names()
     if not symbol:
         if names:
             return ("Pick one and I'll explain my thinking — I've got notes on "
                     f"{_names_line(names)}.\nLike <code>/explain {names[0]}</code>.")
         return voice.say_explain("", "", False)
+    # Operator gets the FULL deep-dive write-up (notify() paginates it); the public stays on the
+    # short verdict thesis so forward-looking research never leaks (front-running guard).
+    if tier == "operator":
+        writeup = _ticker_writeup(symbol)
+        if writeup:
+            return f"<b>{symbol.upper()} — my full write-up</b>\n\n{writeup}"
     from runner.ledger.alpaca_paper import _verdict_thesis, account_record
     from runner.tools.tony_verdict import VERDICTS_FILE
     try:
@@ -182,7 +220,7 @@ def reply_for(text: str, tier: str = "operator", user_id: str = "") -> dict:
             page = _record_reply(0)
             return {"text": page["text"], "reply_markup": _record_markup(0, page["has_more"])}
         if cmd in ("explain", "why"):
-            return {"text": _explain_reply(arg), "reply_markup": _MENU}
+            return {"text": _explain_reply(arg, tier), "reply_markup": _MENU}
         if cmd in ("glossary", "terms"):
             return {"text": voice.GLOSSARY, "reply_markup": _MENU}
         return {"text": ("I didn't catch that — try <code>/help</code> and I'll show you what I can "

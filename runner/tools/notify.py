@@ -41,19 +41,45 @@ def notify(text: str, *, parse_mode: str = "HTML", chat_id: str | None = None,
     return {"sent": False, "reason": f"unknown channel '{ch}'"}
 
 
+def _split_message(text: str, limit: int = 4000) -> list:
+    """Split a message so each piece fits Telegram's 4096-char hard limit (headroom for HTML).
+    Packs whole lines; hard-splits any single oversized line. Always returns >= 1 chunk."""
+    chunks: list = []
+    cur = ""
+    for line in (text or "").split("\n"):
+        while len(line) > limit:
+            if cur:
+                chunks.append(cur)
+                cur = ""
+            chunks.append(line[:limit])
+            line = line[limit:]
+        candidate = f"{cur}\n{line}" if cur else line
+        if len(candidate) > limit:
+            chunks.append(cur)
+            cur = line
+        else:
+            cur = candidate
+    if cur or not chunks:
+        chunks.append(cur)
+    return chunks
+
+
 def _telegram(text: str, parse_mode: str, chat_id: str | None = None,
               reply_markup: dict | None = None) -> dict:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat = chat_id or os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat:
         return {"sent": False, "reason": "telegram not configured"}
-    payload = {"chat_id": chat, "text": text, "parse_mode": parse_mode,
-               "disable_web_page_preview": True}
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
+    chunks = _split_message(text)
+    last = len(chunks) - 1
     try:
-        r = httpx.post(_TG_URL.format(token=token), json=payload, timeout=_TIMEOUT)
-        r.raise_for_status()
+        for i, chunk in enumerate(chunks):
+            payload = {"chat_id": chat, "text": chunk, "parse_mode": parse_mode,
+                       "disable_web_page_preview": True}
+            if reply_markup and i == last:        # the keyboard rides only the final piece
+                payload["reply_markup"] = reply_markup
+            r = httpx.post(_TG_URL.format(token=token), json=payload, timeout=_TIMEOUT)
+            r.raise_for_status()
         return {"sent": True}
     except (httpx.HTTPError, ValueError) as exc:
         _log.info("notify telegram failed: %s", exc)

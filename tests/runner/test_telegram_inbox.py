@@ -32,7 +32,7 @@ def test_reply_routing_dispatches_commands(monkeypatch):
     monkeypatch.setattr(ti, "_status_reply", lambda: "STATUS_OK")
     monkeypatch.setattr(ti, "_record_reply",
                         lambda page=0: {"text": "RECORD_OK", "has_more": False, "page": 0})
-    monkeypatch.setattr(ti, "_explain_reply", lambda a: f"EXPLAIN:{a}")
+    monkeypatch.setattr(ti, "_explain_reply", lambda a, tier="operator": f"EXPLAIN:{a}")
     assert ti.reply_for("/status")["text"] == "STATUS_OK"
     assert ti.reply_for("/record")["text"] == "RECORD_OK"
     assert ti.reply_for("/explain NVDA")["text"] == "EXPLAIN:NVDA"
@@ -202,8 +202,28 @@ def test_explain_no_arg_lists_current_names(monkeypatch):
 def test_explain_unknown_symbol_offers_discovery(monkeypatch):
     # E: an unknown symbol points the user at the names Tony does have, not a dead-end.
     monkeypatch.setattr(ti, "_current_names", lambda limit=12: ["ANET", "CSX"])
+    monkeypatch.setattr(ti, "_ticker_writeup", lambda sym: "")   # no vault page
     from runner.ledger import alpaca_paper as ap
     monkeypatch.setattr(ap, "_verdict_thesis", lambda verdicts, sym: "")
     monkeypatch.setattr(ap, "account_record", lambda: {"open_positions": []})
     rep = ti.reply_for("/explain ZZZZ")
     assert "ZZZZ" in rep["text"] and "ANET" in rep["text"]
+
+
+def test_explain_operator_uses_full_writeup(monkeypatch):
+    # operator /explain serves the FULL vault deep-dive, not just the short verdict thesis.
+    monkeypatch.setattr(ti, "_current_names", lambda limit=12: ["ANET"])
+    monkeypatch.setattr(ti, "_ticker_writeup", lambda sym: "FULL_DEEP_DIVE_BODY")
+    assert "FULL_DEEP_DIVE_BODY" in ti.reply_for("/explain ANET", tier="operator")["text"]
+
+
+def test_explain_public_never_leaks_full_writeup(monkeypatch):
+    # front-running guard: the public tier must NOT receive the forward-looking write-up.
+    monkeypatch.setenv("TONY_PUBLIC", "on")
+    monkeypatch.setattr(ti, "_current_names", lambda limit=12: ["ANET"])
+    monkeypatch.setattr(ti, "_ticker_writeup", lambda sym: "FULL_DEEP_DIVE_BODY")
+    from runner.ledger import alpaca_paper as ap
+    monkeypatch.setattr(ap, "_verdict_thesis", lambda verdicts, sym: "short thesis")
+    monkeypatch.setattr(ap, "account_record", lambda: {"open_positions": []})
+    rep = ti.reply_for("/explain ANET", tier="public", user_id="5")
+    assert "FULL_DEEP_DIVE_BODY" not in rep["text"]

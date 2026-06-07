@@ -43,14 +43,13 @@ def test_not_configured_is_noop(monkeypatch):
     assert nf.notify("x")["sent"] is False
 
 
-@pytest.mark.xfail(reason="pre-existing (not from telegram C-F): notify_entry/exit now broadcast() "
-                          "in addition to notify(), shifting this test's single-message msgs[] "
-                          "assumption. TODO real fix: isolate channel + assert both sinks. Tony-path.",
-                   strict=False)
 def test_entry_and_exit_formatting(monkeypatch):
     monkeypatch.setenv("TONY_NOTIFY", "telegram")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "1")
+    # Isolate from any leaked public channel so broadcast() in notify_entry/exit no-ops here and we
+    # see exactly one operator message per call (this test asserts on per-call message indices).
+    monkeypatch.delenv("TELEGRAM_PUBLIC_CHANNEL_ID", raising=False)
     msgs = []
     monkeypatch.setattr(nf.httpx, "post",
                         lambda url, json=None, timeout=None: (msgs.append(json["text"]), _R())[1])
@@ -63,6 +62,19 @@ def test_entry_and_exit_formatting(monkeypatch):
     assert "I sold NVDA for a +$924 win" in msgs[1] and "price target" in msgs[1] and "2.3×" in msgs[1]
     assert "I sold FCX for a $310 loss" in msgs[2] and "safety stop" in msgs[2]
     assert "I adjusted FCX" in msgs[3] and "stop $61.88" in msgs[3] and "target $74.62" in msgs[3]
+
+
+def test_long_message_is_split_under_limit(monkeypatch):
+    # Telegram's hard 4096-char cap: a long write-up is sent as multiple in-limit messages.
+    monkeypatch.setenv("TONY_NOTIFY", "telegram")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "1")
+    posts = []
+    monkeypatch.setattr(nf.httpx, "post",
+                        lambda url, json=None, timeout=None: (posts.append(json["text"]), _R())[1])
+    big = "\n".join(f"line {i} " + "x" * 120 for i in range(100))   # well over 4096
+    assert nf.notify(big)["sent"] is True
+    assert len(posts) >= 2 and all(len(p) <= 4096 for p in posts)
 
 
 def test_notify_chat_override_and_markup(monkeypatch):
