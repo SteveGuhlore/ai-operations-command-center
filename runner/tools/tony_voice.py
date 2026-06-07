@@ -67,6 +67,88 @@ def say_reprice(symbol, qty, target, stop) -> str:
     return f"{head}\n{nums}"
 
 
+def say_status(acct: dict, realized: dict | None = None) -> str:
+    """First-person 'how am I doing right now' for the /status chat command (pure)."""
+    pos = (acct or {}).get("open_positions", []) or []
+    equity = (acct or {}).get("equity")
+    lines = ["📍 <b>Here's where I stand right now.</b>"]
+    if isinstance(equity, (int, float)):
+        lines.append(f"My account is at ${_money(equity)}.")
+    if pos:
+        unreal = sum(float(p.get("unrealized_pl", 0) or 0) for p in pos)
+        names = ", ".join(p.get("symbol", "?") for p in pos[:8])
+        ud = "up" if unreal >= 0 else "down"
+        lines.append(f"I'm holding {len(pos)} stock(s): {names}. "
+                     f"Together they're {ud} ${_money(abs(unreal))} so far.")
+    else:
+        lines.append("I'm not holding anything at the moment — I'd rather wait than force a bad trade.")
+    t = (realized or {}).get("today", {}) if realized else {}
+    if t.get("count"):
+        lines.append(f"Today I closed {t['count']} ({t.get('wins', 0)} win / {t.get('losses', 0)} "
+                     f"loss) for ${_money(t.get('realized_pl', 0))} realized.")
+    return "\n".join(lines)
+
+
+def say_record(rec: dict, edges: dict | None = None) -> str:
+    """First-person track-record summary for /record (pure). Honest 'not enough data' until scored."""
+    if not rec or rec.get("status") != "scored" or not rec.get("graded"):
+        return ("📈 I don't have enough closed trades yet to grade myself honestly. "
+                "Once more of my calls play out, I'll show you how I'm really doing.")
+    lines = ["📈 <b>My track record so far.</b>",
+             f"I've been right on about {rec.get('win_rate')}% of my {rec.get('graded')} graded calls."]
+    cal = rec.get("calibration") or {}
+    hi, lo = cal.get("high"), cal.get("low")
+    if isinstance(hi, (int, float)) and isinstance(lo, (int, float)):
+        if hi >= lo:
+            lines.append(f"When I say I'm confident, I'm right more often ({hi}% vs {lo}%) — "
+                         "so my gut is calibrated.")
+        else:
+            lines.append(f"Honest note: lately my 'confident' calls ({hi}%) haven't beaten my "
+                         f"cautious ones ({lo}%) — I'm recalibrating.")
+    if edges and edges.get("edges"):
+        ranked = edges["edges"]
+        winners = [e for e in ranked if e["win_rate"] >= 55][:2]
+        losers = [e for e in ranked if e["win_rate"] <= 45][-2:]
+        if winners:
+            lines.append("I do best on: " + ", ".join(e["tag"] for e in winners) + ".")
+        if losers:
+            lines.append("I struggle with: " + ", ".join(e["tag"] for e in losers)
+                         + " — I'm working on those.")
+    return "\n".join(lines)
+
+
+def say_explain(symbol: str, thesis: str, held: bool) -> str:
+    """First-person 'why this stock' for /explain SYM (pure)."""
+    if not symbol:
+        return "Tell me which stock and I'll explain my thinking — like <code>/explain NVDA</code>."
+    sym = symbol.upper()
+    base = f"<b>{sym}:</b> {thesis}" if thesis else f"I don't have a recent write-up on {sym} yet."
+    hold = " I'm holding it right now." if held else " I'm not holding it at the moment."
+    return base + hold
+
+
+HELP = (
+    "👋 <b>Hey, I'm Tony.</b> I trade a paper account and I'll explain everything in plain English.\n"
+    "Text me:\n"
+    "• <code>/status</code> — how I'm doing right now\n"
+    "• <code>/record</code> — my track record, honestly\n"
+    "• <code>/explain NVDA</code> — why I'm in (or out of) a stock\n"
+    "• <code>/glossary</code> — plain-English meanings of words I use\n"
+    "• <code>/help</code> — this menu"
+)
+
+GLOSSARY = (
+    "📖 <b>Plain-English glossary</b>\n"
+    "• <b>Entry</b> — the price I bought at.\n"
+    "• <b>Stop</b> — my pre-set 'I was wrong' exit; it caps the loss automatically.\n"
+    "• <b>Target</b> — the price I'm aiming to sell at for a profit.\n"
+    "• <b>R / R-multiple</b> — how many times my risk I made. +2R = I made twice what I'd risked.\n"
+    "• <b>Risk %</b> — how much of the whole account I'd lose if a trade hits its stop (I keep it ~1%).\n"
+    "• <b>Unrealized P/L</b> — paper profit on stocks I still hold (not banked yet).\n"
+    "• <b>Realized P/L</b> — actual profit/loss on trades I've already closed."
+)
+
+
 def say_daily_header(equity, day_delta=None) -> str:
     """First-person lead for the daily digest; the metric lines follow underneath."""
     if day_delta is None:
