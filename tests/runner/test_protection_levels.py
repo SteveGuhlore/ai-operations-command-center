@@ -51,3 +51,29 @@ def test_no_fallback_preserves_old_skip_when_no_levels():
 def test_fallback_skips_when_entry_price_unknown():
     positions = [{"symbol": "ORPH", "qty": 4.0}]  # no avg_entry_price
     assert ap.positions_needing_protection(positions, [], {}, fallback_pct=(0.12, 0.20)) == []
+
+
+class _FakeBrokerClose:
+    def __init__(self, positions):
+        self._pos = positions
+        self.closed = []
+
+    def account(self):
+        return {"open_positions": self._pos}
+
+    def close(self, symbol):
+        self.closed.append(symbol)
+
+
+def test_liquidates_fractional_sliver(monkeypatch):
+    monkeypatch.delenv("TONY_LIQUIDATE_FRACTIONAL", raising=False)
+    b = _FakeBrokerClose([{"symbol": "SLB", "qty": 0.593}, {"symbol": "AAA", "qty": 10.0}])
+    assert ap._liquidate_unprotectable_slivers(b) == 1
+    assert b.closed == ["SLB"]  # only the sub-1-share sliver, never the whole-share AAA
+
+
+def test_fractional_liquidation_disabled(monkeypatch):
+    monkeypatch.setenv("TONY_LIQUIDATE_FRACTIONAL", "off")
+    b = _FakeBrokerClose([{"symbol": "SLB", "qty": 0.593}])
+    assert ap._liquidate_unprotectable_slivers(b) == 0
+    assert b.closed == []

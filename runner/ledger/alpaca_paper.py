@@ -714,6 +714,7 @@ def sync(broker=None) -> dict:
     # where present, and an entry-derived catastrophic bracket is the last-resort net.
     protect_levels = _merge_levels(_verdict_levels(verdicts), levels)
     protected = _reconcile_protection(broker, protect_levels, fallback_pct=_fallback_pcts())
+    _liquidate_unprotectable_slivers(broker)  # close sub-1-share slivers that can never be bracketed (SLB)
     _notify_closed(broker)  # exit alerts for anything closed since last cycle (target/stop/close)
 
     try:  # snapshot the book so briefs can inject it without a network call (fail-soft)
@@ -788,6 +789,33 @@ def _reconcile_protection(broker, levels: dict, fallback_pct: tuple | None = Non
         except Exception as exc:
             _log.warning("protect %s failed: %s", need["symbol"], exc)
     return protected
+
+
+def _liquidate_unprotectable_slivers(broker) -> int:
+    """A fractional position (<1 share) CANNOT carry an Alpaca stop/OCO — it can only ever be
+    naked. So auto-close any sub-1-share sliver, leaving no position unprotected (the SLB case).
+    Whole-share positions are never touched. Fail-soft; set TONY_LIQUIDATE_FRACTIONAL=off to disable."""
+    if os.environ.get("TONY_LIQUIDATE_FRACTIONAL", "on").strip().lower() in ("0", "false", "off", "no"):
+        return 0
+    try:
+        positions = broker.account().get("open_positions", [])
+    except Exception as exc:
+        _log.warning("sliver read failed: %s", exc)
+        return 0
+    closed = 0
+    for p in positions:
+        try:
+            qty = float(p.get("qty", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if 0 < qty < 1:
+            try:
+                broker.close(p.get("symbol"))
+                closed += 1
+                _log.info("Liquidated unprotectable fractional sliver %s (%.4f sh)", p.get("symbol"), qty)
+            except Exception as exc:
+                _log.warning("sliver liquidation %s failed: %s", p.get("symbol"), exc)
+    return closed
 
 
 def account_record() -> dict:
