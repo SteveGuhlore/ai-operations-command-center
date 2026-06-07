@@ -718,10 +718,42 @@ def _maybe_send_daily_summary() -> None:
             and isinstance(last_eq, (int, float)) else None
         header = say_daily_header(equity, day_delta)
         notify_daily("\n".join([header] + _build_recap_lines(acct, rec, realized)))
+        try:  # Phase 3: a first-person narrative wrap alongside the metric digest (opt-in, fail-soft)
+            from runner.tools.tony_synthesis import synth_enabled, send_daily_wrap
+            if synth_enabled():
+                send_daily_wrap()
+        except Exception as exc:
+            log.info("daily wrap failed: %s", exc)
         state.parent.mkdir(parents=True, exist_ok=True)
         state.write_text(json.dumps({"date": today}))
     except Exception as exc:
         log.info("daily summary failed: %s", exc)
+
+
+def _maybe_send_weekly_synthesis() -> None:
+    """Phase 3: once per ISO week, push Tony's first-person week-in-review + 'what I'm learning'
+    narratives. Opt-in (TONY_SYNTH=on), fail-soft, no-op when notify/synth is off."""
+    try:
+        import json
+        from datetime import date as _date
+        from pathlib import Path as _Path
+        from runner.tools.notify import _channel
+        from runner.tools.tony_synthesis import synth_enabled, send_weekly_review, send_learning_digest
+        if _channel() in ("", "off") or not synth_enabled():
+            return
+        state = _Path(__file__).parent.parent / "workspace" / "notify-weekly-state.json"
+        week = "-".join(str(x) for x in _date.today().isocalendar()[:2])  # e.g. "2026-23"
+        try:
+            if json.loads(state.read_text()).get("week") == week:
+                return
+        except Exception:
+            pass
+        send_weekly_review()
+        send_learning_digest()
+        state.parent.mkdir(parents=True, exist_ok=True)
+        state.write_text(json.dumps({"week": week}))
+    except Exception as exc:
+        log.info("weekly synthesis failed: %s", exc)
 
 
 def _is_market_closed() -> bool:
@@ -843,6 +875,7 @@ def run_cycle() -> None:
     _maybe_run_learning()
     _maybe_run_tony_self_review()
     _maybe_send_daily_summary()
+    _maybe_send_weekly_synthesis()   # Phase 3: weekly first-person review + learning digest
     try:
         from runner.ledger.tony_scorecard import write_record
         write_record()  # refresh tony_stocks_record.json for the Cockpit (cheap, degrades safely)
