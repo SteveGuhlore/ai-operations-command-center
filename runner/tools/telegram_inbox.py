@@ -56,7 +56,8 @@ def _status_reply() -> str:
 
 def _record_reply() -> str:
     from runner.ledger.tony_scorecard import compute_record, discover_edges
-    return voice.say_record(compute_record(), discover_edges())
+    from runner.ledger.tony_realized import summary as realized_summary
+    return voice.say_record(compute_record(), discover_edges(), realized_summary())
 
 
 def _explain_reply(symbol: str) -> str:

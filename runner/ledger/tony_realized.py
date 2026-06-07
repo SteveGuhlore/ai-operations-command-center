@@ -92,3 +92,67 @@ def summary() -> dict:
     today = str(date.today())
     return {"today": _agg([r for r in rows if r.get("date") == today]),
             "all_time": _agg(rows)}
+
+
+def reconcile_from_fills(fills: list) -> list:
+    """FIFO-match SELL fills to prior BUY fills per symbol; return one realized row per SELL with a
+    real P/L. `fills`: chronological dicts {symbol, side('buy'/'sell'), qty, price, order_id,
+    order_type, time, date}. A SELL with no matching prior BUY in the window is skipped (we never
+    invent an entry). order_type maps the exit reason: stop->stop, limit/take_profit->target,
+    else->close. This is the authoritative path — it captures stop-outs the live diff never saw."""
+    from collections import defaultdict, deque
+    lots: dict = defaultdict(deque)  # symbol -> deque([qty, price])
+    rows: list = []
+    for f in sorted(fills, key=lambda x: str(x.get("time", ""))):
+        sym = f.get("symbol")
+        side = (f.get("side") or "").lower()
+        try:
+            qty, price = float(f.get("qty")), float(f.get("price"))
+        except (TypeError, ValueError):
+            continue
+        if qty <= 0 or price <= 0 or not sym:
+            continue
+        if side == "buy":
+            lots[sym].append([qty, price])
+        elif side == "sell":
+            remaining, cost, matched = qty, 0.0, 0.0
+            dq = lots[sym]
+            while remaining > 1e-9 and dq:
+                lot = dq[0]
+                take = min(remaining, lot[0])
+                cost += take * lot[1]
+                matched += take
+                lot[0] -= take
+                remaining -= take
+                if lot[0] <= 1e-9:
+                    dq.popleft()
+            if matched <= 1e-9:
+                continue  # no entry in the window — don't fabricate a P/L
+            avg_entry = cost / matched
+            ot = (f.get("order_type") or "").lower()
+            reason = "stop" if ot == "stop" else ("target" if ot in ("limit", "take_profit") else "close")
+            rows.append({
+                "symbol": sym, "qty": round(matched, 4), "entry": round(avg_entry, 4),
+                "exit": round(price, 4), "realized_pl": round((price - avg_entry) * matched, 2),
+                "pct": round((price - avg_entry) / avg_entry * 100, 2) if avg_entry else 0.0,
+                "reason": reason, "date": f.get("date"), "exit_order_id": f.get("order_id"),
+            })
+    return rows
+
+
+def rebuild_from_fills(fills: list) -> dict:
+    """Merge Alpaca-reconciled exits into the ledger: keep only id'd rows (drops legacy/bogus
+    un-id'd records), add any new reconciled exit not already present (dedup by exit_order_id).
+    Preserves history beyond the fetch window while making Alpaca the source of truth."""
+    reconciled = reconcile_from_fills(fills)
+    existing = [r for r in _load() if r.get("exit_order_id")]
+    seen = {r.get("exit_order_id") for r in existing}
+    merged = existing + [r for r in reconciled if r.get("exit_order_id") not in seen]
+    merged.sort(key=lambda r: (str(r.get("date", "")), str(r.get("symbol", ""))))
+    try:
+        REALIZED_FILE.parent.mkdir(parents=True, exist_ok=True)
+        REALIZED_FILE.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+    except OSError as exc:
+        _log.warning("realized rebuild write failed: %s", exc)
+    return {"records": len(merged), "added": len(merged) - len(existing),
+            "realized_pl": round(sum(float(r.get("realized_pl", 0) or 0) for r in merged), 2)}

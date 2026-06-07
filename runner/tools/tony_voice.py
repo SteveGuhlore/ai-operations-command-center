@@ -89,14 +89,27 @@ def say_status(acct: dict, realized: dict | None = None) -> str:
     return "\n".join(lines)
 
 
-def say_record(rec: dict, edges: dict | None = None) -> str:
-    """First-person track-record summary for /record (pure). Honest 'not enough data' until scored."""
-    if not rec or rec.get("status") != "scored" or not rec.get("graded"):
-        return ("📈 I don't have enough closed trades yet to grade myself honestly. "
-                "Once more of my calls play out, I'll show you how I'm really doing.")
-    lines = ["📈 <b>My track record so far.</b>",
-             f"I've been right on about {rec.get('win_rate')}% of my {rec.get('graded')} graded calls."]
-    cal = rec.get("calibration") or {}
+def say_record(rec: dict, edges: dict | None = None, realized: dict | None = None) -> str:
+    """First-person track record for /record (pure). Leads with my REAL closed trades (actual wins,
+    losses, $ — from the Alpaca-reconciled ledger), then scanner-pick accuracy + my edges."""
+    r = (realized or {}).get("all_time", {}) if realized else {}
+    lines = ["📈 <b>My track record so far.</b>"]
+    if r.get("count"):
+        wins, losses, pl = r.get("wins", 0), r.get("losses", 0), float(r.get("realized_pl", 0) or 0)
+        verb = "made" if pl >= 0 else "lost"
+        lines.append(f"I've closed {r['count']} trades — {wins} winner(s), {losses} loser(s) — and "
+                     f"{verb} ${_money(abs(pl))} overall.")
+        stops = (r.get("by_reason") or {}).get("stop", 0)
+        if stops:
+            lines.append(f"{stops} of those were me cutting a loss at my stop — that's discipline, "
+                         "not failure; it's how I keep a bad trade small.")
+    else:
+        lines.append("I haven't closed any trades yet — still early.")
+
+    if rec and rec.get("status") == "scored" and rec.get("graded"):
+        lines.append(f"On the scanner's picks, I've called it right about {rec.get('win_rate')}% "
+                     f"of {rec.get('graded')} times.")
+    cal = (rec or {}).get("calibration") or {}
     hi, lo = cal.get("high"), cal.get("low")
     if isinstance(hi, (int, float)) and isinstance(lo, (int, float)):
         if hi >= lo:

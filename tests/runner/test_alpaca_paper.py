@@ -300,24 +300,27 @@ def test_sync_reprices_on_intraday_adjust(tmp_path, monkeypatch):
     assert b.reprices == [("AAA", 10, 30.0, 25.0)]  # Tony's adjust levels, not the scanner's 40/20
 
 
-def test_notify_closed_records_realized(tmp_path, monkeypatch):
-    # When a held position disappears, _notify_closed must append a realized-trade record.
+def test_notify_closed_alerts_but_no_longer_writes_ledger(tmp_path, monkeypatch):
+    # New contract: _notify_closed fires the exit ALERT, but the realized LEDGER is now rebuilt
+    # authoritatively from Alpaca fills (reconcile_realized) — so it no longer writes un-id'd rows.
     from runner.ledger import tony_realized as tr
+    import runner.tools.notify as nf
     monkeypatch.setattr(ap, "NOTIFY_STATE", tmp_path / "notify.json")
     monkeypatch.setattr(tr, "REALIZED_FILE", tmp_path / "realized.json")
-    monkeypatch.setattr(ap, "BRIDGE_DIR", tmp_path / "nobridge")  # no levels -> reason unknown/close
+    monkeypatch.setattr(ap, "BRIDGE_DIR", tmp_path / "nobridge")
     (tmp_path / "notify.json").write_text(json.dumps(
         [{"symbol": "AAA", "qty": 10.0, "avg_entry_price": 20.0}]))
+    calls = []
+    monkeypatch.setattr(nf, "notify_exit",
+                        lambda *a, **k: calls.append((a, k)) or {"sent": True})
 
     class ExitBroker(FakeBroker):
         def _latest_price(self, symbol):
             return 30.0
 
-    b = ExitBroker(positions=[])  # AAA gone -> closed
-    ap._notify_closed(b)
-    rows = json.load(open(tmp_path / "realized.json"))
-    assert len(rows) == 1
-    assert rows[0]["symbol"] == "AAA" and rows[0]["realized_pl"] == 100.0
+    ap._notify_closed(ExitBroker(positions=[]))  # AAA gone -> closed
+    assert len(calls) == 1 and calls[0][0][0] == "AAA"      # alert fired for AAA
+    assert not (tmp_path / "realized.json").exists()        # ledger NOT written here anymore
 
 
 def test_sync_skips_buy_when_market_closed(tmp_path, monkeypatch):

@@ -404,7 +404,46 @@ def _alpaca_broker():
                     _log.info("cancel entry %s: %s", o.get("symbol"), exc)
             return cancelled
 
+        def filled_orders(self, limit=200):
+            """Read-only: Alpaca's actual filled orders as chronological fill dicts. The authoritative
+            record for reconciling realized trades (captures stop-outs the live diff missed)."""
+            from alpaca.trading.requests import GetOrdersRequest
+            from alpaca.trading.enums import QueryOrderStatus
+            ords = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=limit))
+            out = []
+            for o in ords:
+                if str(o.status).rsplit(".", 1)[-1].lower() != "filled" or not o.filled_avg_price:
+                    continue
+                out.append({
+                    "symbol": o.symbol,
+                    "side": str(o.side).rsplit(".", 1)[-1].lower(),
+                    "qty": float(o.filled_qty) if o.filled_qty else 0.0,
+                    "price": float(o.filled_avg_price),
+                    "order_id": str(o.id),
+                    "order_type": str(o.order_type).rsplit(".", 1)[-1].lower(),
+                    "time": str(o.filled_at),
+                    "date": str(o.filled_at)[:10],
+                })
+            return out
+
     return _Broker()
+
+
+def reconcile_realized(broker=None) -> dict:
+    """Rebuild Tony's realized ledger from Alpaca's authoritative fill history (FIFO-matched).
+    Fail-soft: a no-keys or API error is a no-op, never raises into the cycle."""
+    try:
+        if broker is None:
+            broker = _alpaca_broker()
+        if broker is None:
+            return {"status": "no_keys"}
+        from runner.ledger.tony_realized import rebuild_from_fills
+        res = rebuild_from_fills(broker.filled_orders())
+        res["status"] = "ok"
+        return res
+    except Exception as exc:
+        _log.warning("reconcile realized failed: %s", exc)
+        return {"status": "error", "error": str(exc)}
 
 
 NOTIFY_STATE = Path(__file__).parent.parent.parent / "workspace" / "notify-state.json"
@@ -483,11 +522,9 @@ def _notify_closed(broker) -> None:
             notify_exit(sym, qty, last, round(pnl, 2), r_mult=r_mult, reason=reason)
         except Exception as exc:
             _log.info("notify exit %s failed: %s", sym, exc)
-        try:  # Component D: persist the realized trade (fail-soft — never touches the trading path)
-            from runner.ledger.tony_realized import record_realized
-            record_realized(sym, qty, entry, last, lv.get("target"), lv.get("stop"))
-        except Exception as exc:
-            _log.info("realized record %s failed: %s", sym, exc)
+        # The realized LEDGER is now rebuilt authoritatively from Alpaca fills (reconcile_realized),
+        # which captures stop-outs the live diff misses and dedups by order id — so we no longer
+        # write un-id'd rows here (that path produced the bogus 'HELD' record). Alerts stay above.
     snap = [{"symbol": p.get("symbol"), "qty": p.get("qty"),
              "avg_entry_price": p.get("avg_entry_price")} for p in current + unresolved]
     try:

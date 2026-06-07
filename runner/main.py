@@ -840,6 +840,11 @@ def run_cycle() -> None:
         except Exception as exc:
             log.warning("idle alpaca sync failed: %s", exc)
         try:
+            from runner.ledger.alpaca_paper import reconcile_realized
+            reconcile_realized()  # keep the realized ledger true to Alpaca, overnight too
+        except Exception as exc:
+            log.warning("idle realized reconcile failed: %s", exc)
+        try:
             from runner.ledger.tony_scorecard import write_record
             write_record()
         except Exception as exc:
@@ -876,6 +881,11 @@ def run_cycle() -> None:
     _maybe_run_tony_self_review()
     _maybe_send_daily_summary()
     _maybe_send_weekly_synthesis()   # Phase 3: weekly first-person review + learning digest
+    try:
+        from runner.ledger.alpaca_paper import reconcile_realized
+        reconcile_realized()  # rebuild realized ledger from Alpaca fills (captures all real exits)
+    except Exception as exc:
+        log.warning("realized reconcile failed: %s", exc)
     try:
         from runner.ledger.tony_scorecard import write_record
         write_record()  # refresh tony_stocks_record.json for the Cockpit (cheap, degrades safely)
