@@ -93,7 +93,15 @@ Specs: `docs/superpowers/specs/2026-06-06-tony-telegram-companion-design.md`.
 Operator wants ALL tiers built. Roadmap (durable plan):
 `docs/superpowers/specs/2026-06-06-tony-telegram-face-roadmap.md`. Build in focused sessions, each
 behind tests + a runner restart, in this order:
-- **Tier 1 (start here — highest impact, now sits on honest data):** (a) **natural-language chat** —
+- **⚠️ FIRST, fix two known chat issues (verified 2026-06-06 eve):** (i) **latency** — the poller runs
+  once per 180s cycle (`getUpdates timeout=0`), so a `/record` reply lags up to ~3 min and FEELS
+  broken (it works — runner logged "handled 1", and a manual send returned HTTP 200/ok). Move telegram
+  polling to a faster/dedicated loop or use real long-polling (`getUpdates timeout=25` in a thread).
+  (ii) **robustness** — `telegram_inbox.poll_and_handle` advances the offset even when `notify()`
+  returns `sent:False`, so a failed reply is lost (not retried); only advance past messages whose reply
+  actually sent. Operator chat is a **supergroup** (`TELEGRAM_CHAT_ID=-100…`), bot privacy is fine
+  (commands arrive). THEN:
+- **Tier 1 (highest impact, now sits on honest data):** (a) **natural-language chat** —
   non-command text → an LLM reply AS Tony using live data + his tools; route in
   `telegram_inbox.reply_for` fallback to a new `tony_synthesis.answer(question, ctx)`. (b) **inline
   keyboard buttons** (Telegram `reply_markup` + handle `callback_query` in the poller). (c) **proactive
