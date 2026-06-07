@@ -1,6 +1,29 @@
 from runner.tools import tony_synthesis as ts
 
 
+def test_answer_pins_facts_and_is_public_safe(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(ts, "_book_facts", lambda: {
+        "acct": {"status": "ok", "equity": 1010000, "open_positions": []},
+        "realized": {"all_time": {"count": 4, "wins": 2, "losses": 2, "realized_pl": 100}}})
+    def _cap(prompt, max_words=90):
+        captured["p"] = prompt
+        return "Hey — I'm up nicely today."
+    monkeypatch.setattr(ts, "_narrate", _cap)
+    out = ts.answer("how are you doing?", public=True)
+    assert out == "Hey — I'm up nicely today."
+    assert "use only these" in captured["p"].lower()
+    assert "watchlist" in captured["p"].lower()      # instruction tells the model NOT to reveal it
+    assert "do not reveal" in captured["p"].lower()
+
+
+def test_answer_degrades_when_model_fails(monkeypatch):
+    monkeypatch.setattr(ts, "_book_facts", lambda: {
+        "acct": {"status": "ok", "equity": 1, "open_positions": []}, "realized": {}})
+    monkeypatch.setattr(ts, "_narrate", lambda *a, **k: "")
+    assert ts.answer("anything", public=True) == ""       # caller falls back to canned
+
+
 def test_synth_enabled_flag(monkeypatch):
     monkeypatch.setenv("TONY_SYNTH", "on")
     assert ts.synth_enabled() is True

@@ -793,15 +793,13 @@ def _maybe_stage_research_followups() -> None:
 
 
 def _maybe_handle_telegram_chat() -> None:
-    """Phase 2: answer the operator's inbound Telegram messages (read-only, opt-in, fail-soft).
-    Runs before the budget gate so chat always works — it costs nothing and never trades."""
+    """Ensure the background Telegram long-poll thread is running (idempotent, fail-soft).
+    Real-time replies happen on that thread (near-instant), not in the 180s cycle."""
     try:
-        from runner.tools.telegram_inbox import poll_and_handle
-        res = poll_and_handle()
-        if res.get("handled"):
-            log.info("Telegram chat: handled %d message(s)", res["handled"])
+        from runner.tools.telegram_inbox import start_poller
+        start_poller()
     except Exception as exc:
-        log.info("telegram chat poll failed: %s", exc)
+        log.info("telegram poller start failed: %s", exc)
 
 
 def run_cycle() -> None:
@@ -881,6 +879,14 @@ def run_cycle() -> None:
     _maybe_run_tony_self_review()
     _maybe_send_daily_summary()
     _maybe_send_weekly_synthesis()   # Phase 3: weekly first-person review + learning digest
+    try:
+        from runner.tools import tony_nudges
+        tony_nudges.maybe_equity_high()
+        if _is_market_closed():
+            from datetime import date
+            tony_nudges.maybe_eod_signoff(str(date.today()))
+    except Exception as exc:
+        log.info("nudges failed: %s", exc)
     try:
         from runner.ledger.alpaca_paper import reconcile_realized
         reconcile_realized()  # rebuild realized ledger from Alpaca fills (captures all real exits)

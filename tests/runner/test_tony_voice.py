@@ -1,6 +1,24 @@
 from runner.tools import tony_voice as v
 
 
+def test_record_row_and_page():
+    rows = [{"symbol": "FCX", "realized_pl": -462.2, "pct": -3.1, "reason": "stop", "date": "2026-06-05"},
+            {"symbol": "NVDA", "realized_pl": 924.0, "pct": 6.2, "reason": "target", "date": "2026-06-04"}]
+    line = v._record_row(rows[0])
+    assert "FCX" in line and "462" in line and "stop" in line.lower()
+    realized = {"all_time": {"count": 2, "wins": 1, "losses": 1, "realized_pl": 461.8,
+                             "by_reason": {"stop": 1, "target": 1}}}
+    page = v.say_record_page(rows, realized, page=0, page_size=12)
+    assert "track record" in page["text"].lower()
+    assert "FCX" in page["text"] and "NVDA" in page["text"]
+    assert page["has_more"] is False
+    many = [dict(rows[0], symbol=f"S{i}") for i in range(13)]
+    p0 = v.say_record_page(many, realized, page=0, page_size=12)
+    assert p0["has_more"] is True and p0["text"].count("\n") >= 12
+    p1 = v.say_record_page(many, realized, page=1, page_size=12)
+    assert "S12" in p1["text"] and p1["has_more"] is False
+
+
 def test_entry_first_person_with_thesis():
     s = v.say_entry("NVDA", 66, 100.0, 94.0, 115.0, 1.0, reason="breakout over $99 on heavy volume")
     assert s.startswith("🟢")

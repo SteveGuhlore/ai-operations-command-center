@@ -94,6 +94,12 @@ def summary() -> dict:
             "all_time": _agg(rows)}
 
 
+def records(newest_first: bool = True) -> list:
+    """All realized rows ordered by date (then symbol). For the paged /record view."""
+    rows = sorted(_load(), key=lambda r: (str(r.get("date", "")), str(r.get("symbol", ""))))
+    return list(reversed(rows)) if newest_first else rows
+
+
 def reconcile_from_fills(fills: list) -> list:
     """FIFO-match SELL fills to prior BUY fills per symbol; return one realized row per SELL with a
     real P/L. `fills`: chronological dicts {symbol, side('buy'/'sell'), qty, price, order_id,

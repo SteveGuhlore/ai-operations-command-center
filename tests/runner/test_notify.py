@@ -60,6 +60,33 @@ def test_entry_and_exit_formatting(monkeypatch):
     assert "I adjusted FCX" in msgs[3] and "stop $61.88" in msgs[3] and "target $74.62" in msgs[3]
 
 
+def test_notify_chat_override_and_markup(monkeypatch):
+    monkeypatch.setenv("TONY_NOTIFY", "telegram")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "999")
+    sent = _capture(monkeypatch)
+    kb = nf.inline_keyboard([[("📊 Status", "cmd:status")]])
+    assert nf.notify("hi", chat_id="555", reply_markup=kb)["sent"] is True
+    assert sent["chat_id"] == "555"
+    assert sent["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "cmd:status"
+
+
+def test_broadcast_targets_public_channel(monkeypatch):
+    monkeypatch.setenv("TONY_NOTIFY", "telegram")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("TELEGRAM_PUBLIC_CHANNEL_ID", "-100777")
+    sent = _capture(monkeypatch)
+    assert nf.broadcast("public news")["sent"] is True
+    assert sent["chat_id"] == "-100777"
+
+
+def test_broadcast_noop_without_channel(monkeypatch):
+    monkeypatch.setenv("TONY_NOTIFY", "telegram")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.delenv("TELEGRAM_PUBLIC_CHANNEL_ID", raising=False)
+    assert nf.broadcast("x")["sent"] is False
+
+
 def test_network_error_soft_fails(monkeypatch):
     monkeypatch.setenv("TONY_NOTIFY", "telegram")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")

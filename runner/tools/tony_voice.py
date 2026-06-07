@@ -130,6 +130,65 @@ def say_record(rec: dict, edges: dict | None = None, realized: dict | None = Non
     return "\n".join(lines)
 
 
+_REASON_WORD = {"stop": "hit my stop", "target": "hit my target", "close": "I stepped aside",
+                "unknown": "closed out"}
+
+
+def _day_label(date_str) -> str:
+    """Friendly short day for a YYYY-MM-DD: weekday for the last week, else MM-DD."""
+    from datetime import date, datetime
+    try:
+        d = datetime.strptime(str(date_str), "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return str(date_str or "")
+    delta = (date.today() - d).days
+    if delta == 0:
+        return "today"
+    if delta == 1:
+        return "yesterday"
+    if 0 < delta < 7:
+        return d.strftime("%a")
+    return d.strftime("%m-%d")
+
+
+def _record_row(r: dict) -> str:
+    pl = float(r.get("realized_pl", 0) or 0)
+    emoji = "🟩" if pl >= 0 else "🟥"
+    amt = f"+${_money(pl)}" if pl >= 0 else f"−${_money(abs(pl))}"
+    pct = r.get("pct")
+    pct_s = f" ({pct:+.1f}%)" if isinstance(pct, (int, float)) else ""
+    why = _REASON_WORD.get(r.get("reason", "unknown"), "closed out")
+    return f"{emoji} <b>{r.get('symbol', '?')}</b> {amt}{pct_s} · {_day_label(r.get('date'))} · {why}"
+
+
+def _record_summary(realized: dict | None) -> str:
+    r = (realized or {}).get("all_time", {}) if realized else {}
+    if not r.get("count"):
+        return "I haven't closed any trades yet — still early."
+    wins, losses, pl = r.get("wins", 0), r.get("losses", 0), float(r.get("realized_pl", 0) or 0)
+    verb = "made" if pl >= 0 else "lost"
+    return (f"I've closed {r['count']} trades — {wins} winner(s), {losses} loser(s) — and "
+            f"{verb} ${_money(abs(pl))} overall.")
+
+
+def say_record_page(rows: list, realized: dict | None, page: int = 0, page_size: int = 12) -> dict:
+    """Paged track record: {'text', 'has_more', 'page'}. Page 0 leads with the summary; every page
+    lists up to page_size closed trades (newest first). Pure."""
+    page = max(0, int(page))
+    start = page * page_size
+    chunk = rows[start:start + page_size]
+    lines = []
+    if page == 0:
+        lines.append("📈 <b>My track record so far.</b>")
+        lines.append(_record_summary(realized))
+    else:
+        lines.append(f"📈 <b>More closed trades</b> (page {page + 1})")
+    lines.extend(_record_row(r) for r in chunk)
+    if not chunk:
+        lines.append("That's all of them.")
+    return {"text": "\n".join(lines), "has_more": start + page_size < len(rows), "page": page}
+
+
 def say_explain(symbol: str, thesis: str, held: bool) -> str:
     """First-person 'why this stock' for /explain SYM (pure)."""
     if not symbol:
