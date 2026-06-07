@@ -63,9 +63,14 @@ for Monday, then idles ~57h.**
 **This needs design research FIRST — figure out the right approach before building.** Open question:
 once the universe deep-dive + 6 synthesis tasks are done, what *additional, high-value* research
 should Tony do with the rest of the closed window? Candidates to evaluate (none decided yet):
-deeper multi-angle / second-pass analysis on top-conviction names; broader-universe scans beyond the
-scanner; continuous re-checks as fresh overnight news lands; cross-asset / macro / sector deep-dives;
-competitor & supply-chain reads; back-testing his own patterns against history; thesis pre-mortems.
+**deeper / iterative SELF-LEARNING** — re-grade as picks resolve, calibration studies (does
+`confidence: high` actually beat `low`?), and mining + back-testing his own `pattern-library.md` /
+`learned_rules.md` against history (high-value, compounding, and cheap since it mostly reuses data he
+already has rather than heavy web search — a strong default for filling idle time); deeper multi-angle
+/ second-pass analysis on top-conviction names; broader-universe scans beyond the scanner; continuous
+re-checks as fresh overnight news lands; cross-asset / macro / sector deep-dives; competitor &
+supply-chain reads; thesis pre-mortems. Already present: ONE `tony_self_review` task per wave — the
+move is to run self-learning MORE and DEEPER, not just once.
 **Research which of these are actually worth Tony's time and how to sequence them**, then implement
 (likely a richer/extended wave or a follow-on research backlog) in `runner/bridge/research_wave.py`,
 update `tests/runner/test_research_wave.py`, and restart the runner (module caching — see §4).
