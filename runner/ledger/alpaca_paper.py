@@ -194,6 +194,53 @@ def _load(p) -> list:
         return []
 
 
+# --- Phase-0 code-enforced guards (LLM-independent). All default OFF: live paper behavior is
+# unchanged until the operator flips the flag. Each is fail-soft — a guard error never blocks the
+# trading cycle. See docs/runbooks/tony-real-money-cutover.md for the flags. ---
+def _flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _audit(kind, symbol=None, **fields) -> None:
+    if not _flag("TONY_DECISION_AUDIT"):
+        return
+    try:
+        from runner.ledger.decision_audit import record_decision
+        record_decision(kind, symbol, **fields)
+    except Exception as exc:
+        _log.info("decision audit skipped: %s", exc)
+
+
+def _breaker_state_safe():
+    """T1.3 drawdown circuit breaker — returns the state dict, or None when disabled/unavailable."""
+    if not _flag("TONY_BREAKER_ENABLED"):
+        return None
+    try:
+        from runner.ledger.drawdown_breaker import current_breaker
+        return current_breaker()
+    except Exception as exc:
+        _log.info("breaker unavailable: %s", exc)
+        return None
+
+
+def _apply_cluster_cap(plan: list, held_symbols) -> list:
+    """T1.9 portfolio cluster-risk cap — drop new buys that would over-concentrate a correlated
+    cluster. No-op (returns plan unchanged) when disabled or on any error."""
+    if not _flag("TONY_CLUSTER_CAP_ENABLED"):
+        return plan
+    try:
+        from runner.ledger import cluster_risk
+        held = [{"symbol": s, "qty": 1} for s in held_symbols]
+        allowed, blocked = cluster_risk.filter_new_buys(plan, held)
+        for b in blocked:
+            _audit("cluster_block", b.get("symbol"), reason=b.get("blocked_reason"))
+            _log.info("cluster cap blocked %s (%s)", b.get("symbol"), b.get("blocked_reason"))
+        return allowed
+    except Exception as exc:
+        _log.warning("cluster cap failed: %s", exc)
+        return plan
+
+
 def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None = None,
                 held_symbols=(), max_new_buys=None) -> list:
     """Pure: turn fresh verdicts into intended paper actions (skips ones already executed).
@@ -554,7 +601,12 @@ def sync(broker=None) -> dict:
     today_opens = sum(1 for k in done if isinstance(k, str) and k.startswith(today) and k.endswith(":open"))
     max_new = max(0, min(MAX_OPEN_POSITIONS - len(held), MAX_DAILY_ORDERS - today_opens))
     plan = plan_orders(verdicts, done, levels, held, max_new_buys=max_new)
+    plan = _apply_cluster_cap(plan, held)  # T1.9 correlated-cluster cap (OFF by default)
 
+    breaker = _breaker_state_safe()  # T1.3 drawdown circuit breaker (OFF by default)
+    if breaker and breaker.get("halted"):
+        _log.warning("drawdown breaker HALTED new entries: %s", breaker.get("reasons"))
+        _audit("breaker", reasons=breaker.get("reasons"), state=breaker)
     conv_on = conviction_enabled()  # B1: scale risk by confidence only when the gate proves out
     # Market-hours gate (Component A): a closed-market `buy` would open on stale closed prices and
     # gap over the weekend — block entries when closed. close/reprice/protect/reconcile still run
@@ -568,16 +620,26 @@ def sync(broker=None) -> dict:
             if action["action"] == "buy":
                 if session == "closed":
                     continue  # do NOT submit, add to done, or alert — re-evaluated at the next open
-                mult = conviction_multiplier(action.get("confidence")) if conv_on else 1.0
+                if breaker and breaker.get("halted"):
+                    # Code-enforced halt: skip the entry (NOT marked done) so it's re-evaluated once
+                    # the book stabilizes. Independent of the LLM — a model can't override the halt.
+                    _audit("skip", action["symbol"], reason="breaker_halt")
+                    continue
+                throttle = breaker.get("throttle_mult", 1.0) if breaker else 1.0
+                mult = (conviction_multiplier(action.get("confidence")) if conv_on else 1.0) * throttle
                 rp = RISK_PCT * mult
                 info = broker.buy(action["symbol"], action["notional"],
                                   action.get("target"), action.get("stop"), risk_pct=rp) or {}
                 opened_now.add(action["symbol"])
+                _audit("order", action["symbol"], action="buy", risk_pct=round(rp, 4),
+                       qty=info.get("qty"), entry=info.get("entry"),
+                       target=action.get("target"), stop=action.get("stop"))
                 _notify_entry_safe(action["symbol"], info.get("qty"), info.get("entry"),
                                    action.get("stop"), action.get("target"), risk_pct=rp,
                                    reason=_verdict_thesis(verdicts, action["symbol"]))
             elif action["action"] == "close":
                 broker.close(action["symbol"])
+                _audit("order", action["symbol"], action="close")
             done.add(action["key"])
             executed += 1
         except Exception as exc:

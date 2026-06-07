@@ -116,7 +116,24 @@ def get_stock_news(symbol: str, limit: int = 10, days: int = 14) -> dict:
     merged = sorted(seen.values(), key=lambda a: a["published"] or "", reverse=True)[:limit]
 
     providers = sorted({a["provider"] for a in merged})
+
+    # External-data injection guard (default OFF): headlines/summaries are untrusted free text that
+    # feeds Tony's verdict reasoning — a poisoned headline must not steer a verdict or invent a level.
+    # Sanitize the two free-text fields in place (preserving all other keys); flag what was neutralized.
+    guard_flags: list = []
+    if os.environ.get("TONY_INPUT_GUARD", "").strip().lower() in ("1", "true", "on", "yes"):
+        try:
+            from runner.tools.external_data_guard import sanitize_text
+            for a in merged:
+                a["headline"], f1 = sanitize_text(a.get("headline") or "", max_len=200)
+                a["summary"], f2 = sanitize_text(a.get("summary") or "", max_len=400)
+                guard_flags.extend(f1 + f2)
+        except Exception as exc:
+            _log.info("input guard skipped: %s", exc)
+
     out = {"symbol": sym, "count": len(merged), "articles": merged, "providers": providers}
+    if guard_flags:
+        out["input_guard_flags"] = sorted(set(guard_flags))
     if not merged:
         out["note"] = (
             "No news returned. Check ALPACA_API_KEY/ALPACA_SECRET_KEY (Alpaca news) "
