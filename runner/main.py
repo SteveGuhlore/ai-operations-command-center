@@ -62,6 +62,9 @@ from runner.scheduler.daily_jobs import (
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+# httpx logs the full request URL at INFO, leaking ?api_key=/&token= (FRED/Finnhub/SerpAPI) into the
+# launch logs. Mute it to WARNING — we don't need per-request URL noise and never want keys on disk.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger(__name__)
 
 # Slash-free IDs route to Google direct (GOOGLE_AI_API_KEY, $300 free credit).
