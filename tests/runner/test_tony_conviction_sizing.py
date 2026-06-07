@@ -100,6 +100,7 @@ def _wire(tmp_path, monkeypatch, verdicts):
     monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
     monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
     monkeypatch.setattr(ap, "_latest_scanner_levels", lambda: {})
+    monkeypatch.setenv("TONY_MARKET_SESSION", "open")  # exercise buy mechanics regardless of wall-clock (weekend-safe)
 
 
 def test_sync_flat_when_disabled(tmp_path, monkeypatch):

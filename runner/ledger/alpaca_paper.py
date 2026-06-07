@@ -107,12 +107,51 @@ def _latest_scanner_levels() -> dict:
         return {}
 
 
-def positions_needing_protection(positions: list, open_orders: list, levels: dict) -> list:
+def _verdict_levels(verdicts: list) -> dict:
+    """Pure: per-symbol target/stop from Tony's OWN verdicts (latest valid by date). A held
+    position keeps protective levels even after the scanner stops surfacing it — without this a
+    name that aged out of the bridge (e.g. SLB) has no level source and goes naked overnight."""
+    out: dict[str, dict] = {}
+    best_date: dict[str, str] = {}
+    for v in verdicts:
+        sym = v.get("symbol")
+        target, stop = v.get("target"), v.get("stop")
+        if not sym or not (target and stop):
+            continue
+        try:
+            if float(target) <= float(stop):
+                continue
+        except (TypeError, ValueError):
+            continue
+        d = str(v.get("date", ""))
+        if sym not in best_date or d >= best_date[sym]:
+            best_date[sym] = d
+            out[sym] = {"target": float(target), "stop": float(stop)}
+    return out
+
+
+def _merge_levels(*sources: dict) -> dict:
+    """Pure: combine level dicts; later sources win. Pass the freshest (scanner) last so it
+    overrides Tony's older verdict levels, while verdict-only names still fill the gaps."""
+    merged: dict[str, dict] = {}
+    for src in sources:
+        if src:
+            merged.update(src)
+    return merged
+
+
+def positions_needing_protection(positions: list, open_orders: list, levels: dict,
+                                 fallback_pct: tuple | None = None) -> list:
     """Pure: which open positions are carrying no stop/target and should get a GTC OCO.
     A day-bracket's exit legs expire at the 16:00 close, leaving the position naked overnight;
     this finds those so sync() can re-attach protection. Protects the whole-share floor (Alpaca
     rejects stop/limit legs on fractional qty, so a 17.59-share legacy position still gets 17
-    protected); skips sub-1-share slivers and any symbol without valid target>stop."""
+    protected); skips sub-1-share slivers.
+
+    When a whole-share position has no known levels (scanner dropped it AND no verdict),
+    `fallback_pct=(stop_pct, target_pct)` derives a catastrophic bracket from the entry price so
+    the position is NEVER left naked overnight. Off by default (preserves the old skip behavior);
+    skips when the entry price is unknown."""
     protected = {o.get("symbol") for o in open_orders if o.get("side") == "sell"}
     out = []
     for p in positions:
@@ -123,6 +162,16 @@ def positions_needing_protection(positions: list, open_orders: list, levels: dic
         lv = levels.get(sym) or {}
         target, stop = lv.get("target"), lv.get("stop")
         if not (target and stop) or float(target) <= float(stop):
+            if fallback_pct:
+                try:
+                    entry = float(p.get("avg_entry_price") or 0)
+                except (TypeError, ValueError):
+                    entry = 0.0
+                if entry > 0:
+                    stop_pct, target_pct = fallback_pct
+                    out.append({"symbol": sym, "qty": whole,
+                                "target": round(entry * (1 + target_pct), 2),
+                                "stop": round(entry * (1 - stop_pct), 2)})
             continue
         out.append({"symbol": sym, "qty": whole,
                     "target": round(float(target), 2), "stop": round(float(stop), 2)})
@@ -653,7 +702,11 @@ def sync(broker=None) -> dict:
     except OSError as exc:
         _log.warning("executed-log write failed: %s", exc)
 
-    protected = _reconcile_protection(broker, levels)
+    # Protect held positions from the freshest source available: Tony's verdict levels fill in any
+    # name the scanner no longer surfaces (the SLB naked-overnight bug), scanner levels override
+    # where present, and an entry-derived catastrophic bracket is the last-resort net.
+    protect_levels = _merge_levels(_verdict_levels(verdicts), levels)
+    protected = _reconcile_protection(broker, protect_levels, fallback_pct=_fallback_pcts())
     _notify_closed(broker)  # exit alerts for anything closed since last cycle (target/stop/close)
 
     try:  # snapshot the book so briefs can inject it without a network call (fail-soft)
@@ -693,10 +746,24 @@ def _reprice_adjusted(broker, verdicts: list, done: set, opened_now: set) -> int
     return count
 
 
-def _reconcile_protection(broker, levels: dict) -> int:
+def _fallback_pcts() -> tuple | None:
+    """Catastrophic-stop fallback (stop_pct, target_pct) for naked positions with no scanner OR
+    verdict levels — a wide net so nothing is ever naked overnight. Env-tunable; set
+    TONY_FALLBACK_PROTECTION=off to disable. Defaults: 12% stop / 20% target."""
+    if os.environ.get("TONY_FALLBACK_PROTECTION", "on").strip().lower() in ("0", "false", "off", "no"):
+        return None
+    try:
+        return (float(os.environ.get("TONY_FALLBACK_STOP_PCT", "0.12")),
+                float(os.environ.get("TONY_FALLBACK_TARGET_PCT", "0.20")))
+    except ValueError:
+        return (0.12, 0.20)
+
+
+def _reconcile_protection(broker, levels: dict, fallback_pct: tuple | None = None) -> int:
     """Re-attach a GTC OCO exit to any whole-share position that's carrying no protective order
-    (its day-bracket legs expired at the close). Best-effort: a per-symbol failure is logged and
-    retried next cycle. Never touches positions that already have a working stop/target."""
+    (its day-bracket legs expired at the close, OR it aged out of the scanner). Best-effort: a
+    per-symbol failure is logged and retried next cycle. Never touches positions that already have
+    a working stop/target. `fallback_pct` adds an entry-derived bracket when no levels are known."""
     protected = 0
     try:
         positions = broker.account().get("open_positions", [])
@@ -704,12 +771,13 @@ def _reconcile_protection(broker, levels: dict) -> int:
     except Exception as exc:
         _log.warning("protection reconcile read failed: %s", exc)
         return 0
-    for need in positions_needing_protection(positions, orders, levels):
+    for need in positions_needing_protection(positions, orders, levels, fallback_pct=fallback_pct):
         try:
             broker.protect(need["symbol"], need["qty"], need["target"], need["stop"])
             protected += 1
-            _log.info("Re-protected %s x%d (target %.2f / stop %.2f)",
-                      need["symbol"], need["qty"], need["target"], need["stop"])
+            src = "scanner/verdict" if need["symbol"] in levels else "FALLBACK no-levels"
+            _log.info("Re-protected %s x%d (target %.2f / stop %.2f) [%s]",
+                      need["symbol"], need["qty"], need["target"], need["stop"], src)
         except Exception as exc:
             _log.warning("protect %s failed: %s", need["symbol"], exc)
     return protected

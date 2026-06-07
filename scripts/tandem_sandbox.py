@@ -210,12 +210,16 @@ def _test_execution_and_notify(root: Path) -> bool:
     import runner.tools.notify as nf
 
     # isolated files for this phase so the hand-back verdicts/record stay intact
-    orig_v, orig_e, orig_n, orig_notify = ap.VERDICTS_FILE, ap.EXECUTED_LOG, ap.NOTIFY_STATE, nf.notify
+    orig = (ap.VERDICTS_FILE, ap.EXECUTED_LOG, ap.NOTIFY_STATE, nf.notify, nf.notify_entry, nf.notify_exit)
     ap.VERDICTS_FILE = root / "exec-verdicts.json"
     ap.EXECUTED_LOG = root / "exec-executed.json"
     ap.NOTIFY_STATE = root / "exec-notify-state.json"
-    captured = []
-    nf.notify = lambda text, **k: (captured.append(text), {"sent": True})[1]
+    # Capture the real alert functions (alpaca_paper lazy-imports notify_entry/notify_exit), so the
+    # check reflects the actual entry/exit alert path — not a stale text grep — and fires no real sends.
+    entry_calls, exit_calls = [], []
+    nf.notify = lambda text, **k: {"sent": True}
+    nf.notify_entry = lambda symbol, *a, **k: (entry_calls.append(symbol), {"sent": True})[1]
+    nf.notify_exit = lambda symbol, *a, **k: (exit_calls.append(symbol), {"sent": True})[1]
 
     class _Mock:
         def __init__(self, pos=None):
@@ -255,14 +259,14 @@ def _test_execution_and_notify(root: Path) -> bool:
         ap.sync(broker=mock)  # buys TSLA, closes HELD, then position-diff fires HELD exit alert
         buy_ok = ("buy", "TSLA") in mock.calls
         close_ok = ("close", "HELD") in mock.calls
-        entry_alert = any("entered TSLA" in c for c in captured)
-        exit_alert = any("closed HELD" in c for c in captured)
+        entry_alert = "TSLA" in entry_calls
+        exit_alert = "HELD" in exit_calls
         print(f"      affirm->buy: {buy_ok} · entry alert: {entry_alert} · close->sell: {close_ok} "
               f"· exit alert: {exit_alert} · real orders: 0 (mock broker)")
         return buy_ok and close_ok and entry_alert and exit_alert
     finally:
-        ap.VERDICTS_FILE, ap.EXECUTED_LOG, ap.NOTIFY_STATE = orig_v, orig_e, orig_n
-        nf.notify = orig_notify
+        (ap.VERDICTS_FILE, ap.EXECUTED_LOG, ap.NOTIFY_STATE,
+         nf.notify, nf.notify_entry, nf.notify_exit) = orig
 
 
 def run(root: Path, self_test: bool, keep: bool = False) -> int:
