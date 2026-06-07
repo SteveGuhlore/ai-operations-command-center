@@ -78,11 +78,14 @@ class AgentBase:
         #   1. VERTEX_PROJECT set + gemini-* model  -> Vertex AI (uses $300 GCP credit)
         #   2. GOOGLE_AI_API_KEY set + slash-free   -> AI Studio Gemini API
         #   3. everything else                      -> OpenRouter
-        vertex_project = os.environ.get("VERTEX_PROJECT")
+        # Accept both the CC's own names (VERTEX_*) and the google-genai SDK names
+        # (GOOGLE_CLOUD_*) the VM deployment sets, so one .env works everywhere.
+        vertex_project = os.environ.get("VERTEX_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
         google_key = os.environ.get("GOOGLE_AI_API_KEY")
         self._use_vertex = False
         if vertex_project and model.startswith("gemini-"):
-            location = os.environ.get("VERTEX_LOCATION", "us-central1")
+            location = (os.environ.get("VERTEX_LOCATION")
+                        or os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1"))
             self._use_vertex = True
             self.model = f"google/{model}"
             self.client = openai.OpenAI(
