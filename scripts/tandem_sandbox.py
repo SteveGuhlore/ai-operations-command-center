@@ -83,6 +83,8 @@ def _wire_env(root: Path) -> dict:
     for k, v in paths.items():
         os.environ[k] = str(v)
     os.environ.pop("TONY_LIVE_ENABLED", None)  # never place an order
+    os.environ["TONY_MARKET_SESSION"] = "open"  # test execution MECHANICS regardless of wall-clock
+    os.environ["TONY_REALIZED_FILE"] = str(root / "tony-realized.json")  # Component D writer -> sandbox
     (root / "bridge" / "tony-stocks").mkdir(parents=True, exist_ok=True)
     (reports).mkdir(parents=True, exist_ok=True)
     (root / "vault" / "tony-stocks").mkdir(parents=True, exist_ok=True)
@@ -223,7 +225,7 @@ def _test_execution_and_notify(root: Path) -> bool:
             return 100.0
         def account(self):
             return {"equity": 1_000_000.0, "open_positions": list(self._pos)}
-        def buy(self, symbol, notional, target, stop):
+        def buy(self, symbol, notional, target, stop, risk_pct=None):
             self.calls.append(("buy", symbol))
             self._pos.append({"symbol": symbol, "qty": 10, "avg_entry_price": 100.0})
             return {"qty": 10, "entry": 100.0}

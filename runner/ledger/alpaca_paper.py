@@ -436,13 +436,21 @@ def _notify_closed(broker) -> None:
         _log.info("notify closed read failed: %s", exc)
         return
     levels = _latest_scanner_levels()  # best-effort prior protective levels for exit-reason inference
-    for p in closed_positions(_load(NOTIFY_STATE), current):
+    unresolved = []  # closed but un-priceable this cycle: keep in the snapshot so we retry, never
+    for p in closed_positions(_load(NOTIFY_STATE), current):  # losing the stop-out from the ledger
         sym, qty, entry = p.get("symbol"), p.get("qty"), p.get("avg_entry_price")
-        last = None
+        try:
+            last = broker._latest_price(sym)
+        except Exception as exc:
+            _log.info("exit price %s failed: %s", sym, exc)
+            last = None
+        if last is None:
+            # No price yet — don't alert/record on a phantom fill; defer to a later cycle.
+            unresolved.append(p)
+            continue
         try:
             from runner.tools.notify import notify_exit
-            last = broker._latest_price(sym)
-            pnl = (float(last) - float(entry)) * float(qty) if (last and entry and qty) else 0.0
+            pnl = (float(last) - float(entry)) * float(qty) if (entry and qty) else 0.0
             notify_exit(sym, qty, last, round(pnl, 2))
         except Exception as exc:
             _log.info("notify exit %s failed: %s", sym, exc)
@@ -453,7 +461,7 @@ def _notify_closed(broker) -> None:
         except Exception as exc:
             _log.info("realized record %s failed: %s", sym, exc)
     snap = [{"symbol": p.get("symbol"), "qty": p.get("qty"),
-             "avg_entry_price": p.get("avg_entry_price")} for p in current]
+             "avg_entry_price": p.get("avg_entry_price")} for p in current + unresolved]
     try:
         NOTIFY_STATE.parent.mkdir(parents=True, exist_ok=True)
         NOTIFY_STATE.write_text(json.dumps(snap), encoding="utf-8")
