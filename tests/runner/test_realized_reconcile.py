@@ -16,6 +16,18 @@ def _fill(sym, side, qty, price, oid, otype="market", t="2026-06-05T13:00:00Z"):
             "order_type": otype, "time": t, "date": t[:10]}
 
 
+def test_records_returns_rows_newest_first(tmp_path, monkeypatch):
+    f = tmp_path / "tony-realized.json"
+    monkeypatch.setattr(tr, "REALIZED_FILE", f)
+    f.write_text(json.dumps([
+        {"symbol": "AAA", "realized_pl": 10, "reason": "target", "date": "2026-06-01"},
+        {"symbol": "BBB", "realized_pl": -5, "reason": "stop", "date": "2026-06-05"},
+    ]), encoding="utf-8")
+    rows = tr.records()
+    assert [r["symbol"] for r in rows] == ["BBB", "AAA"]   # newest first by date
+    assert tr.records(newest_first=False)[0]["symbol"] == "AAA"
+
+
 def test_fifo_matches_sell_to_prior_buy_with_real_pl():
     fills = [
         _fill("FCX", "buy", 14, 70.15, "b1", t="2026-06-04T19:33:00Z"),
