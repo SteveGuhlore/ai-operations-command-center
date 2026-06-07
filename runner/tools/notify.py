@@ -24,33 +24,84 @@ def _channel() -> str:
     return os.environ.get("TONY_NOTIFY", "off").strip().lower()
 
 
-def notify(text: str, *, parse_mode: str = "HTML") -> dict:
-    """Send a message on the configured channel. Returns {sent: bool, ...}; never raises."""
+def inline_keyboard(rows: list) -> dict:
+    """Build a Telegram inline keyboard. rows = [[(label, callback_data), ...], ...]."""
+    return {"inline_keyboard": [[{"text": t, "callback_data": d} for (t, d) in row] for row in rows]}
+
+
+def notify(text: str, *, parse_mode: str = "HTML", chat_id: str | None = None,
+           reply_markup: dict | None = None) -> dict:
+    """Send a message on the configured channel. chat_id overrides TELEGRAM_CHAT_ID (reply to a
+    specific sender). Returns {sent: bool, ...}; never raises."""
     ch = _channel()
     if ch in _OFF:
         return {"sent": False, "reason": "disabled"}
     if ch == "telegram":
-        return _telegram(text, parse_mode)
+        return _telegram(text, parse_mode, chat_id, reply_markup)
     return {"sent": False, "reason": f"unknown channel '{ch}'"}
 
 
-def _telegram(text: str, parse_mode: str) -> dict:
+def _telegram(text: str, parse_mode: str, chat_id: str | None = None,
+              reply_markup: dict | None = None) -> dict:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat = os.environ.get("TELEGRAM_CHAT_ID")
+    chat = chat_id or os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat:
         return {"sent": False, "reason": "telegram not configured"}
+    payload = {"chat_id": chat, "text": text, "parse_mode": parse_mode,
+               "disable_web_page_preview": True}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
     try:
-        r = httpx.post(
-            _TG_URL.format(token=token),
-            json={"chat_id": chat, "text": text, "parse_mode": parse_mode,
-                  "disable_web_page_preview": True},
-            timeout=_TIMEOUT,
-        )
+        r = httpx.post(_TG_URL.format(token=token), json=payload, timeout=_TIMEOUT)
         r.raise_for_status()
         return {"sent": True}
     except (httpx.HTTPError, ValueError) as exc:
         _log.info("notify telegram failed: %s", exc)
         return {"sent": False, "reason": str(exc)}
+
+
+def broadcast(text: str, *, parse_mode: str = "HTML", reply_markup: dict | None = None) -> dict:
+    """Post to the PUBLIC channel (TELEGRAM_PUBLIC_CHANNEL_ID). No-op if unset. Fail-soft."""
+    if _channel() in _OFF:
+        return {"sent": False, "reason": "disabled"}
+    channel = os.environ.get("TELEGRAM_PUBLIC_CHANNEL_ID")
+    if not channel:
+        return {"sent": False, "reason": "no_public_channel"}
+    return _telegram(text, parse_mode, channel, reply_markup)
+
+
+def answer_callback_query(callback_id: str) -> dict:
+    """Acknowledge a button tap so Telegram stops the client spinner. Fail-soft."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token or not callback_id:
+        return {"sent": False}
+    try:
+        httpx.post("https://api.telegram.org/bot{}/answerCallbackQuery".format(token),
+                   json={"callback_query_id": callback_id}, timeout=_TIMEOUT)
+        return {"sent": True}
+    except (httpx.HTTPError, ValueError) as exc:
+        _log.info("answerCallbackQuery failed: %s", exc)
+        return {"sent": False}
+
+
+def edit_message_text(chat_id: str, message_id: int, text: str, *, parse_mode: str = "HTML",
+                      reply_markup: dict | None = None) -> dict:
+    """Edit an existing message in place (for paging). Fail-soft."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return {"sent": False}
+    payload = {"chat_id": chat_id, "message_id": message_id, "text": text,
+               "parse_mode": parse_mode, "disable_web_page_preview": True}
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    try:
+        r = httpx.post("https://api.telegram.org/bot{}/editMessageText".format(token),
+                       json=payload, timeout=_TIMEOUT)
+        r.raise_for_status()
+        return {"sent": True}
+    except (httpx.HTTPError, ValueError) as exc:
+        _log.info("editMessageText failed: %s", exc)
+        return {"sent": False}
 
 
 def notify_entry(symbol: str, qty, entry, stop, target, risk_pct: float = 1.0, reason: str = "") -> dict:
