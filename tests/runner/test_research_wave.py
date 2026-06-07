@@ -86,3 +86,90 @@ def test_state_keyed_by_open_date(monkeypatch):
     rw.maybe_stage_research_wave(now=dt.datetime(2026, 6, 6, 18, 0, tzinfo=ET))
     state = json.load(open(rw.STATE_FILE))
     assert state.get("staged_for") == "2026-06-08"
+
+
+# ---- follow-on self-learning rounds (Approach B) --------------------------------------------------
+
+def _task_types(folder):
+    types = {}
+    for f in folder.glob("*.md"):
+        for line in f.read_text(encoding="utf-8").splitlines():
+            if line.startswith("task_type:"):
+                t = line.split(":", 1)[1].strip()
+                types[t] = types.get(t, 0) + 1
+    return types
+
+
+def _drain_rw():
+    """Simulate the prior round completing: remove all TONY-RW-* tasks from todo + in_progress."""
+    for folder in (rw.TASKS_DIR, rw.TASKS_DIR.parent / "in_progress"):
+        if folder.exists():
+            for f in folder.glob("TONY-RW-*.md"):
+                f.unlink()
+
+
+def test_followups_blocked_until_wave_drains(monkeypatch):
+    monkeypatch.setenv("TONY_MARKET_SESSION", "closed")
+    now = dt.datetime(2026, 6, 6, 18, 0, tzinfo=ET)
+    rw.maybe_stage_research_wave(now=now)
+    res = rw.maybe_stage_research_followups(now=now)
+    assert res["staged"] is False
+    assert res["reason"] == "prior_round_draining"
+
+
+def test_followups_noop_when_wave_not_staged(monkeypatch):
+    monkeypatch.setenv("TONY_MARKET_SESSION", "closed")
+    res = rw.maybe_stage_research_followups(now=dt.datetime(2026, 6, 6, 18, 0, tzinfo=ET))
+    assert res["staged"] is False
+    assert res["reason"] == "wave_not_staged"
+
+
+def test_followups_noop_when_market_open(monkeypatch):
+    monkeypatch.setenv("TONY_MARKET_SESSION", "open")
+    res = rw.maybe_stage_research_followups(now=dt.datetime(2026, 6, 9, 11, 0, tzinfo=ET))
+    assert res["staged"] is False
+    assert res["reason"] == "market_open"
+
+
+def test_followups_round_sequence_then_idle(monkeypatch):
+    monkeypatch.setenv("TONY_MARKET_SESSION", "closed")
+    now = dt.datetime(2026, 6, 6, 18, 0, tzinfo=ET)
+    rw.maybe_stage_research_wave(now=now)
+
+    _drain_rw()
+    r1 = rw.maybe_stage_research_followups(now=now)
+    assert r1["staged"] is True and r1["round"] == 1 and r1["task_count"] == 4
+    for t in ("tony_calibration_study", "tony_edge_mining",
+              "tony_realized_postmortem", "tony_regrade"):
+        assert _task_types(rw.TASKS_DIR).get(t) == 1
+    # re-entry before this round drains must NOT double-enqueue
+    assert rw.maybe_stage_research_followups(now=now)["staged"] is False
+
+    _drain_rw()
+    r2 = rw.maybe_stage_research_followups(now=now)
+    assert r2["round"] == 2 and r2["task_count"] == 1
+    assert _task_types(rw.TASKS_DIR).get("tony_conviction_deepdive") == 1
+
+    _drain_rw()
+    r3 = rw.maybe_stage_research_followups(now=now)
+    assert r3["round"] == 3 and r3["task_count"] == 1
+    assert _task_types(rw.TASKS_DIR).get("tony_broaden_scan") == 1
+
+    _drain_rw()
+    r4 = rw.maybe_stage_research_followups(now=now)
+    assert r4["staged"] is False and r4["reason"] == "exhausted"
+
+
+def test_followups_reset_on_new_open(monkeypatch):
+    monkeypatch.setenv("TONY_MARKET_SESSION", "closed")
+    now = dt.datetime(2026, 6, 6, 18, 0, tzinfo=ET)
+    rw.maybe_stage_research_wave(now=now)
+    _drain_rw()
+    rw.maybe_stage_research_followups(now=now)  # round 1 for the 2026-06-08 open
+
+    # a different upcoming open (Tue evening -> Wed) restarts the round sequence
+    now2 = dt.datetime(2026, 6, 9, 18, 0, tzinfo=ET)
+    rw.maybe_stage_research_wave(now=now2)
+    _drain_rw()
+    r = rw.maybe_stage_research_followups(now=now2)
+    assert r["round"] == 1 and r["open_date"] == "2026-06-10"

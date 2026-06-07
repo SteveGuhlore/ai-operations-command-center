@@ -60,6 +60,60 @@ _WAVE_TASKS = [
      "before anything executes."),
 ]
 
+# Follow-on research ROUNDS staged AFTER the main wave (round 0) drains — one round per drain, in
+# order, then idle. Genuinely-new, deeper work led by a self-learning battery that exploits Tony's
+# already-built analytics (tony_scorecard.discover_edges / calibration / sizing_attribution) and his
+# real realized record. Each entry: (title, task_type, body).
+_ROUNDS = [
+    # Round 1 — Self-Learning Battery (the lead). Cheap, compounding, mostly reuses on-disk data.
+    [
+        ("Tony Calibration Study", "tony_calibration_study",
+         "Study your OWN confidence calibration. Read the `calibration` block in "
+         "vault/tony-stocks/tony_stocks_record.json (win-rate per confidence bucket). Does "
+         "`confidence: high` actually beat `medium` and `low`? If high under-performs low, your "
+         "confidence is miscalibrated — say so. Cross-check a few high- vs low-confidence verdicts "
+         "against their outcomes to find WHY. Write the finding with `write_tony_insight` and add one "
+         "concrete, evidence-tagged calibration rule to "
+         "vault/agents/market_research_worker/learned_rules.md."),
+        ("Tony Edge Mining", "tony_edge_mining",
+         "Mine your graded history for repeatable edges. The scorecard's `discover_edges` tallies "
+         "evidence-tag → win-rate; review your strongest AND weakest tags (e.g. which setups/"
+         "fundamentals you actually win or lose on). Sanity-check the top and bottom tags against the "
+         "underlying picks so you don't over-fit a small sample. Codify the durable ones into "
+         "vault/tony-stocks/pattern-library.md with the tag, sample size, and win-rate."),
+        ("Tony Realized Post-Mortem", "tony_realized_postmortem",
+         "Post-mortem every LOSS in workspace/tony-realized.json (your real stop-outs, not verdict-vs-"
+         "scanner). For each loser, pull `get_stock_news` / `get_price_history` around the exit and tag "
+         "the failure mode (gap-down, broke support, earnings miss, thesis never triggered, stop too "
+         "tight). Aggregate the recurring failure modes and write the top 1-3 as `write_tony_insight` "
+         "lessons + a guardrail in vault/agents/market_research_worker/learned_rules.md."),
+        ("Tony Re-Grade", "tony_regrade",
+         "Re-grade picks whose outcomes have now RESOLVED since your last review. Compare your verdict "
+         "to what actually happened; where a thesis aged badly, note WHY (what you missed) and update "
+         "the relevant vault/tickers/<SYM>.md and pattern-library.md. End with one `write_tony_insight` "
+         "naming the single adjustment that would have flipped the most losers."),
+    ],
+    # Round 2 — Deepen top-conviction names (second-pass, multi-angle) on the ranked queue.
+    [
+        ("Tony Conviction Deep-Dive", "tony_conviction_deepdive",
+         "Take the top 5 names from workspace/research-queue.json and run a SECOND, deeper pass on "
+         "each: (a) a thesis pre-mortem ('it's 3 weeks later and this lost — why?'), (b) a stress-test "
+         "against fresh `get_stock_news` + `web_research`, and (c) a quick competitor / supply-chain "
+         "read. For any name whose thesis weakens, write a revised `write_tony_verdict` (tighter stop "
+         "or step-off) so the open re-check sees your updated call. Record the deeper reads in "
+         "vault/tickers/<SYM>.md."),
+    ],
+    # Round 3 — Broaden beyond the scanner: cross-asset / macro / sector + fresh idea hunt.
+    [
+        ("Tony Broaden Scan", "tony_broaden_scan",
+         "Broaden beyond the scanner universe. Use `regime` + `web_research` for a cross-asset / "
+         "sector-rotation read (which groups are leading/lagging into the open), then hunt 3-5 fresh "
+         "high-quality setups OUTSIDE the current watchlist that fit the regime. Record each with the "
+         "`tony_ideas` tool (thesis, proposed target/stop, confidence) so they feed the next ranked "
+         "queue."),
+    ],
+]
+
 
 def _read_state() -> dict:
     try:
@@ -175,3 +229,50 @@ def maybe_stage_research_wave(now: datetime | None = None) -> dict:
     _write_state(state)
     _log.info("research_wave: staged %d tasks for the %s open", enqueued, open_date)
     return {"staged": True, "open_date": open_date, "task_count": enqueued}
+
+
+def _rw_tasks_outstanding() -> bool:
+    """True while any TONY-RW-* task (main wave or a follow-on round) is still in todo/ or
+    in_progress/. The follow-up gate waits for this to clear so rounds are paced by COMPLETION,
+    not a timer (mirrors main._pitch_is_alive's two-folder check)."""
+    in_progress = TASKS_DIR.parent / "in_progress"
+    for folder in (TASKS_DIR, in_progress):
+        if folder.exists() and any(folder.glob("TONY-RW-*.md")):
+            return True
+    return False
+
+
+def maybe_stage_research_followups(now: datetime | None = None) -> dict:
+    """After the main wave drains, stage the next deeper research round (self-learning → deepen →
+    broaden), one round per drain, then idle. No-op when the market is open, the main wave for the
+    upcoming open isn't staged yet, the prior round is still draining, or all rounds are exhausted."""
+    if market_session(now) != "closed":
+        return {"staged": False, "reason": "market_open"}
+
+    open_date = _next_open_date(now)
+    state = _read_state()
+    if state.get("staged_for") != open_date:
+        return {"staged": False, "reason": "wave_not_staged", "open_date": open_date}
+
+    rounds_done = state.get("rounds_done") or {}
+    done = int(rounds_done.get(open_date, 0))
+    if done >= len(_ROUNDS):
+        return {"staged": False, "reason": "exhausted", "open_date": open_date}
+    if _rw_tasks_outstanding():
+        return {"staged": False, "reason": "prior_round_draining", "open_date": open_date}
+
+    round_no = done + 1
+    suffix = open_date.replace("-", "")
+    enqueued = 0
+    for title, task_type, body in _ROUNDS[done]:
+        _write_task(f"TONY-RW-R{round_no}-{task_type.upper()}-{suffix}",
+                    f"{title} (for {open_date} open)", task_type, body)
+        enqueued += 1
+
+    rounds_done[open_date] = round_no
+    state["rounds_done"] = rounds_done
+    state["followup_staged_at"] = (now or datetime.now(_ET)).isoformat()
+    _write_state(state)
+    _log.info("research_wave: staged follow-up round %d (%d tasks) for the %s open",
+              round_no, enqueued, open_date)
+    return {"staged": True, "round": round_no, "open_date": open_date, "task_count": enqueued}

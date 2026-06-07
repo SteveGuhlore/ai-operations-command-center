@@ -738,6 +738,20 @@ def _maybe_stage_research_wave() -> None:
         log.warning("research wave staging failed: %s", exc)
 
 
+def _maybe_stage_research_followups() -> None:
+    """After the main wave drains, stage the next deeper research round (self-learning → deepen →
+    broaden), one round per drain, then idle. Fills idle closed-hours with genuine NEW research.
+    Cosmetic / fail-soft — never breaks the cycle."""
+    try:
+        from runner.bridge.research_wave import maybe_stage_research_followups
+        res = maybe_stage_research_followups()
+        if res.get("staged"):
+            log.info("Off-market follow-up round %d staged: %d tasks for the %s open",
+                     res.get("round"), res.get("task_count", 0), res.get("open_date"))
+    except Exception as exc:
+        log.warning("research follow-up staging failed: %s", exc)
+
+
 def run_cycle() -> None:
     # Off-hours research runs in its own high/uncapped budget lane so a depleted daytime budget
     # never aborts the overnight wave; the daytime cap is unchanged when the market is open.
@@ -763,6 +777,7 @@ def run_cycle() -> None:
         _maybe_run_learning()          # idle-time learning must still fire (queue is empty overnight)
         _maybe_run_tony_self_review()
         _maybe_stage_research_wave()   # Component B: off-market research wave for the next open
+        _maybe_stage_research_followups()  # deeper self-learning rounds once the wave drains
         # Keep the paper book healthy between bridges: re-attach protection to any naked
         # position, detect/notify exits (stop/target fills), and refresh the record — these
         # must NOT wait for the next bridge or stop-outs go unprotected and unannounced.
