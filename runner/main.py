@@ -880,6 +880,14 @@ def run_cycle() -> None:
     _maybe_send_daily_summary()
     _maybe_send_weekly_synthesis()   # Phase 3: weekly first-person review + learning digest
     try:
+        from runner.tools import tony_nudges
+        tony_nudges.maybe_equity_high()
+        if _is_market_closed():
+            from datetime import date
+            tony_nudges.maybe_eod_signoff(str(date.today()))
+    except Exception as exc:
+        log.info("nudges failed: %s", exc)
+    try:
         from runner.ledger.alpaca_paper import reconcile_realized
         reconcile_realized()  # rebuild realized ledger from Alpaca fills (captures all real exits)
     except Exception as exc:

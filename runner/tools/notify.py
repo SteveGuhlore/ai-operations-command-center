@@ -105,15 +105,21 @@ def edit_message_text(chat_id: str, message_id: int, text: str, *, parse_mode: s
 
 
 def notify_entry(symbol: str, qty, entry, stop, target, risk_pct: float = 1.0, reason: str = "") -> dict:
-    """🟢 Tony placed a new entry bracket — spoken in his own voice, with the thesis."""
+    """🟢 Tony placed a new entry bracket — spoken in his own voice, with the thesis.
+    Posts to the operator AND the public channel (broadcast is a no-op if unconfigured)."""
     from runner.tools.tony_voice import say_entry
-    return notify(say_entry(symbol, qty, entry, stop, target, risk_pct, reason))
+    msg = say_entry(symbol, qty, entry, stop, target, risk_pct, reason)
+    broadcast(msg)
+    return notify(msg)
 
 
 def notify_exit(symbol: str, qty, exit_price, pnl, r_mult=None, reason: str = "") -> dict:
-    """🟩/🟥 Tony closed a position (target/stop/his own close) — first person, with the why + R."""
+    """🟩/🟥 Tony closed a position (target/stop/his own close) — first person, with the why + R.
+    Posts to the operator AND the public channel (broadcast is a no-op if unconfigured)."""
     from runner.tools.tony_voice import say_exit
-    return notify(say_exit(symbol, qty, exit_price, pnl, reason, r_mult))
+    msg = say_exit(symbol, qty, exit_price, pnl, reason, r_mult)
+    broadcast(msg)
+    return notify(msg)
 
 
 def notify_reprice(symbol: str, qty, target, stop) -> dict:
