@@ -793,15 +793,13 @@ def _maybe_stage_research_followups() -> None:
 
 
 def _maybe_handle_telegram_chat() -> None:
-    """Phase 2: answer the operator's inbound Telegram messages (read-only, opt-in, fail-soft).
-    Runs before the budget gate so chat always works — it costs nothing and never trades."""
+    """Ensure the background Telegram long-poll thread is running (idempotent, fail-soft).
+    Real-time replies happen on that thread (near-instant), not in the 180s cycle."""
     try:
-        from runner.tools.telegram_inbox import poll_and_handle
-        res = poll_and_handle()
-        if res.get("handled"):
-            log.info("Telegram chat: handled %d message(s)", res["handled"])
+        from runner.tools.telegram_inbox import start_poller
+        start_poller()
     except Exception as exc:
-        log.info("telegram chat poll failed: %s", exc)
+        log.info("telegram poller start failed: %s", exc)
 
 
 def run_cycle() -> None:
