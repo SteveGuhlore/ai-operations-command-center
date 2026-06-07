@@ -173,3 +173,20 @@ def test_followups_reset_on_new_open(monkeypatch):
     _drain_rw()
     r = rw.maybe_stage_research_followups(now=now2)
     assert r["round"] == 1 and r["open_date"] == "2026-06-10"
+
+
+def test_augment_body_injects_realized_ground_truth(tmp_path, monkeypatch):
+    import json
+    from runner.bridge import research_wave as rw
+    from runner.ledger import tony_realized as tr
+    f = tmp_path / "tony-realized.json"
+    f.write_text(json.dumps([
+        {"symbol": "FCX", "realized_pl": -462.2, "pct": -4.6, "reason": "stop", "date": "2026-06-05"},
+    ]), encoding="utf-8")
+    monkeypatch.setattr(tr, "REALIZED_FILE", f)
+    out = rw._augment_body("tony_self_review", "BASE")
+    assert "BASE" in out and "ground truth" in out.lower() and "FCX" in out
+    assert "not the verdict" in out.lower() or "do not draw" in out.lower()
+    g = rw._augment_body("tony_calibration_study", "BASE")
+    assert "insufficient data" in g.lower()
+    assert rw._augment_body("ticker_deepdive", "BASE") == "BASE"   # unrelated task untouched

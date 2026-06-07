@@ -188,6 +188,50 @@ def _write_task(task_id: str, title: str, task_type: str, body: str, priority: s
     )
 
 
+_REALIZED_TASKS = {"tony_self_review", "tony_realized_postmortem", "tony_regrade"}
+_SMALL_SAMPLE_TASKS = {"tony_calibration_study", "tony_edge_mining"}
+
+
+def _realized_block() -> str:
+    """Render Tony's REAL closed-trade record (Alpaca-reconciled) as ground truth for the learning
+    tasks, so the agent doesn't fall back to the thin 1-sample verdict track. Fail-soft -> guidance."""
+    try:
+        from runner.ledger.tony_realized import records, summary
+        rows = records(newest_first=True)
+        s = (summary() or {}).get("all_time", {})
+    except Exception:
+        return ""
+    if not s.get("count"):
+        return ("\n\n--- YOUR REAL REALIZED RECORD (ground truth) ---\n"
+                "No closed trades on record yet. Do NOT infer performance from the verdict-vs-scanner "
+                "track (`tony_outcomes` / `tony_stocks_record.json`) — it is a thin side-metric, not "
+                "your P/L. With no realized data, say so plainly and write NO performance lesson.")
+    lines = [f"- {r.get('symbol')}: {r.get('realized_pl')} ({r.get('pct')}%) on {r.get('date')}, "
+             f"reason={r.get('reason')}" for r in rows[:25]]
+    return (
+        "\n\n--- YOUR REAL REALIZED RECORD (ground truth — use THIS, not the verdict track) ---\n"
+        f"All-time: {s.get('count')} closed, {s.get('wins')} win / {s.get('losses')} loss, "
+        f"realized P/L {s.get('realized_pl')}. By reason: {s.get('by_reason')}.\n"
+        + "\n".join(lines) +
+        "\n(The `tony_outcomes` / `tony_stocks_record.json` verdict track is a thin side-metric — do "
+        "NOT draw performance conclusions from it. THIS realized ledger is the truth.)")
+
+
+def _small_sample_guard() -> str:
+    return ("\n\nGUARD: if you have fewer than 5 graded verdicts, state 'insufficient data' and write "
+            "NO positive performance lesson — a single outcome is noise, not signal.")
+
+
+def _augment_body(task_type: str, body: str) -> str:
+    """Hand the learning tasks the real realized record (or a small-sample guard) so they stop
+    manufacturing rosy lessons from the 1-sample verdict track. Pure given the ledger read."""
+    if task_type in _REALIZED_TASKS:
+        return body + _realized_block()
+    if task_type in _SMALL_SAMPLE_TASKS:
+        return body + _small_sample_guard()
+    return body
+
+
 def maybe_stage_research_wave(now: datetime | None = None) -> dict:
     """Stage exactly one off-market research wave for the upcoming open. No-op when the market is
     open or a wave is already staged for that open date."""
@@ -220,7 +264,7 @@ def maybe_stage_research_wave(now: datetime | None = None) -> dict:
     for title, task_type, body in _WAVE_TASKS:
         priority = "high" if task_type == "tony_research_rank" else "normal"
         _write_task(f"TONY-RW-{task_type.upper()}-{suffix}", f"{title} (for {open_date} open)",
-                    task_type, body, priority)
+                    task_type, _augment_body(task_type, body), priority)
         enqueued += 1
 
     state["staged_for"] = open_date
@@ -266,7 +310,7 @@ def maybe_stage_research_followups(now: datetime | None = None) -> dict:
     enqueued = 0
     for title, task_type, body in _ROUNDS[done]:
         _write_task(f"TONY-RW-R{round_no}-{task_type.upper()}-{suffix}",
-                    f"{title} (for {open_date} open)", task_type, body)
+                    f"{title} (for {open_date} open)", task_type, _augment_body(task_type, body))
         enqueued += 1
 
     rounds_done[open_date] = round_no
