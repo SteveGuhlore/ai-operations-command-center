@@ -115,6 +115,31 @@ def learning_digest() -> str:
     return _narrate(facts)
 
 
+def answer(question: str, *, public: bool = True) -> str:
+    """Tony's first-person reply to a free-text question, grounded in live read-only book facts.
+    Facts are pinned so the model can't invent numbers; the public variant never includes the
+    watchlist. '' on any failure so the caller can fall back to a canned reply."""
+    f = _book_facts()
+    acct = f["acct"]
+    pos = acct.get("open_positions", []) or [] if acct.get("status") == "ok" else []
+    allt = (f["realized"] or {}).get("all_time", {})
+    facts = (
+        "Facts about me right now (use only these, do not invent numbers):\n"
+        f"- Account equity: {acct.get('equity', 'unknown')}\n"
+        f"- Open positions: {len(pos)} ({', '.join(p.get('symbol', '?') for p in pos[:10]) or 'none'})\n"
+        f"- All-time closed: {allt.get('count', 0)} trades, "
+        f"{allt.get('wins', 0)} win / {allt.get('losses', 0)} loss, realized {allt.get('realized_pl', 0)}\n"
+        f"- I trade a paper account (simulated money, real prices).\n"
+        f"My friend asked: \"{(question or '').strip()[:300]}\"\n"
+    )
+    if public:
+        facts += ("Answer in my voice. Do NOT reveal any upcoming watchlist or stocks I'm about to "
+                  "buy. No financial advice. If asked for advice, gently decline.")
+    else:
+        facts += "Answer in my voice, candidly — this is my operator."
+    return _narrate(facts, max_words=80)
+
+
 # --- send wrappers ---------------------------------------------------------------------------------
 
 def send_daily_wrap() -> dict:
