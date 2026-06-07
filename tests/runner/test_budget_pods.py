@@ -61,6 +61,7 @@ def test_agentbase_passes_pod(monkeypatch):
 
 def test_run_task_skips_when_pod_budget_exceeded(monkeypatch):
     import runner.main as main
+    monkeypatch.setattr(main, "PROSPECTOR_PAUSED", False)  # reach the budget-skip path under test
     monkeypatch.setattr(main, "route_task", lambda t: "opportunity_worker")
     monkeypatch.setattr(main, "acquire_lock", lambda *a: True)
     monkeypatch.setattr(main, "release_lock", lambda *a: None)

@@ -3,6 +3,7 @@ from runner.tools import landing
 
 
 def test_promising_row_queues_landing_build(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "PROSPECTOR_PAUSED", False)
     monkeypatch.setattr(landing, "LANDINGS_DIR", tmp_path)
     monkeypatch.setattr(main, "is_pod_budget_exceeded", lambda pod: False)
     monkeypatch.setattr(main, "runway_expired", lambda: False)
@@ -29,6 +30,7 @@ def test_promising_row_queues_landing_build(tmp_path, monkeypatch):
 
 
 def test_promising_row_with_landing_not_requeued(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "PROSPECTOR_PAUSED", False)
     monkeypatch.setattr(landing, "LANDINGS_DIR", tmp_path)
     landing.write_landing_state("ai-x", status="draft")
     monkeypatch.setattr(main, "is_pod_budget_exceeded", lambda pod: False)

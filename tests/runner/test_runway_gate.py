@@ -2,6 +2,7 @@ import runner.main as main
 
 
 def test_runway_expired_pauses_and_skips_all_work(monkeypatch):
+    monkeypatch.setattr(main, "PROSPECTOR_PAUSED", False)
     monkeypatch.setattr(main, "is_pod_budget_exceeded", lambda pod: False)
     monkeypatch.setattr(main, "_opportunity_task_pending", lambda: False)
     monkeypatch.setattr(main, "runway_expired", lambda: True)
@@ -17,6 +18,7 @@ def test_runway_expired_pauses_and_skips_all_work(monkeypatch):
 
 
 def test_runway_alive_does_not_pause(monkeypatch):
+    monkeypatch.setattr(main, "PROSPECTOR_PAUSED", False)
     monkeypatch.setattr(main, "is_pod_budget_exceeded", lambda pod: False)
     monkeypatch.setattr(main, "_opportunity_task_pending", lambda: True)  # short-circuit after gate
     monkeypatch.setattr(main, "runway_expired", lambda: False)

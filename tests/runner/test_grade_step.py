@@ -3,6 +3,7 @@ from runner.tools import landing
 
 
 def _setup(monkeypatch, tmp_path, built_slugs):
+    monkeypatch.setattr(main, "PROSPECTOR_PAUSED", False)
     monkeypatch.setattr(landing, "LANDINGS_DIR", tmp_path)
     monkeypatch.setattr(main, "is_pod_budget_exceeded", lambda pod: False)
     monkeypatch.setattr(main, "runway_expired", lambda: False)

@@ -108,6 +108,12 @@ LOW_WATER_MARK = 2  # Atlas auto-spawns when fewer than this many tasks remain i
 # reactive site_build (real interested leads) keep flowing. Flip to False to resume.
 OUTREACH_PAUSED = True
 
+# Tony-only focus (memory project_tony_only_focus): the Prospector/opportunity pod
+# is dormant. The canonical functional pause is this flag — it gates the spawn pipeline
+# AND the execute path (run_task) so the pod can neither spawn nor run. (config/agents.yaml
+# `enabled` is ignored by routing; do not rely on it.) Flip to False + deploy to revive.
+PROSPECTOR_PAUSED = True
+
 # Tools each role is allowed to call
 ROLE_TOOLS: dict[str, list[dict]] = {
     "social_media_worker":    [TOOL_SPEC_SAVE, IMAGE_TOOL_SPEC, AUDIO_TOOL_SPEC, VIDEO_TOOL_SPEC, MEMORY_TOOL_SPEC],
@@ -388,6 +394,9 @@ def _advance_opportunity_pipeline() -> None:
     already queued, spawn the next pipeline step so he flows scout -> deep-dive
     (every idea, not just >=75) -> PoC build -> graduate (landing build) -> fresh
     scout, never idling. The opportunity_pod daily cap is the only guardrail."""
+    if PROSPECTOR_PAUSED:
+        log.info("Pipeline: Prospector paused by PROSPECTOR_PAUSED flag — skipping.")
+        return
     from runner.tools.opportunity import read_ledger
 
     if is_pod_budget_exceeded("opportunity_pod"):
@@ -531,6 +540,17 @@ def run_task(task: dict) -> dict:
         return {"skipped": True, "task_id": task_id}
 
     pod = task.get("pod")
+    # Prospector is dormant: clear any straggler opportunity_pod task ONCE (fail it)
+    # instead of letting the pod-cap skip path leave it in todo to retry every cycle.
+    # Must run BEFORE the budget check below. move_task has no reason field, so record
+    # the reason explicitly via the task output.
+    if PROSPECTOR_PAUSED and pod == "opportunity_pod":
+        log.info("run_task: opportunity_pod task %s cleared — PROSPECTOR_PAUSED", task_id)
+        move_task(task_id, "todo", "failed")
+        write_task_output(task_id, "Cleared: Prospector is paused (PROSPECTOR_PAUSED).", "failed")
+        release_lock(task_id)
+        return {"skipped": True, "task_id": task_id, "reason": "prospector paused"}
+
     if pod and is_pod_budget_exceeded(pod):
         release_lock(task_id)
         log.warning("Pod budget cap reached for %s — skipping %s", pod, task_id)

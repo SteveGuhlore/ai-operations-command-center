@@ -31,7 +31,7 @@ budgets:
 
   per_pod_limits:
     opportunity_pod:
-      daily_spend_limit_usd: 40.00
+      daily_spend_limit_usd: 0.00   # Tony-only: Prospector dormant (see PROSPECTOR_PAUSED). 0 = pod cannot spend.
       per_poc_limit_usd: 2.00
 
   retry_limits:
