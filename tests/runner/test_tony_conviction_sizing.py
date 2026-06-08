@@ -93,6 +93,30 @@ def test_plan_orders_carries_confidence():
     assert "confidence" not in cplan[0]
 
 
+# ----------------------------- naked-entry guard -----------------------------
+
+def test_plan_orders_skips_open_with_no_levels():
+    # No target/stop on the verdict and no scanner level to inherit -> not opened
+    # (would otherwise become a naked, off-size flat-notional buy).
+    verdicts = [{"date": "2026-06-05", "symbol": "NAKED", "verdict": "override"}]
+    assert ap.plan_orders(verdicts, set(), scanner_levels={}) == []
+
+
+def test_plan_orders_inherits_scanner_levels():
+    # No levels of its own, but the scanner provides them -> still opened (bracket).
+    verdicts = [{"date": "2026-06-05", "symbol": "INH", "verdict": "override"}]
+    plan = ap.plan_orders(verdicts, set(), scanner_levels={"INH": {"target": 30, "stop": 25}})
+    assert len(plan) == 1
+    assert plan[0]["action"] == "buy"
+    assert plan[0]["target"] == 30 and plan[0]["stop"] == 25
+
+
+def test_plan_orders_keeps_open_with_own_levels():
+    verdicts = [{"date": "2026-06-05", "symbol": "OWN", "verdict": "override", "target": 30, "stop": 25}]
+    plan = ap.plan_orders(verdicts, set(), scanner_levels={})
+    assert len(plan) == 1 and plan[0]["action"] == "buy"
+
+
 # ----------------------------- sync wiring -----------------------------
 
 def _wire(tmp_path, monkeypatch, verdicts):

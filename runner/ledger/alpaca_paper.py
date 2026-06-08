@@ -321,6 +321,12 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
                 lv = scanner_levels.get(sym, {})
                 target = target or lv.get("target")
                 stop = stop or lv.get("stop")
+            if not (target and stop):
+                # No protective levels (Tony's or the scanner's) -> never open a
+                # naked, off-size position via the flat-notional fallback. Skip
+                # (not marked done) so a later run can take it once levels exist.
+                _log.info("skip open %s: no target/stop", sym)
+                continue
             if target and stop and float(target) <= float(stop):
                 continue  # degenerate bracket (Alpaca rejects target<=stop) — skip, don't retry-fail
             if max_new_buys is not None and buys >= max_new_buys:
