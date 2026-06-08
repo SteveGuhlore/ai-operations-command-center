@@ -40,6 +40,8 @@ workspace/assets/audio/*.wav
 workspace/ledger/
 workspace/logs/
 workspace/locks/
+workspace/notify-state.json
+workspace/tony-book-cache.json
 vault/
 
 # Logs (runtime; may contain API keys)
