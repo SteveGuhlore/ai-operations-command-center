@@ -294,8 +294,18 @@ def _apply_cluster_cap(plan: list, held_symbols) -> list:
         return plan
 
 
+def symbols_exited_today(fills: list, today: str | None = None) -> set:
+    """Symbols with a SELL fill dated today — i.e. exited this session, whether by a stop, a
+    take-profit target, or a discretionary close (all three produce a sell fill). Drives the
+    same-session re-entry block: once Tony is out of a name he doesn't buy it back the same day
+    (he exited for a reason). Cross-day re-entry is unaffected — tomorrow is a fresh look."""
+    t = today or str(date.today())
+    return {f.get("symbol") for f in fills
+            if (f.get("side") or "").lower() == "sell" and f.get("date") == t and f.get("symbol")}
+
+
 def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None = None,
-                held_symbols=(), max_new_buys=None) -> list:
+                held_symbols=(), max_new_buys=None, exited_today=()) -> list:
     """Pure: turn fresh verdicts into intended paper actions (skips ones already executed).
     An open verdict with no levels of its own (a reaffirm) inherits the scanner's target/stop
     so it's still a protected bracket — never a naked long. A buy on a name already held is
@@ -315,6 +325,11 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
         if verdict in _OPEN:
             key = f"{v.get('date')}:{sym}:open"
             if key in already_done or sym in held_symbols:
+                continue
+            if sym in exited_today:
+                # Exited this session (stop / target / close) — don't buy it right back. He stepped
+                # aside for a reason; re-evaluate tomorrow, not four minutes later.
+                _log.info("skip open %s: exited earlier today — same-session re-entry blocked", sym)
                 continue
             target, stop = v.get("target"), v.get("stop")
             if not (target and stop):
@@ -660,9 +675,14 @@ def sync(broker=None) -> dict:
         _log.warning("held read failed: %s", exc)
         held = set()
     today = str(date.today())
+    try:
+        exited_today = symbols_exited_today(broker.filled_orders(), today)
+    except Exception as exc:
+        _log.warning("re-entry cooldown read failed: %s", exc)
+        exited_today = set()
     today_opens = sum(1 for k in done if isinstance(k, str) and k.startswith(today) and k.endswith(":open"))
     max_new = max(0, min(MAX_OPEN_POSITIONS - len(held), MAX_DAILY_ORDERS - today_opens))
-    plan = plan_orders(verdicts, done, levels, held, max_new_buys=max_new)
+    plan = plan_orders(verdicts, done, levels, held, max_new_buys=max_new, exited_today=exited_today)
     plan = _apply_cluster_cap(plan, held)  # T1.9 correlated-cluster cap (OFF by default)
 
     breaker = _breaker_state_safe()  # T1.3 drawdown circuit breaker (OFF by default)

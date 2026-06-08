@@ -8,9 +8,13 @@ from runner.ledger import tony_scorecard as tsc
 
 
 class FakeBroker:
-    def __init__(self):
+    def __init__(self, fills=None):
         self.buys = []
         self.buy_risk_pcts = []
+        self._fills = fills or []
+
+    def filled_orders(self, limit=200):
+        return self._fills
 
     def buy(self, symbol, notional, target, stop, risk_pct=None):
         self.buys.append(symbol)
@@ -115,6 +119,35 @@ def test_plan_orders_keeps_open_with_own_levels():
     verdicts = [{"date": "2026-06-05", "symbol": "OWN", "verdict": "override", "target": 30, "stop": 25}]
     plan = ap.plan_orders(verdicts, set(), scanner_levels={})
     assert len(plan) == 1 and plan[0]["action"] == "buy"
+
+
+# ----------------------------- same-session re-entry block -----------------------------
+
+def test_symbols_exited_today_filters_sells_by_date():
+    fills = [
+        {"symbol": "KDP", "side": "sell", "date": "2026-06-08"},
+        {"symbol": "OLD", "side": "sell", "date": "2026-06-07"},   # prior day -> not blocked
+        {"symbol": "BUY", "side": "buy", "date": "2026-06-08"},    # a buy, not an exit
+    ]
+    assert ap.symbols_exited_today(fills, "2026-06-08") == {"KDP"}
+
+
+def test_plan_orders_blocks_reentry_after_exit_today():
+    # KDP exited today -> no re-open today, even with valid levels.
+    verdicts = [{"date": "2026-06-08", "symbol": "KDP", "verdict": "override", "target": 30, "stop": 25}]
+    assert ap.plan_orders(verdicts, set(), scanner_levels={}, exited_today={"KDP"}) == []
+    # a different name is unaffected
+    plan = ap.plan_orders(verdicts, set(), scanner_levels={}, exited_today={"OTHER"})
+    assert len(plan) == 1 and plan[0]["action"] == "buy"
+
+
+def test_sync_skips_symbol_exited_today(tmp_path, monkeypatch):
+    _wire(tmp_path, monkeypatch, [{"date": "2026-06-08", "symbol": "KDP", "verdict": "override",
+                                   "target": 30, "stop": 25, "confidence": "high"}])
+    today = ap.date.today().isoformat()
+    b = FakeBroker(fills=[{"symbol": "KDP", "side": "sell", "date": today}])
+    ap.sync(broker=b)
+    assert "KDP" not in b.buys
 
 
 # ----------------------------- sync wiring -----------------------------
