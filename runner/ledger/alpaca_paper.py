@@ -532,10 +532,12 @@ def _alpaca_broker():
         def open_orders(self):
             from alpaca.trading.requests import GetOrdersRequest
             from alpaca.trading.enums import QueryOrderStatus
-            # nested=True so an OCO's stop-loss leg — which sits HELD as a child, not a top-level
-            # order — is surfaced; _flatten_orders lifts each leg to its own row. Without it the
-            # stop is invisible and protection reconcile thinks a protected position is naked.
-            ords = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500, nested=True))
+            # status=OPEN (NOT ALL): ALL+limit=500 returns the 500 most-recent orders across all
+            # history, so after churn the actual live OCOs (days old) get truncated out of the
+            # window — open_orders() then can't see a position's stop (looks naked) OR the order to
+            # cancel (cancel/replace fails 40310000). OPEN returns only live orders; nested=True
+            # surfaces each OCO's HELD stop-loss leg, which _flatten_orders lifts to its own row.
+            ords = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500, nested=True))
             return _flatten_orders(ords)
 
         def cancel_entry_orders(self):
