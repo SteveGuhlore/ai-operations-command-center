@@ -182,6 +182,24 @@ def test_flatten_orders_drops_terminal():
     assert ap._flatten_orders([o]) == []
 
 
+def test_flatten_keeps_live_legs_under_filled_bracket_entry():
+    # buy() uses OrderClass.BRACKET. Once the entry fills it's terminal, but its protective legs
+    # are live — they must NOT be dropped, or the position looks naked and gets churned.
+    tp = SimpleNamespace(id="tp", symbol="X", side="sell", qty=10, notional=None, order_class="bracket",
+                         order_type="limit", limit_price=50, stop_price=None, status="held", legs=None)
+    sl = SimpleNamespace(id="sl", symbol="X", side="sell", qty=10, notional=None, order_class="bracket",
+                         order_type="stop", limit_price=None, stop_price=40, status="held", legs=None)
+    entry = SimpleNamespace(id="e", symbol="X", side="buy", qty=10, notional=None, order_class="bracket",
+                            order_type="market", limit_price=None, stop_price=None, status="filled",
+                            legs=[tp, sl])
+    flat = ap._flatten_orders([entry])
+    pairs = {(o["symbol"], o["type"]) for o in flat}
+    assert ("X", "stop") in pairs and ("X", "limit") in pairs   # legs survive
+    assert all(o["status"] != "filled" for o in flat)           # the terminal entry is dropped
+    # and the position is now correctly seen as protected
+    assert ap.positions_needing_protection([{"symbol": "X", "qty": 10, "avg_entry_price": 45.0}], flat, {}) == []
+
+
 def test_position_protected_by_nested_stop_not_flagged():
     # The bug: a position guarded by an OCO whose stop sits in a leg looked "naked" and got its
     # OCO cancelled every cycle. With legs surfaced, it's correctly seen as protected.

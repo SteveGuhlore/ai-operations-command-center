@@ -366,27 +366,28 @@ def _flatten_orders(raw_orders) -> list:
     bracket CHILD LEG as its own row. The held stop-loss of an OCO lives as a leg, not a top-level
     order, so without this it's invisible and a fully-protected position looks naked — which made
     the reconciler cancel the working OCO and re-place it every cycle (de-protecting the book).
-    `parent_id` is set on legs so cancel logic can target the parent only (a leg can't be cancelled
-    on its own). Terminal orders are dropped."""
+    Recurses past terminal parents (a filled bracket entry still carries live tp/stop legs);
+    terminal orders themselves are dropped. `parent_id` is informational (the owning order)."""
     out = []
 
     def _emit(o, parent_id):
         status = str(getattr(o, "status", "")).rsplit(".", 1)[-1].lower()
-        if status in _ORDER_TERMINAL:
-            return
-        out.append({
-            "id": str(getattr(o, "id", "")),
-            "symbol": getattr(o, "symbol", None),
-            "side": str(getattr(o, "side", "")).rsplit(".", 1)[-1].lower(),
-            "qty": float(o.qty) if getattr(o, "qty", None) else None,
-            "notional": float(o.notional) if getattr(o, "notional", None) else None,
-            "order_class": str(getattr(o, "order_class", "")).rsplit(".", 1)[-1].lower(),
-            "type": str(getattr(o, "order_type", "")).rsplit(".", 1)[-1].lower(),
-            "limit_price": float(o.limit_price) if getattr(o, "limit_price", None) else None,
-            "stop_price": float(o.stop_price) if getattr(o, "stop_price", None) else None,
-            "status": status,
-            "parent_id": parent_id,
-        })
+        if status not in _ORDER_TERMINAL:
+            out.append({
+                "id": str(getattr(o, "id", "")),
+                "symbol": getattr(o, "symbol", None),
+                "side": str(getattr(o, "side", "")).rsplit(".", 1)[-1].lower(),
+                "qty": float(o.qty) if getattr(o, "qty", None) else None,
+                "notional": float(o.notional) if getattr(o, "notional", None) else None,
+                "order_class": str(getattr(o, "order_class", "")).rsplit(".", 1)[-1].lower(),
+                "type": str(getattr(o, "order_type", "")).rsplit(".", 1)[-1].lower(),
+                "limit_price": float(o.limit_price) if getattr(o, "limit_price", None) else None,
+                "stop_price": float(o.stop_price) if getattr(o, "stop_price", None) else None,
+                "status": status,
+                "parent_id": parent_id,
+            })
+        # Always recurse, even past a TERMINAL parent: a filled bracket entry is terminal but still
+        # carries LIVE take-profit/stop legs — dropping them would hide the protection (look naked).
         for leg in (getattr(o, "legs", None) or []):
             _emit(leg, str(getattr(o, "id", "")))
 
@@ -461,7 +462,7 @@ def _alpaca_broker():
             otherwise both block a fresh OCO (oversell) AND leave the position with no downside
             protection. Alpaca frees the cancelled qty asynchronously, so retry until it places."""
             for o in self.open_orders():
-                if o.get("symbol") == symbol and o.get("side") == "sell" and not o.get("parent_id"):
+                if o.get("symbol") == symbol and o.get("side") == "sell":
                     try:
                         client.cancel_order_by_id(o["id"])
                     except Exception as exc:
@@ -491,7 +492,7 @@ def _alpaca_broker():
             # open against Tony's decision). Alpaca frees the held qty asynchronously after the
             # cancel, so retry the liquidation briefly until it goes through.
             for o in self.open_orders():
-                if o.get("symbol") == symbol and o.get("side") == "sell" and not o.get("parent_id"):
+                if o.get("symbol") == symbol and o.get("side") == "sell":
                     try:
                         client.cancel_order_by_id(o["id"])
                     except Exception as exc:
@@ -696,7 +697,8 @@ def sync(broker=None) -> dict:
         held = set()
     today = str(date.today())
     try:
-        exited_today = symbols_exited_today(broker.filled_orders(), today)
+        # Wide window so a busy day's exits aren't pushed out of the fetch by other closed orders.
+        exited_today = symbols_exited_today(broker.filled_orders(limit=500), today)
     except Exception as exc:
         _log.warning("re-entry cooldown read failed: %s", exc)
         exited_today = set()
