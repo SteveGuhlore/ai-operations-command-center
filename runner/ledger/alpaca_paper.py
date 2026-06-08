@@ -358,6 +358,43 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
     return plan
 
 
+_ORDER_TERMINAL = {"filled", "canceled", "cancelled", "expired", "rejected", "done_for_day", "replaced"}
+
+
+def _flatten_orders(raw_orders) -> list:
+    """Pure: Alpaca order objects (fetched with nested=True) -> flat dicts, surfacing each OCO/
+    bracket CHILD LEG as its own row. The held stop-loss of an OCO lives as a leg, not a top-level
+    order, so without this it's invisible and a fully-protected position looks naked — which made
+    the reconciler cancel the working OCO and re-place it every cycle (de-protecting the book).
+    `parent_id` is set on legs so cancel logic can target the parent only (a leg can't be cancelled
+    on its own). Terminal orders are dropped."""
+    out = []
+
+    def _emit(o, parent_id):
+        status = str(getattr(o, "status", "")).rsplit(".", 1)[-1].lower()
+        if status in _ORDER_TERMINAL:
+            return
+        out.append({
+            "id": str(getattr(o, "id", "")),
+            "symbol": getattr(o, "symbol", None),
+            "side": str(getattr(o, "side", "")).rsplit(".", 1)[-1].lower(),
+            "qty": float(o.qty) if getattr(o, "qty", None) else None,
+            "notional": float(o.notional) if getattr(o, "notional", None) else None,
+            "order_class": str(getattr(o, "order_class", "")).rsplit(".", 1)[-1].lower(),
+            "type": str(getattr(o, "order_type", "")).rsplit(".", 1)[-1].lower(),
+            "limit_price": float(o.limit_price) if getattr(o, "limit_price", None) else None,
+            "stop_price": float(o.stop_price) if getattr(o, "stop_price", None) else None,
+            "status": status,
+            "parent_id": parent_id,
+        })
+        for leg in (getattr(o, "legs", None) or []):
+            _emit(leg, str(getattr(o, "id", "")))
+
+    for o in raw_orders:
+        _emit(o, None)
+    return out
+
+
 def _alpaca_broker():
     """Real broker, or None if SDK/keys absent."""
     key = os.environ.get("ALPACA_API_KEY")
@@ -424,7 +461,7 @@ def _alpaca_broker():
             otherwise both block a fresh OCO (oversell) AND leave the position with no downside
             protection. Alpaca frees the cancelled qty asynchronously, so retry until it places."""
             for o in self.open_orders():
-                if o.get("symbol") == symbol and o.get("side") == "sell":
+                if o.get("symbol") == symbol and o.get("side") == "sell" and not o.get("parent_id"):
                     try:
                         client.cancel_order_by_id(o["id"])
                     except Exception as exc:
@@ -454,7 +491,7 @@ def _alpaca_broker():
             # open against Tony's decision). Alpaca frees the held qty asynchronously after the
             # cancel, so retry the liquidation briefly until it goes through.
             for o in self.open_orders():
-                if o.get("symbol") == symbol and o.get("side") == "sell":
+                if o.get("symbol") == symbol and o.get("side") == "sell" and not o.get("parent_id"):
                     try:
                         client.cancel_order_by_id(o["id"])
                     except Exception as exc:
@@ -494,28 +531,11 @@ def _alpaca_broker():
         def open_orders(self):
             from alpaca.trading.requests import GetOrdersRequest
             from alpaca.trading.enums import QueryOrderStatus
-            # status=ALL (not OPEN) so an OCO's stop-loss leg — which sits in HELD, not OPEN —
-            # is surfaced alongside its take-profit; otherwise the dashboard shows only the target.
-            ords = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500))
-            terminal = {"filled", "canceled", "cancelled", "expired", "rejected", "done_for_day", "replaced"}
-            out = []
-            for o in ords:
-                status = str(o.status).rsplit(".", 1)[-1].lower()
-                if status in terminal:
-                    continue
-                out.append({
-                    "id": str(o.id),
-                    "symbol": o.symbol,
-                    "side": str(o.side).rsplit(".", 1)[-1].lower(),
-                    "qty": float(o.qty) if o.qty else None,
-                    "notional": float(o.notional) if o.notional else None,
-                    "order_class": str(o.order_class).rsplit(".", 1)[-1].lower(),
-                    "type": str(o.order_type).rsplit(".", 1)[-1].lower(),
-                    "limit_price": float(o.limit_price) if o.limit_price else None,
-                    "stop_price": float(o.stop_price) if o.stop_price else None,
-                    "status": status,
-                })
-            return out
+            # nested=True so an OCO's stop-loss leg — which sits HELD as a child, not a top-level
+            # order — is surfaced; _flatten_orders lifts each leg to its own row. Without it the
+            # stop is invisible and protection reconcile thinks a protected position is naked.
+            ords = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.ALL, limit=500, nested=True))
+            return _flatten_orders(ords)
 
         def cancel_entry_orders(self):
             """Cancel only unfilled BUY entries; leave SELL stop/target legs guarding positions."""

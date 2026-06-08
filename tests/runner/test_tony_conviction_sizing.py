@@ -150,6 +150,53 @@ def test_sync_skips_symbol_exited_today(tmp_path, monkeypatch):
     assert "KDP" not in b.buys
 
 
+# ----------------------------- nested OCO leg visibility (protection reconcile) -----------------------------
+
+from types import SimpleNamespace
+
+
+def _oco(symbol, tp_id, tp, stop_id, stop):
+    """An OCO sell: top-level take-profit LIMIT with the stop-loss as a HELD child leg (how Alpaca
+    returns it with nested=True)."""
+    leg = SimpleNamespace(id=stop_id, symbol=symbol, side="sell", qty=39, notional=None,
+                          order_class="oco", order_type="stop", limit_price=None, stop_price=stop,
+                          status="held", legs=None)
+    return SimpleNamespace(id=tp_id, symbol=symbol, side="sell", qty=39, notional=None,
+                           order_class="oco", order_type="limit", limit_price=tp, stop_price=None,
+                           status="new", legs=[leg])
+
+
+def test_flatten_orders_surfaces_held_stop_leg():
+    flat = ap._flatten_orders([_oco("DKNG", "p1", 33.5, "l1", 22.85)])
+    assert len(flat) == 2
+    stop = [o for o in flat if o["type"] == "stop"][0]
+    assert stop["symbol"] == "DKNG" and stop["stop_price"] == 22.85 and stop["parent_id"] == "p1"
+    # the take-profit parent is top-level (no parent_id) -> cancel logic targets it, not the leg
+    tp = [o for o in flat if o["type"] == "limit"][0]
+    assert tp["parent_id"] is None
+
+
+def test_flatten_orders_drops_terminal():
+    o = SimpleNamespace(id="x", symbol="A", side="sell", qty=1, notional=None, order_class="simple",
+                        order_type="limit", limit_price=10, stop_price=None, status="filled", legs=None)
+    assert ap._flatten_orders([o]) == []
+
+
+def test_position_protected_by_nested_stop_not_flagged():
+    # The bug: a position guarded by an OCO whose stop sits in a leg looked "naked" and got its
+    # OCO cancelled every cycle. With legs surfaced, it's correctly seen as protected.
+    positions = [{"symbol": "DKNG", "qty": 39, "avg_entry_price": 28.0}]
+    orders = ap._flatten_orders([_oco("DKNG", "p1", 33.5, "l1", 22.85)])
+    assert ap.positions_needing_protection(positions, orders, {}) == []
+
+
+def test_truly_naked_position_still_flagged():
+    positions = [{"symbol": "KDP", "qty": 50, "avg_entry_price": 31.0}]
+    lone_tp = [{"symbol": "KDP", "side": "sell", "type": "limit", "stop_price": None, "parent_id": None}]
+    needs = ap.positions_needing_protection(positions, lone_tp, {}, fallback_pct=(0.12, 0.20))
+    assert [n["symbol"] for n in needs] == ["KDP"]
+
+
 # ----------------------------- sync wiring -----------------------------
 
 def _wire(tmp_path, monkeypatch, verdicts):
