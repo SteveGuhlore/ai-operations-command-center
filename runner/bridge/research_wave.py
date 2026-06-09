@@ -124,7 +124,11 @@ def _read_state() -> dict:
 
 def _write_state(data: dict) -> None:
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    # Atomic: a crash mid-write would corrupt the state into invalid JSON, which _read_state
+    # degrades to {} — losing staged_for and re-staging the whole wave (dozens of dup tasks).
+    tmp = STATE_FILE.with_suffix(STATE_FILE.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp, STATE_FILE)
 
 
 def _next_open_date(now: datetime | None = None) -> str:

@@ -65,7 +65,7 @@ def test_run_task_skips_when_pod_budget_exceeded(monkeypatch):
     monkeypatch.setattr(main, "route_task", lambda t: "opportunity_worker")
     monkeypatch.setattr(main, "acquire_lock", lambda *a: True)
     monkeypatch.setattr(main, "release_lock", lambda *a: None)
-    monkeypatch.setattr(main, "is_budget_exceeded", lambda: False)
+    monkeypatch.setattr(main, "is_budget_exceeded", lambda **k: False)  # run_task passes off_hours=
     monkeypatch.setattr(main, "is_pod_budget_exceeded", lambda pod: True)
     called = {"ran": False}
     def _should_not_run(*a, **k):

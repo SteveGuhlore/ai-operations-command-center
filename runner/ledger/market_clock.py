@@ -22,8 +22,9 @@ _CACHE_TTL = 60.0
 _OPEN = _time(9, 30)
 _CLOSE = _time(16, 0)
 
-# Best-effort 2026 US equity market holidays (full closures). Half-days are treated as open;
+# Best-effort US equity market holidays (full closures). Half-days are treated as open;
 # the gate only blocks brand-new entries, so erring open on a half-day is harmless.
+# (Name kept as _HOLIDAYS_2026 for import compatibility; it now spans 2026-2027.)
 _HOLIDAYS_2026 = {
     "2026-01-01",  # New Year's Day
     "2026-01-19",  # MLK Jr. Day
@@ -35,6 +36,16 @@ _HOLIDAYS_2026 = {
     "2026-09-07",  # Labor Day
     "2026-11-26",  # Thanksgiving
     "2026-12-25",  # Christmas
+    "2027-01-01",  # New Year's Day
+    "2027-01-18",  # MLK Jr. Day
+    "2027-02-15",  # Washington's Birthday
+    "2027-03-26",  # Good Friday
+    "2027-05-31",  # Memorial Day
+    "2027-06-18",  # Juneteenth (observed — 6/19 is a Saturday)
+    "2027-07-05",  # Independence Day (observed — 7/4 is a Sunday)
+    "2027-09-06",  # Labor Day
+    "2027-11-25",  # Thanksgiving
+    "2027-12-24",  # Christmas (observed — 12/25 is a Saturday)
 }
 
 

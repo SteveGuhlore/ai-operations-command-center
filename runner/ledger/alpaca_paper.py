@@ -526,9 +526,13 @@ def _alpaca_broker():
                     if "insufficient qty" in s or "held" in s or "40310000" in s:
                         time.sleep(0.5)
                         continue
-                    _log.info("close_position(%s): %s", symbol, exc)
-                    return
-            _log.info("close_position(%s) gave up after retries: %s", symbol, last)
+                    if "does not exist" in s or "not found" in s or "40410000" in s:
+                        return  # already flat — the close's goal is met
+                    # Real failure: raise so sync() does NOT mark the close done. Returning
+                    # here used to record a silent no-op as executed, so a position could stay
+                    # open against Tony's decision forever with no retry and no signal.
+                    raise
+            raise last  # qty never freed after retries — leave unmarked so next cycle retries
 
         def account(self):
             a = client.get_account()

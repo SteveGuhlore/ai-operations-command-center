@@ -54,18 +54,25 @@ def find_prospects(query: str, max_results: int = 10) -> dict:
         for place in search_data.get("results", [])[:max_results]:
             place_id = place.get("place_id")
             detail   = _get_place_detail(place_id, api_key)
+            # A failed detail fetch (quota, timeout, REQUEST_DENIED) must read as UNKNOWN,
+            # not "no website" — otherwise the agent pitches "I noticed you have no website"
+            # to businesses that have one.
+            detail_failed = detail is None
+            detail = detail or {}
             results.append({
                 "name":        detail.get("name") or place.get("name"),
                 "address":     detail.get("formatted_address") or place.get("formatted_address"),
                 "phone":       detail.get("formatted_phone_number"),
                 "website":     detail.get("website"),
-                "has_website": bool(detail.get("website")),
+                "has_website": None if detail_failed else bool(detail.get("website")),
+                "website_status": ("unknown — detail lookup failed, do NOT pitch as no-website"
+                                   if detail_failed else "confirmed"),
                 "rating":      detail.get("rating") or place.get("rating"),
                 "types":       place.get("types", []),
                 "place_id":    place_id,
             })
 
-        no_site = [r for r in results if not r["has_website"]]
+        no_site = [r for r in results if r["has_website"] is False]
         return {
             "prospects":        results,
             "no_website_count": len(no_site),
@@ -77,13 +84,18 @@ def find_prospects(query: str, max_results: int = 10) -> dict:
         return {"error": str(exc)}
 
 
-def _get_place_detail(place_id: str, api_key: str) -> dict:
+def _get_place_detail(place_id: str, api_key: str) -> dict | None:
+    """Place detail, or None when the lookup itself failed (timeout, quota, denied) — the
+    caller must treat None as 'website unknown', never as 'no website'."""
     try:
         r = httpx.get(
             _DETAIL_URL,
             params={"place_id": place_id, "fields": _DETAIL_FIELDS, "key": api_key},
             timeout=10,
         )
-        return r.json().get("result", {})
+        data = r.json()
+        if data.get("status") != "OK":
+            return None
+        return data.get("result", {})
     except Exception:
-        return {}
+        return None

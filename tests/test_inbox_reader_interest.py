@@ -16,9 +16,6 @@ from inbox_reader import (
 )
 
 
-@pytest.mark.xfail(reason="pre-existing: dormant outreach inbox_reader; the reason-string format "
-                          "drifted from 'remove/unsubscribe' to a pattern label. Not Tony.",
-                   strict=False)
 def test_unsubscribe_detection():
     """Test that unsubscribe requests are correctly identified."""
     

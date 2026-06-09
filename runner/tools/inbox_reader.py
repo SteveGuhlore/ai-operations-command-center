@@ -37,10 +37,11 @@ _UNSUBSCRIBE_SIGNALS = [
     "no longer interested", "not interested",
     "do not contact", "do not email", "do not send",
     "opt out", "opt-out", "mailing list",
-    # Rejection phrases
+    # Rejection phrases. NOTE: "we have a" / "already have" / "currently use" moved to
+    # _NEGATIVE_CONTEXT_PATTERNS with an explicit website/builder object — the bare substrings
+    # rejected hot replies like "sounds good, we have a budget for this — how much?".
     "not for us", "not a fit", "not interested",
     "no thank", "no thanks", "no need", "not now",
-    "already have", "we have a", "already use", "currently use",
     "happy with", "satisfied with", "don't need", "do not need",
     "won't need", "will not need", "not looking",
     # Firm negatives
@@ -48,15 +49,19 @@ _UNSUBSCRIBE_SIGNALS = [
     "wrong person", "wrong email", "not my job", "not the right",
 ]
 
+_SITE_OBJECT = r"(?:web\s?site|website|site|web\s?page|homepage|web\s+(?:guy|person|team|company))"
+
 # NEGATIVE CONTEXT PHRASES - words that flip meaning when combined
 _NEGATIVE_CONTEXT_PATTERNS = [
-    r"definitely\s+(?:have|not|don't|do not|won't|will not)",
-    r"most\s+definitely\s+(?:have|not|don't|do not)",
-    r"we\s+(?:already|definitely)\s+have\s+a",
-    r"we\s+(?:already|currently)\s+use",
-    r"not?\s+(?:interested|looking|available|interested)",
+    r"definitely\s+(?:not|don't|do not|won't|will not)",
+    rf"(?:we|i)\s+(?:already|definitely)\s+have\s+a\s+(?:new\s+)?{_SITE_OBJECT}",
+    rf"already\s+have\s+a\s+(?:new\s+)?{_SITE_OBJECT}",
+    r"(?:we|i)\s+(?:already|currently)\s+use\s+(?:wix|squarespace|godaddy|weebly|wordpress|shopify|another)",
+    r"\bnot\s+(?:interested|looking|available)",
     r"(?:please|kindly)\s+(?:remove|unsubscribe|stop|delete)",
     r"do\s+not\s+(?:contact|email|send|need)",
+    # "Never call me again" must read as opt-out, not as the strong-interest phrase "call me".
+    r"(?:never|don'?t|do\s+not|stop)\s+(?:call|email|contact|text)",
     r"(?:take|remove)\s+(?:us|me)\s+(?:off|from)",
     r"wrong\s+(?:person|department|email|address)",
 ]
@@ -73,47 +78,89 @@ def _decode_header_value(raw) -> str:
     return " ".join(decoded)
 
 
+def _decode_part(part) -> str:
+    payload = part.get_payload(decode=True)
+    if not payload:
+        return ""
+    # Respect the sender's declared charset — Outlook et al send windows-1252 smart quotes
+    # that mojibake under a blind utf-8 decode, breaking apostrophe phrases ("i'm interested").
+    return payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+
+
+def _strip_html(html: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html))
+
+
 def _body_text(msg) -> str:
+    plain, html = "", ""
     if msg.is_multipart():
         for part in msg.walk():
-            if part.get_content_type() == "text/plain":
-                payload = part.get_payload(decode=True)
-                if payload:
-                    return payload.decode(errors="replace")[:2000]
+            ctype = part.get_content_type()
+            if ctype == "text/plain" and not plain:
+                plain = _decode_part(part)
+            elif ctype == "text/html" and not html:
+                html = _decode_part(part)
     else:
-        payload = msg.get_payload(decode=True)
-        if payload:
-            return payload.decode(errors="replace")[:2000]
-    return ""
+        if msg.get_content_type() == "text/html":
+            html = _decode_part(msg)
+        else:
+            plain = _decode_part(msg)
+    # HTML-only replies (Outlook mobile) used to analyze an empty body; strip tags instead.
+    return (plain or _strip_html(html))[:2000]
 
 
+_QUOTE_MARKERS = re.compile(
+    r"^\s*on .{0,120}wrote:\s*$|^-{2,}\s*original message\s*-{2,}|^from:\s.+$",
+    re.IGNORECASE | re.MULTILINE)
+
+
+def _strip_quoted(body: str) -> str:
+    """Drop quoted reply content before analysis. Our own pitch contains 'unsubscribe'/'STOP'
+    (CAN-SPAM footer), so analyzing the quote classified every interested reply that quoted the
+    original as an opt-out — the tool's purpose inverted."""
+    m = _QUOTE_MARKERS.search(body)
+    if m:
+        body = body[:m.start()]
+    return "\n".join(ln for ln in body.splitlines() if not ln.lstrip().startswith(">"))
+
+
+# Standalone = high-precision: safe to classify as auto-reply on this phrase alone.
 _AUTO_REPLY_SIGNALS = [
     "out of office", "out-of-office", "auto-reply", "auto reply",
     "automatic reply", "autoreply", "i am away", "i'm away",
     "i am out of", "i'm out of", "currently out of",
     "on vacation", "on holiday", "annual leave", "maternity leave",
-    "will be back", "will return", "back in the office",
-    "received your email", "received your message",
     "this is an automated", "do not reply", "do-not-reply",
     "no longer with", "no longer at this", "no longer employed",
     "undeliverable", "delivery status notification", "mail delivery failed",
     "address not found", "user unknown", "mailbox full",
+]
+
+# Weak phrases that real humans also write ("I received your email, yes I'm interested!") —
+# they only count as auto-reply alongside an auto-submitted header or a second weak phrase.
+_AUTO_REPLY_WEAK = [
+    "received your email", "received your message",
     "thank you for contacting", "we have received your",
+    "will be back", "will return", "back in the office",
 ]
 
 
 def _is_auto_reply(subject: str, body: str, headers: dict | None = None) -> bool:
     text = (subject + " " + body).lower()
-    if any(sig in text for sig in _AUTO_REPLY_SIGNALS):
-        return True
+    header_auto = False
     if headers:
         if headers.get("auto-submitted", "").lower().startswith("auto"):
-            return True
+            header_auto = True
         if headers.get("x-auto-response-suppress"):
-            return True
+            header_auto = True
         if headers.get("precedence", "").lower() in ("auto_reply", "bulk", "junk"):
-            return True
-    return False
+            header_auto = True
+    if header_auto:
+        return True
+    if any(sig in text for sig in _AUTO_REPLY_SIGNALS):
+        return True
+    weak_hits = sum(1 for sig in _AUTO_REPLY_WEAK if sig in text)
+    return weak_hits >= 2
 
 
 def _has_unsubscribe_signals(subject: str, body: str) -> tuple[bool, str]:
@@ -142,10 +189,15 @@ def _has_strong_interest(subject: str, body: str) -> tuple[bool, str]:
     """
     text = (subject + " " + body).lower()
     
-    # Check for strong interest phrases
+    # Check for strong interest phrases — but a negation right before flips the meaning
+    # ("Never call me again" must not match the strong phrase "call me").
+    negations = ("never ", "don't ", "do not ", "won't ", "stop ", "not ")
     for phrase in _STRONG_INTEREST_PHRASES:
-        if phrase in text:
-            return True, f"Strong interest phrase: '{phrase}'"
+        pos = text.find(phrase)
+        if pos >= 0:
+            lead = text[max(0, pos - 30):pos]
+            if not any(neg in lead for neg in negations):
+                return True, f"Strong interest phrase: '{phrase}'"
     
     # Check for positive signals that are NOT negated
     for signal in _INTEREST_SIGNALS:
@@ -169,6 +221,9 @@ def _is_interested(subject: str, body: str, headers: dict | None = None) -> dict
     Determine if an email indicates genuine buying interest.
     Returns a dict with detailed analysis.
     """
+    # Analyze only the prospect's OWN words — the quoted pitch below their reply contains our
+    # CAN-SPAM footer ("unsubscribe"/"STOP"), which used to mark every quoting reply as opt-out.
+    body = _strip_quoted(body)
     # Auto-replies are never interested
     if _is_auto_reply(subject, body, headers):
         return {

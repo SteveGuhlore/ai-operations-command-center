@@ -535,7 +535,9 @@ def run_task(task: dict) -> dict:
         log.info("Task %s already locked — skipping", task_id)
         return {"skipped": True, "task_id": task_id}
 
-    if is_budget_exceeded():
+    # Same lane as the cycle gate: off-hours uses its own cap, so a task that passed the
+    # cycle's off-hours check isn't then bounced here by the depleted daytime cap.
+    if is_budget_exceeded(off_hours=_is_market_closed()):
         release_lock(task_id)
         log.warning("Budget cap reached — skipping %s", task_id)
         return {"skipped": True, "task_id": task_id}
@@ -597,12 +599,13 @@ _STALE_TASK_AGE_S = 780  # 13 min — just past the 12-min per-task hard cap
 _MAX_TASK_RESUMES = 3
 
 
-def _reap_stale_tasks() -> None:
+def _reap_stale_tasks(ws: Path | None = None) -> None:
     """Self-heal: re-queue any in_progress task older than the per-task hard cap so a task
     never stays stuck (crash, killed/overlapping cycle). Age-gated so it never touches a task
     still legitimately running this cycle. A bounded resume_count sends a poison task to
     failed/ instead of looping forever."""
-    ws = Path(__file__).parent.parent / "workspace"
+    if ws is None:
+        ws = Path(__file__).parent.parent / "workspace"
     ip, todo, failed, locks = (ws / "tasks" / "in_progress", ws / "tasks" / "todo",
                                ws / "tasks" / "failed", ws / "locks")
     if not ip.exists():
@@ -613,6 +616,14 @@ def _reap_stale_tasks() -> None:
     for f in ip.glob("*.md"):
         try:
             if now - f.stat().st_mtime < _STALE_TASK_AGE_S:
+                continue
+            # Age alone can't prove death: a worker thread that outlived its cycle's future
+            # timeout is still executing. If the lock's owner pid is alive, leave it be —
+            # reaping here would re-queue the task and run it twice concurrently. But a live
+            # pid can also be a long-lived process (dashboard) whose thread died, so past 4x
+            # the stale age reap regardless rather than wedge the task forever.
+            from runner.tasks.locker import lock_owner_alive
+            if (now - f.stat().st_mtime < _STALE_TASK_AGE_S * 4) and lock_owner_alive(f.stem):
                 continue
             text = f.read_text(encoding="utf-8")
             m = re.search(r"^resume_count:\s*(\d+)", text, re.MULTILINE)

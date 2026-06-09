@@ -454,6 +454,13 @@ def make_preopen_deepdive(date_str: str) -> None:
     land late morning). He re-evaluates every open position first, then reviews the latest
     bridge's watchlist."""
     task_id = f"TONY-PREOPEN-{date_str.replace('-', '')}"
+    # Idempotent per day: a manual re-run of preopen_reset.py must not clobber an in-flight
+    # deep-dive or spawn a duplicate after the first was consumed.
+    tasks_root = TASKS_DIR.parent if TASKS_DIR.name == "todo" else TASKS_DIR
+    for sub in ("todo", "in_progress", "done", "failed"):
+        if (tasks_root / sub / f"{task_id}.md").exists() or (TASKS_DIR / f"{task_id}.md").exists():
+            _log.info("tony_bridge: pre-open deep-dive %s already exists — skipping", task_id)
+            return
     title = f"Tony Pre-Open Deep-Dive — {date_str}"
     vault_history = _load_vault_history()
     slug, bridge_md = _latest_bridge_md()
@@ -541,8 +548,10 @@ def _extract_tier1_symbols(md: str) -> list[str]:
     return list(dict.fromkeys(_TIER1_SYM_RE.findall(section)))
 
 
+# Same symbol grammar as _TIER1_SYM_RE — the two previously disagreed ([A-Z0-9.\-]+ vs
+# [A-Z][A-Z0-9.\-]{0,9}), so the ledger and the fan-out could diverge on the same bridge.
 _TIER1_BLOCK_RE = re.compile(
-    r"###\s*\[\[([A-Z0-9.\-]+)\]\]\s*\n(.*?)(?=\n###|\n##\s|\Z)", re.DOTALL)
+    r"###\s*\[\[([A-Z][A-Z0-9.\-]{0,9})\]\]\s*\n(.*?)(?=\n###|\n##\s|\Z)", re.DOTALL)
 
 
 def _signal_ledger_path():
@@ -574,6 +583,7 @@ def _parse_bridge_signals(bridge_md: str) -> dict:
                       "close": close.group(1) if close else "",
                       "rr": rr.group(1) if rr else ""})
     newer = []
+    seen = {t["symbol"] for t in tier1}  # a symbol in two tiers must not double-enter the ledger
     for tier_name, days in (("Tier 2", 2), ("Tier 3", 1)):
         seg = bridge_md.split(tier_name, 1)
         if len(seg) < 2:
@@ -584,8 +594,9 @@ def _parse_bridge_signals(bridge_md: str) -> dict:
                 continue
             cells = [c.strip() for c in row.strip().strip("|").split("|")]
             sm = _TIER1_SYM_RE.search(cells[0]) if cells else None
-            if not sm:
+            if not sm or sm.group(1) in seen:
                 continue
+            seen.add(sm.group(1))
             score = cells[1] if len(cells) > 1 and re.match(r"^[\d.]+$", cells[1]) else ""
             close = cells[3].lstrip("$") if len(cells) > 3 and re.match(r"^\$?[\d.]+$", cells[3]) else ""
             rr = cells[6] if len(cells) > 6 else ""

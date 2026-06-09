@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import asyncio
 from contextlib import asynccontextmanager
@@ -163,13 +164,15 @@ async def api_trigger(request: Request):
         force=True,
     )
 
-    # Run a cycle immediately so the task executes now rather than waiting for the next cron tick
+    # Run a cycle immediately so the task executes now rather than waiting for the next cron
+    # tick. The atomic task lock makes this safe to race with the cron runner; failures are
+    # logged (a bare `pass` here hid every blown-up manual trigger as a silent success).
     def _run():
         try:
             from runner.main import run_cycle
             run_cycle()
         except Exception:
-            pass
+            logging.getLogger(__name__).exception("manual-trigger cycle failed (pod=%s)", pod)
 
     threading.Thread(target=_run, daemon=True).start()
     return result

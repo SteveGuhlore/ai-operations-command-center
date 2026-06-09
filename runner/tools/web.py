@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import random
 import httpx
@@ -68,7 +69,8 @@ class _TextExtractor(HTMLParser):
         # DuckDuckGo result containers
         if tag in ("div", "a"):
             attrs_dict = dict(attrs)
-            if attrs_dict.get("class", "").startswith("result"):
+            # a valueless attribute (<div class>) parses as None — don't crash the whole fetch
+            if (attrs_dict.get("class") or "").startswith("result"):
                 self._in_result = True
 
     def handle_endtag(self, tag):
@@ -84,26 +86,35 @@ class _TextExtractor(HTMLParser):
 # CAPTCHA DETECTION
 # =============================================================================
 
+# High-precision phrases: safe to flag a CAPTCHA on any single hit.
+_CAPTCHA_STRONG = [
+    "captcha", "recaptcha",
+    "please verify", "verifying you are human", "verify you are human",
+    "human verification", "i'm not a robot", "i am not a robot",
+    "checking your browser", "please enable javascript",
+    "bot detection", "bot check",
+    "too many requests", "ddos protection",
+    "your ip has been blocked", "unusual traffic",
+]
+
+# Ambiguous words that also occur in legitimate business copy ("we fix blocked drains",
+# "home security checks") — require at least two before flagging.
+_CAPTCHA_WEAK = [
+    "cloudflare", "rate limit", "access denied", "blocked",
+    "suspicious activity", "security check", "enable javascript",
+]
+
+
 def _is_captcha_response(text: str) -> bool:
-    """Detect common CAPTCHA challenge indicators in response."""
+    """Detect common CAPTCHA challenge indicators in response. Single-word triggers like
+    'blocked' used to flag legitimate pages (a plumber's 'blocked drains' copy), blinding the
+    agent to whole prospect categories — ambiguous words now need corroboration."""
     if not text:
         return True  # Empty response is suspicious
-    
-    captcha_indicators = [
-        "captcha", "CAPTCHA", "recaptcha", "reCAPTCHA",
-        "please verify", "verifying you are human",
-        "i'm not a robot", "i am not a robot",
-        "security check", "cloudflare",
-        "please enable javascript", "enable javascript",
-        "bot detection", "bot check",
-        "too many requests", "rate limit",
-        "verify you are human", "human verification",
-        "ddos protection", "access denied",
-        "blocked", "your ip has been blocked",
-        "suspicious activity", "unusual traffic",
-    ]
     text_lower = text.lower()
-    return any(indicator.lower() in text_lower for indicator in captcha_indicators)
+    if any(ind in text_lower for ind in _CAPTCHA_STRONG):
+        return True
+    return sum(1 for ind in _CAPTCHA_WEAK if ind in text_lower) >= 2
 
 
 def _is_valid_search_result(text: str) -> bool:
@@ -154,11 +165,15 @@ def _exponential_delay(attempt: int, base_delay: float = 1.0) -> None:
 _IG_STOPWORDS = {
     "instagram", "contact", "email", "support", "info", "the", "and",
     "for", "with", "https", "http", "www", "com", "please", "photos",
-    "videos", "posts", "reels", "stories", "explore", "share", "follow",
+    "videos", "posts", "reels", "reel", "stories", "explore", "share", "follow",
     "followers", "following", "like", "likes", "tag", "tagged", "ans",
     "p", "tv", "accounts", "login", "signup", "about", "help",
     "privacy", "terms", "careers", "press", "blog",
+    "direct", "locations", "web", "api",  # more non-profile URL path segments
 }
+
+# An "email" whose domain is really an asset filename (hero@2x.png, sprite@1x.webp).
+_ASSET_EMAIL_RE = re.compile(r"\.(?:png|jpe?g|gif|webp|svg|css|js|ico|woff2?|ttf)$", re.IGNORECASE)
 
 
 def _extract_business_contact_info(text: str, query: str = "", sources: list | None = None) -> dict:
@@ -175,13 +190,19 @@ def _extract_business_contact_info(text: str, query: str = "", sources: list | N
         low = e.lower()
         if low in seen_emails:
             continue
-        if any(x in low for x in ["example.com", "domain.com", "email.com", "user@", "@2x", "@3x", "sentry.io", "wixpress.com"]):
+        # Asset filenames (hero@1x.png) match the email shape; filter by the DOMAIN extension
+        # instead of '@2x'/'@3x' substrings, which missed @1x/@4x AND wrongly dropped real
+        # addresses like info@2xsolutions.com.
+        if _ASSET_EMAIL_RE.search(low.split("@", 1)[1]):
+            continue
+        if any(x in low for x in ["example.com", "domain.com", "email.com", "user@", "sentry.io", "wixpress.com"]):
             continue
         seen_emails.add(low)
         filtered_emails.append(e)
 
-    # Extract phone numbers (US formats)
-    phone_pattern = r'(?:\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})'
+    # Extract phone numbers (US formats). Digit lookarounds stop a longer digit run (an EIN,
+    # an order number) from yielding a fabricated inner match; area codes can't start 0/1.
+    phone_pattern = r'(?<!\d)(?:\+?1[-.\s]?)?\(?([2-9][0-9]{2})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})(?!\d)'
     phones = re.findall(phone_pattern, text)
     formatted_phones = [f"({p[0]}) {p[1]}-{p[2]}" for p in phones]
 
@@ -209,8 +230,9 @@ def _extract_business_contact_info(text: str, query: str = "", sources: list | N
     for m in re.findall(paren_pattern, text):
         _add(m, score=60)
 
-    # Labeled handles
-    labeled_pattern = r'(?:instagram|ig)[:\s]+@?([A-Za-z0-9_.]{3,30})'
+    # Labeled handles. \b stops the 'ig' inside ordinary words from minting a fake handle —
+    # "Craig Smith runs the shop" used to extract '@smith'.
+    labeled_pattern = r'\b(?:instagram|ig)\b[:\s]+@?([A-Za-z0-9_.]{3,30})'
     for m in re.findall(labeled_pattern, text, re.IGNORECASE):
         _add(m, score=40)
 
@@ -446,7 +468,11 @@ def _scrapingbee_search(query: str) -> Optional[dict]:
     if not _SCRAPINGBEE_KEY:
         return None
 
-    search_url = f"https://html.duckduckgo.com/html/?q={httpx.URL(query).raw_path}"
+    # quote_plus, not httpx.URL(query).raw_path — parsing the QUERY as a URL treated anything
+    # before a ':' as a scheme and silently dropped it ("bakery: Boston" -> " Boston"), and
+    # left '&' unencoded (injecting bogus params into the inner DDG URL).
+    from urllib.parse import quote_plus
+    search_url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
     
     params = {
         "api_key": _SCRAPINGBEE_KEY,
@@ -524,6 +550,12 @@ def web_search(query: str) -> dict:
             content = result.get("content", "")
             sources = result.get("sources", [])
             provider = result.get("provider", provider_name)
+
+            # An empty result is a soft failure, not a success — returning it here would
+            # short-circuit the whole fallback chain exactly when the next provider is needed.
+            if not content.strip():
+                errors.append(f"{provider_name}: empty result")
+                continue
 
             # Extract contact info if contact query
             if is_contact_query:
