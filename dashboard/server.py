@@ -203,7 +203,7 @@ async def api_activity(limit: int = 80):
         except OSError:
             pass
         rows.append({
-            "time": datetime.fromtimestamp(ts).strftime("%H:%M:%S"),
+            "ts": ts,
             "agent": agent or "system",
             "msg": (("failed: " if sub == "failed" else "") + title)[:90],
             "type": "error" if sub == "failed" else "done",
