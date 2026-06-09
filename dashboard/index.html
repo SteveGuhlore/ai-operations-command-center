@@ -1027,7 +1027,7 @@ const PODS = [
 ];
 
 let selectedAgent = null;
-let logEntries    = [];
+let logEntries    = (() => { try { return JSON.parse(localStorage.getItem("cc_activity_log") || "[]"); } catch { return []; } })();
 let lastState     = {};
 let cycleCount    = 0;
 
@@ -1156,13 +1156,15 @@ function addLog(role, msg, type = "") {
   const now  = new Date();
   const time = now.toTimeString().slice(0,8);
   logEntries.unshift({ time, role, msg, type });
-  if (logEntries.length > 200) logEntries.pop();
+  if (logEntries.length > 500) logEntries.pop();
+  try { localStorage.setItem("cc_activity_log", JSON.stringify(logEntries)); } catch (_) {}
   renderLog();
 }
 
 function renderLog() {
   const el = document.getElementById("activity-log");
-  el.innerHTML = logEntries.slice(0, 60).map(e => {
+  if (!el) return;
+  el.innerHTML = logEntries.map(e => {
     const short = e.role.replace("_worker","").replace(/_/g," ");
     return `<div class="log-entry log-${e.type}">
       <span class="log-time">${e.time}</span>
