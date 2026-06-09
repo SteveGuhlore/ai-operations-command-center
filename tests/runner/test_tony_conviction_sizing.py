@@ -208,6 +208,15 @@ def test_position_protected_by_nested_stop_not_flagged():
     assert ap.positions_needing_protection(positions, orders, {}) == []
 
 
+def test_entry_qty_fixed_notional():
+    # $10k / $200 = 50 shares; flat regardless of any stop. Conviction mult scales it; bad price -> 1.
+    assert ap.entry_qty(200.0) == 50
+    assert ap.entry_qty(50.0) == 200
+    assert ap.entry_qty(200.0, mult=1.5) == 75
+    assert ap.entry_qty(200.0, mult=0.5) == 25
+    assert ap.entry_qty(0) == 1
+
+
 def test_truly_naked_position_still_flagged():
     positions = [{"symbol": "KDP", "qty": 50, "avg_entry_price": 31.0}]
     lone_tp = [{"symbol": "KDP", "side": "sell", "type": "limit", "stop_price": None, "parent_id": None}]

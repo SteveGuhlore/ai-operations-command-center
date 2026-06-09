@@ -29,13 +29,14 @@ VERDICTS_FILE = Path(os.environ.get("TONY_VERDICTS_FILE", str(_reports / "tony_s
 EXECUTED_LOG = Path(__file__).parent.parent.parent / "workspace" / "alpaca-executed.json"
 BRIDGE_DIR = Path(os.environ.get("TONY_BRIDGE_DIR", str(Path(__file__).parent.parent.parent / "bridge" / "tony-stocks")))
 NOTIONAL = float(os.environ.get("TONY_PAPER_NOTIONAL", "1000"))
-# Head-to-head parity with the trading bot: SAME risk-sizing formula, caps, and order mechanics
-# so the only difference between the two books is the reasoning. Accounts are unequal (Tony=$1M,
-# bot=$100k), so the absolute notional cap is account-scaled — Tony deploys $10k/entry (1% of his
-# $1M), the bot $5k (its config) — and the head-to-head is compared on %-returns, not absolute $.
-# (See docs/CONTRACTS/execution-parity.md.) The other params match the bot exactly.
-RISK_PCT = float(os.environ.get("TONY_RISK_PER_TRADE_PCT", "1.0"))          # % equity risked entry->stop
-MAX_NOTIONAL = float(os.environ.get("TONY_MAX_NOTIONAL_PER_POSITION", "10000"))  # $10k/entry = 1% of $1M
+# Fixed-notional entry sizing: every entry deploys ENTRY_NOTIONAL (~$10k = 1% of Tony's $1M book),
+# in whole shares, regardless of stop width — an equal-weight book by entry size. This departs from
+# the old risk-per-trade parity with the bot (which fixed RISK at 1%); now SIZE is fixed and per-trade
+# risk varies with the stop distance. RISK_PCT is retained only as the conviction-scaling base
+# (B1, default off). See docs/CONTRACTS/execution-parity.md.
+ENTRY_NOTIONAL = float(os.environ.get("TONY_ENTRY_NOTIONAL", "10000"))      # $/entry (1% of $1M)
+RISK_PCT = float(os.environ.get("TONY_RISK_PER_TRADE_PCT", "1.0"))          # conviction-scaling base (B1)
+MAX_NOTIONAL = float(os.environ.get("TONY_MAX_NOTIONAL_PER_POSITION", "10000"))  # legacy cap (risk_based_qty)
 MAX_OPEN_POSITIONS = int(os.environ.get("TONY_MAX_OPEN_POSITIONS", "50"))
 MAX_DAILY_ORDERS = int(os.environ.get("TONY_MAX_DAILY_ORDERS", "200"))
 
@@ -239,6 +240,13 @@ def risk_based_qty(equity: float, price: float | None, stop, risk_pct: float, ma
     return max(1, int(min(by_risk, by_cap)))
 
 
+def entry_qty(price, mult: float = 1.0) -> int:
+    """Whole-share quantity for a fixed-notional entry: ENTRY_NOTIONAL (×conviction mult) / price.
+    Every entry targets the same ~$ size (1% of the $1M book) regardless of stop width. `mult` is
+    the B1 conviction multiplier (1.0 when conviction sizing is off)."""
+    return whole_share_qty(ENTRY_NOTIONAL * mult, price)
+
+
 def _load(p) -> list:
     try:
         data = json.loads(Path(p).read_text(encoding="utf-8"))
@@ -430,11 +438,11 @@ def _alpaca_broker():
             qty = None
             rp = RISK_PCT if risk_pct is None else risk_pct
             if target and stop:
-                # Bracket must be whole-share (fractional is rejected). Risk-based sizing matches
-                # the bot's budget; GTC so the take-profit/stop-loss legs survive the 16:00 close.
-                # risk_pct may be conviction-scaled (B1); MAX_NOTIONAL still caps the position.
-                equity = float(self.account()["equity"])
-                qty = risk_based_qty(equity, price, float(stop), rp, MAX_NOTIONAL)
+                # Fixed-notional sizing: every entry ~ENTRY_NOTIONAL ($10k = 1% of the $1M book),
+                # in whole shares, regardless of stop width. Bracket must be whole-share; GTC so the
+                # tp/stop legs survive the 16:00 close. rp (conviction-scaled in sync) is a notional
+                # multiplier, so B1 still sizes up/down by conviction when enabled (flat 1x default).
+                qty = entry_qty(price, (rp / RISK_PCT) if RISK_PCT else 1.0)
                 req = MarketOrderRequest(
                     symbol=symbol, qty=qty, side=OrderSide.BUY,
                     time_in_force=TimeInForce.GTC, order_class=OrderClass.BRACKET,
