@@ -76,15 +76,23 @@ def test_summarize_execution_covers_each_state():
         {"date": "2026-06-05", "symbol": "FILL", "verdict": "reaffirm", "target": 60, "stop": 50},
         {"date": "2026-06-05", "symbol": "BAD", "verdict": "adjust", "target": 40, "stop": 50},
         {"date": "2026-06-05", "symbol": "WAIT", "verdict": "override", "target": 60, "stop": 50},
+        {"date": "2026-06-05", "symbol": "HELDR", "verdict": "reaffirm", "target": 60, "stop": 50},
+        {"date": "2026-06-05", "symbol": "EXIT", "verdict": "reaffirm", "target": 60, "stop": 50},
+        {"date": "2026-06-05", "symbol": "NAKED", "verdict": "override"},
         {"date": "2026-06-05", "symbol": "GONE", "verdict": "close"},
         {"date": "2026-06-05", "symbol": "STUCK", "verdict": "close"},
     ]
-    executed = {"2026-06-05:FILL:open", "2026-06-05:GONE:close", "2026-06-05:STUCK:close"}
-    held = {"FILL", "STUCK"}
+    executed = {"2026-06-05:FILL:open", "2026-06-05:EXIT:close",
+                "2026-06-05:GONE:close", "2026-06-05:STUCK:close"}
+    held = {"FILL", "HELDR", "STUCK"}
     lines = "\n".join(tb.summarize_execution(verdicts, executed, held))
     assert "FILL (reaffirm) filled — in your book" in lines
     assert "BAD (adjust) NOT executed — target ≤ stop" in lines
-    assert "WAIT (override) not executed yet" in lines
+    assert "WAIT (override) not opened" in lines                          # cap / awaiting level
+    # the guard cases now name an intended reason instead of looking like a failure:
+    assert "➖ HELDR (reaffirm) — already held" in lines                  # no-pyramiding
+    assert "EXIT (reaffirm) — exited earlier today" in lines             # re-entry cooldown
+    assert "NAKED (override) — no stop/target" in lines                  # naked-skip
     assert "GONE close executed — flattened" in lines
     assert "STUCK close executed — ⚠️ STILL HELD" in lines  # close that didn't flatten is surfaced
 

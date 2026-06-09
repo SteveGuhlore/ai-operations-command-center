@@ -184,8 +184,17 @@ def summarize_execution(verdicts: list, executed_keys: set, held: set) -> list[s
                 out.append(f"✅ {sym} ({verdict}) filled — {'in your book' if sym in held else 'already exited'}.")
             elif degenerate:
                 out.append(f"⚠️ {sym} ({verdict}) NOT executed — target ≤ stop ({tgt} ≤ {stop}). Fix your levels.")
+            elif sym in held:
+                out.append(f"➖ {sym} ({verdict}) — already held; no new order (no pyramiding). Intended, not a failure.")
+            elif f"{v.get('date')}:{sym}:close" in executed_keys:
+                out.append(f"⏸️ {sym} ({verdict}) — exited earlier today; same-session re-entry is blocked by design "
+                           f"until tomorrow. Intended, not a bug.")
+            elif not (tgt and stop):
+                out.append(f"⏸️ {sym} ({verdict}) — no stop/target on the call; skipped so it's never a naked position. "
+                           f"Add levels to take it. Intended, not a bug.")
             else:
-                out.append(f"⏸️ {sym} ({verdict}) not executed yet — likely the open-position/daily cap; revisit.")
+                out.append(f"⏸️ {sym} ({verdict}) not opened — at the open-position/daily cap or awaiting a fresh "
+                           f"scanner level. Not an execution error.")
         elif verdict == "close":
             key = f"{v.get('date')}:{sym}:close"
             if key in executed_keys:
@@ -211,7 +220,11 @@ def execution_feedback_block() -> str:
         return ""
     return ("## Execution Feedback — did your last calls land?\n\n"
             + "\n".join(f"- {ln}" for ln in lines)
-            + "\n\nIf a close shows STILL HELD or a bracket was rejected, re-issue a corrected verdict.\n")
+            + "\n\n**➖ and ⏸️ lines are intended risk guards, NOT execution bugs** — do not flag them as a "
+              "broken execution bridge. A reaffirm on a name you already hold places no new order "
+              "(no pyramiding); a name you exited today is on a one-session re-entry cooldown; a call with "
+              "no stop is skipped so nothing is ever naked. Only a ⚠️ rejected bracket or a close showing "
+              "STILL HELD needs a corrected verdict from you.\n")
 
 
 def get_tony_book() -> dict:
