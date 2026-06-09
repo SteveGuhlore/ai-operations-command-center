@@ -1027,7 +1027,7 @@ const PODS = [
 ];
 
 let selectedAgent = null;
-let logEntries    = (() => { try { return JSON.parse(localStorage.getItem("cc_activity_log") || "[]"); } catch { return []; } })();
+let logEntries    = (() => { try { return JSON.parse(localStorage.getItem("cc_activity_log") || "[]").filter(e => e.role !== "system"); } catch { return []; } })();
 let lastState     = {};
 let cycleCount    = 0;
 
@@ -1157,7 +1157,8 @@ function addLog(role, msg, type = "") {
   const time = now.toTimeString().slice(0,8);
   logEntries.unshift({ time, role, msg, type });
   if (logEntries.length > 500) logEntries.pop();
-  try { localStorage.setItem("cc_activity_log", JSON.stringify(logEntries)); } catch (_) {}
+  try { localStorage.setItem("cc_activity_log",
+        JSON.stringify(logEntries.filter(e => e.role !== "system"))); } catch (_) {}
   renderLog();
 }
 
@@ -2114,8 +2115,6 @@ refreshAnalytics();
 refreshSpawnGate();
 
 // ── Boot ──────────────────────────────────────────────────────
-addLog("system", "AI Ops Command Center online", "done");
-addLog("system", "Tony Stocks bridge active — awaiting trading reports", "");
 connect();
 // Tony Stocks is the only active pipeline — open straight to his tab.
 switchTab("tony");
