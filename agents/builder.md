@@ -152,6 +152,6 @@ Example: `| 2026-05-29 | marias-tacos | restaurant | Warm Organic | cream/terrac
 This log is your portfolio memory — it's how you (and the design-learning loop) see what you've made and learn from it.
 
 <!-- DESIGN-CALIBRATION:START -->
-<!-- Auto-maintained by scripts/design_synthesis.py from the builder's own design log + outcomes — do not edit by hand. Updated 2026-05-28. -->
+<!-- Auto-maintained by scripts/design_synthesis.py from the builder's own design log + outcomes — do not edit by hand. Updated 2026-06-09. -->
 _No design calibration learned yet._
 <!-- DESIGN-CALIBRATION:END -->

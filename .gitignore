@@ -52,3 +52,6 @@ vault/
 
 # Stray pip-redirect artifact
 =*
+workspace/equity-history.json
+workspace/nudge-state.json
+workspace/scheduler-state.json
