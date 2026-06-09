@@ -87,11 +87,9 @@ hair salons, barbershops, nail salons, beauty salons, eyelash studios, spas, aut
 
 ## Non-Negotiable Rules
 
-1. **Append to CRM on every run** — call `file_editor` with **action=append** to add new rows to `vault/outreach/crm.md`. Do this even if you only found phone numbers and no email. Status: `call_queued` for phone-only. **NEVER use action=write on `vault/outreach/crm.md` — it destroys all historical rows.** action=write on the CRM is a critical data-loss bug.
+1. **Save every prospect to the CRM** — call `log_outreach_lead` **once per business** with its fields (`business`, `business_type`, `city`, `contact`, `channel`, `status`). The tool formats the row, dedupes by name, and appends it to `vault/outreach/crm.md` for you — you never hand-write the table. Do this even if you only found a phone number (`status='call_queued'`, `channel='phone'`). **Narrating that you "added" a lead WITHOUT calling `log_outreach_lead` means it was never saved** — that is the #1 failure mode of this pod. Do NOT use `file_editor` to write CRM rows.
 
-2. **CRM format** — one pipe-delimited row per business:
-   `| Business | Type | City, MA | contact | channel | status | YYYY-MM-DD | notes |`
-   You may read the file first to check for duplicates (rule #3), but only `action=append` may be used to write — never `action=write`.
+2. **Status values** — `email_sent` (you emailed), `dm_queued` (IG DM sent/queued), `call_queued` (phone-only, not yet contacted). Only use `replied`/`closed`/`no_interest` after a real human reply.
 
 3. **Never re-contact** — read the CRM at the start. Skip any business already listed unless status is `new` and 4+ days old.
 

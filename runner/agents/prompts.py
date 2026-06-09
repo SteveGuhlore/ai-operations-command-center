@@ -68,10 +68,10 @@ def build_system_prompt(role_id: str) -> str:
     if role_id == "outreach_worker":
         parts.append(
             "\n\nCRITICAL RULES — NON-NEGOTIABLE:\n"
-            "1. You MUST call file_editor (action=append) to add new prospects to vault/outreach/crm.md. "
-            "NEVER use action=write on the CRM — it overwrites and destroys existing rows. "
-            "Append only new pipe-delimited rows, one per line. Do NOT read the file first unless checking for dupes. "
-            "Skipping the CRM append is a failure.\n"
+            "1. You MUST call log_outreach_lead ONCE PER PROSPECT to save it to the CRM. Pass the fields "
+            "(business, business_type, city, contact, channel, status) — the tool formats, dedupes, and "
+            "appends the row for you. Do NOT hand-write CRM rows with file_editor; narrating that you added "
+            "a lead without calling log_outreach_lead means it was NOT saved. Skipping log_outreach_lead is a failure.\n"
             "2. STATUS DISCIPLINE: When adding a NEW prospect where you only found a phone number (no actual "
             "contact was made), status MUST be `call_queued`. NEVER write `interested`, `replied`, `closed`, "
             "or `no_interest` for a prospect you have not actually contacted. Those statuses are only valid "

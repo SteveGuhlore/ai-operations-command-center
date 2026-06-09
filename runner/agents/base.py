@@ -226,20 +226,21 @@ class AgentBase:
                     for m in messages if isinstance(m, dict) and m.get("role") == "assistant"
                     for tc in (m.get("tool_calls") or [])
                 }
-                wrote_crm = any(
+                wrote_crm = "log_outreach_lead" in called or any(
                     tc["function"]["name"] == "file_editor" and
                     ('"write"' in tc["function"].get("arguments", "") or
                      '"append"' in tc["function"].get("arguments", ""))
                     for m in messages if isinstance(m, dict) and m.get("role") == "assistant"
                     for tc in (m.get("tool_calls") or [])
                 )
-                if "find_prospects" in called and not wrote_crm:
+                found_prospects = "find_prospects" in called or "web_research" in called
+                if found_prospects and not wrote_crm:
                     messages.append({"role": "assistant", "content": output_text})
                     messages.append({
                         "role": "user",
                         "content": (
-                            "You found prospects but have NOT called file_editor to update "
-                            "vault/outreach/crm.md. Use action=append to add the new rows now. Do it immediately."
+                            "You found prospects but have NOT called log_outreach_lead to save them to the "
+                            "CRM. Call log_outreach_lead now — once per prospect, with its fields. Do it immediately."
                         )
                     })
                     kwargs["messages"] = messages
