@@ -1165,7 +1165,12 @@ function addLog(role, msg, type = "") {
 function renderLog() {
   const el = document.getElementById("activity-log");
   if (!el) return;
-  el.innerHTML = logEntries.map(e => {
+  const rows = logEntries.filter(e => e.role !== "system");
+  if (!rows.length) {
+    el.innerHTML = '<div style="font-size:9px;color:var(--muted)">No activity yet — live events appear here as agents work, and persist across refresh.</div>';
+    return;
+  }
+  el.innerHTML = rows.map(e => {
     const short = e.role.replace("_worker","").replace(/_/g," ");
     return `<div class="log-entry log-${e.type}">
       <span class="log-time">${e.time}</span>
