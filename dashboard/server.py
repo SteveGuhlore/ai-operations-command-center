@@ -172,6 +172,45 @@ async def api_trigger(request: Request):
     return result
 
 
+@app.get("/api/activity")
+async def api_activity(limit: int = 80):
+    """Global recent-activity feed for the dashboard log: newest completed/failed tasks across all
+    agents, ordered by file mtime (completion time). Authoritative and refresh-proof, unlike the
+    live-websocket transition log which only catches state flips while the page is open."""
+    entries = []
+    for sub in ("done", "failed"):
+        folder = TASKS_DIR / sub
+        if not folder.exists():
+            continue
+        for f in folder.iterdir():
+            if f.suffix == ".md":
+                try:
+                    entries.append((f.stat().st_mtime, sub, f))
+                except OSError:
+                    continue
+    entries.sort(key=lambda x: x[0], reverse=True)
+    rows = []
+    for ts, sub, f in entries[:limit]:
+        agent, title = "", f.stem
+        try:
+            for line in f.read_text(encoding="utf-8", errors="ignore").split("\n"):
+                s = line.strip()
+                if s.startswith("assigned_agent:"):
+                    agent = s.split(":", 1)[1].strip()
+                elif s.startswith("# "):
+                    title = s[2:].strip()
+                    break
+        except OSError:
+            pass
+        rows.append({
+            "time": datetime.fromtimestamp(ts).strftime("%H:%M:%S"),
+            "agent": agent or "system",
+            "msg": (("failed: " if sub == "failed" else "") + title)[:90],
+            "type": "error" if sub == "failed" else "done",
+        })
+    return {"recent": rows}
+
+
 @app.get("/api/analytics/agents")
 async def api_analytics_agents():
     done_dir   = TASKS_DIR / "done"

@@ -1027,7 +1027,15 @@ const PODS = [
 ];
 
 let selectedAgent = null;
-let logEntries    = (() => { try { return JSON.parse(localStorage.getItem("cc_activity_log") || "[]").filter(e => e.role !== "system"); } catch { return []; } })();
+let logEntries    = [];
+async function loadActivity() {
+  try {
+    const r = await fetch("/api/activity?limit=80");
+    const d = await r.json();
+    logEntries = (d.recent || []).map(e => ({ time: e.time, role: e.agent, msg: e.msg, type: e.type }));
+    renderLog();
+  } catch (_) {}
+}
 let lastState     = {};
 let cycleCount    = 0;
 
@@ -1157,8 +1165,6 @@ function addLog(role, msg, type = "") {
   const time = now.toTimeString().slice(0,8);
   logEntries.unshift({ time, role, msg, type });
   if (logEntries.length > 500) logEntries.pop();
-  try { localStorage.setItem("cc_activity_log",
-        JSON.stringify(logEntries.filter(e => e.role !== "system"))); } catch (_) {}
   renderLog();
 }
 
@@ -1208,7 +1214,7 @@ function connect() {
   ws.onopen = () => {
     dot.classList.add("connected");
     dot.title = "Connected";
-    addLog("system", "WebSocket connected", "done");
+    loadActivity();   // refresh the authoritative activity feed on (re)connect
   };
 
   ws.onmessage = (e) => {
@@ -2120,6 +2126,8 @@ refreshAnalytics();
 refreshSpawnGate();
 
 // ── Boot ──────────────────────────────────────────────────────
+loadActivity();
+setInterval(loadActivity, 45000);   // keep the feed fresh even if a live transition is missed
 connect();
 // Tony Stocks is the only active pipeline — open straight to his tab.
 switchTab("tony");
