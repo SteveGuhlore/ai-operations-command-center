@@ -65,7 +65,9 @@ def test_plan_opens_and_closes():
     ]
     plan = ap.plan_orders(verdicts, set())
     actions = {p["symbol"]: p["action"] for p in plan}
-    assert actions == {"AAA": "buy", "BBB": "buy", "DDD": "close"}  # pass skipped
+    # AAA opens (has stop+target), DDD closes. BBB is a reaffirm with NO stop/target and no
+    # scanner levels -> skipped by the never-open-naked guard. CCC (pass) is skipped.
+    assert actions == {"AAA": "buy", "DDD": "close"}
 
 
 def test_parse_scanner_levels():

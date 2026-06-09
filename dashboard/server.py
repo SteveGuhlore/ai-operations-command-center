@@ -63,7 +63,10 @@ app = FastAPI(lifespan=_lifespan)
 @app.get("/", response_class=HTMLResponse)
 async def root():
     html_file = Path(__file__).parent / "index.html"
-    return HTMLResponse(content=html_file.read_text(encoding="utf-8"))
+    try:
+        return HTMLResponse(content=html_file.read_text(encoding="utf-8"))
+    except OSError:
+        return HTMLResponse(content="<h1>Dashboard unavailable</h1>", status_code=503)
 
 
 @app.get("/state")
@@ -221,7 +224,10 @@ async def api_analytics_agents():
         if not folder.exists():
             return
         for f in folder.glob("*.md"):
-            text  = f.read_text(encoding="utf-8", errors="ignore")
+            try:  # the runner moves task files between dirs constantly — tolerate a vanished file
+                text = f.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
             agent = "unknown"
             for line in text.split("\n"):
                 line = line.strip()
@@ -260,11 +266,19 @@ async def api_outreach_stats():
         "dm_queued":  "dm_sent",
     }
     if crm_file.exists():
-        for line in crm_file.read_text(encoding="utf-8").split("\n"):
-            if not line.startswith("|") or "Business" in line or line.startswith("|---"):
+        try:
+            crm_lines = crm_file.read_text(encoding="utf-8").split("\n")
+        except OSError:
+            crm_lines = []
+        for line in crm_lines:
+            if not line.startswith("|"):
                 continue
             parts = [p.strip() for p in line.strip("|").split("|")]
             if len(parts) < 7:
+                continue
+            # Skip the header row and the |---| divider only — NOT any data row that merely
+            # contains the word "Business" (e.g. a lead named "Joe's Business Services").
+            if parts[0].lower() == "business" or set(parts[0]) <= {"-", ":", " "}:
                 continue
             status = parts[5].lower()
             status = status_aliases.get(status, status)
@@ -279,9 +293,17 @@ async def api_outreach_stats():
             })
 
     if queue_file.exists():
-        for line in queue_file.read_text(encoding="utf-8").split("\n"):
-            if line.startswith("|") and "Business" not in line and not line.startswith("|---"):
-                stats["dm_queue_count"] += 1
+        try:
+            q_lines = queue_file.read_text(encoding="utf-8").split("\n")
+        except OSError:
+            q_lines = []
+        for line in q_lines:
+            if not line.startswith("|"):
+                continue
+            first = line.strip("|").split("|")[0].strip()
+            if first.lower() == "business" or set(first) <= {"-", ":", " "} or not first:
+                continue
+            stats["dm_queue_count"] += 1
 
     if stats["total"]:
         stats["conversion_pct"] = round(stats["closed"] / stats["total"] * 100)
@@ -500,7 +522,12 @@ def read_opportunities() -> list[dict]:
             "poc": cells[3], "system_fit": cells[4], "est_rev_mo": cells[5],
             "status": cells[6], "pod": cells[7], "updated": cells[8],
         })
-    rows.sort(key=lambda r: float(r["composite"]) if r["composite"].replace(".", "").isdigit() else 0, reverse=True)
+    def _composite(r):  # ".replace().isdigit()" passed "1.2.3" through to a float() crash
+        try:
+            return float(r["composite"])
+        except (TypeError, ValueError):
+            return 0.0
+    rows.sort(key=_composite, reverse=True)
     return rows
 
 
@@ -657,7 +684,10 @@ async def api_vault_feed():
 
     sessions = []
     for f in sorted(session_dir.glob("*.md"), reverse=True)[:20]:
-        text = f.read_text(encoding="utf-8")
+        try:
+            text = f.read_text(encoding="utf-8")
+        except OSError:
+            continue
         status = "done"
         summary = ""
         for line in text.split("\n"):
@@ -722,7 +752,10 @@ def _pod_activity(role_id: str, limit: int = 8) -> dict:
         if not folder.exists():
             continue
         for f in folder.glob("*.md"):
-            text = f.read_text(encoding="utf-8", errors="ignore")
+            try:  # task files move between dirs mid-iteration — tolerate a vanished file
+                text = f.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
             agent, created, title = "", "", f.stem
             for line in text.split("\n"):
                 s = line.strip()
@@ -917,10 +950,16 @@ async def api_tony_stocks():
             ptext = page.read_text(encoding="utf-8", errors="ignore")
             mc = re.search(r"[Cc]onviction(?:\s+score)?[:\s|*]+(\d{1,3})", ptext)
             if mc:
-                sig["conviction"] = int(mc.group(1))
+                try:
+                    sig["conviction"] = int(mc.group(1))
+                except ValueError:
+                    pass
             mp = re.search(r"(?:current price|last price|price)[:\s|*$]+([\d.]+)", ptext, re.IGNORECASE)
             if mp:
-                sig["price"] = float(mp.group(1))
+                try:  # [\d.]+ can capture a malformed "1.2.3" -> skip rather than 500 the endpoint
+                    sig["price"] = float(mp.group(1))
+                except ValueError:
+                    pass
 
     # Live last-trade price per tracked signal — the scanner's bridge close is stale.
     try:

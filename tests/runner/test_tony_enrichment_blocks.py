@@ -189,6 +189,7 @@ def test_daily_brief_embeds_book_and_regime(tmp_path, monkeypatch):
     monkeypatch.setattr(bridge, "VAULT_DIR", tmp_path / "vault")
     monkeypatch.setattr(bridge, "_PROCESSED_LOG", tmp_path / "processed.json")
     monkeypatch.setattr(bridge, "TRADING_REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr(bridge, "_QUIESCE_SECONDS", 0.0)  # test scans the bridge immediately
 
     (tmp_path / "book.json").write_text(json.dumps(
         {"ts": "2026-06-05T16:00:00", "status": "ok", "equity": 999000.0, "cash": 100.0,

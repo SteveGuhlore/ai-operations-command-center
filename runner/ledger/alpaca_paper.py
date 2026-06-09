@@ -89,7 +89,12 @@ def parse_scanner_levels(md: str) -> dict:
         m_sym = re.match(r"([A-Z0-9.\-]+)\]\]", block)
         m_lv = _LEVELS_RE.search(block)
         if m_sym and m_lv:
-            levels[m_sym.group(1)] = {"target": float(m_lv.group(1)), "stop": float(m_lv.group(2))}
+            try:
+                # [\d.]+ can capture a malformed "1.2.3" -> float() raises; skip that one block
+                # rather than crash the whole sync cycle on a single bad bridge line.
+                levels[m_sym.group(1)] = {"target": float(m_lv.group(1)), "stop": float(m_lv.group(2))}
+            except ValueError:
+                continue
     return levels
 
 
@@ -438,6 +443,11 @@ def _alpaca_broker():
             qty = None
             rp = RISK_PCT if risk_pct is None else risk_pct
             if target and stop:
+                # No live price -> defer rather than submit a token 1-share bracket on unknown
+                # entry (whole_share_qty floors to 1). Raising leaves the key unmarked in sync()
+                # so it retries next cycle once a price is available.
+                if not price or price <= 0:
+                    raise ValueError(f"no live price for {symbol}; deferring bracket entry")
                 # Fixed-notional sizing: every entry ~ENTRY_NOTIONAL ($10k = 1% of the $1M book),
                 # in whole shares, regardless of stop width. Bracket must be whole-share; GTC so the
                 # tp/stop legs survive the 16:00 close. rp (conviction-scaled in sync) is a notional

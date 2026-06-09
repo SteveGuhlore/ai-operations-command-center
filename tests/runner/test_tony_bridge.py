@@ -14,6 +14,7 @@ def _setup(tmp_path, monkeypatch):
     monkeypatch.setattr(bridge_module, "TASKS_DIR", tasks_dir)
     monkeypatch.setattr(bridge_module, "_PROCESSED_LOG", tmp_path / "processed.json")
     monkeypatch.setattr(bridge_module, "VAULT_DIR", tmp_path / "vault")
+    monkeypatch.setattr(bridge_module, "_QUIESCE_SECONDS", 0.0)  # tests scan files immediately
     return reports_dir, bridge_dir, tasks_dir
 
 

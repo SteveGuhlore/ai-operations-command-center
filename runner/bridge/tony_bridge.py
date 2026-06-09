@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
 from runner.tools.tony_outcomes import track_record_block, lessons_block
@@ -57,18 +58,39 @@ _REPORT_FILES = ["eod_report", "strategy_proposal", "approval_package"]
 _VAULT_HISTORY_DAYS = 7
 
 
+# The bot writes bridge files non-atomically; ignore one touched within this window so we never
+# ingest (and permanently mark processed) a half-written file.
+_QUIESCE_SECONDS = 5.0
+
+
 def _load_processed() -> set:
     if not _PROCESSED_LOG.exists():
         return set()
     try:
         return set(json.loads(_PROCESSED_LOG.read_text(encoding="utf-8")))
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError as exc:
+        # A corrupt log used to silently return an empty set -> every bridge on disk re-spawns.
+        # Warn loudly and preserve the corrupt file for inspection instead of mass-re-ingesting.
+        _log.warning("tony_bridge: processed-log corrupt (%s); preserving as .corrupt", exc)
+        try:
+            _PROCESSED_LOG.replace(_PROCESSED_LOG.with_suffix(_PROCESSED_LOG.suffix + ".corrupt"))
+        except OSError:
+            pass
+        return set()
+    except OSError:
         return set()
 
 
 def _save_processed(processed: set) -> None:
     _PROCESSED_LOG.parent.mkdir(parents=True, exist_ok=True)
-    _PROCESSED_LOG.write_text(json.dumps(sorted(processed)), encoding="utf-8")
+    # Atomic write: a crash mid-write must not truncate the log into invalid JSON (which would
+    # wipe all dedup history). Write a tmp file in the same dir, then os.replace() it into place.
+    tmp = _PROCESSED_LOG.with_suffix(_PROCESSED_LOG.suffix + ".tmp")
+    try:
+        tmp.write_text(json.dumps(sorted(processed)), encoding="utf-8")
+        os.replace(tmp, _PROCESSED_LOG)
+    except OSError as exc:
+        _log.warning("tony_bridge: processed-log save failed: %s", exc)
 
 
 _HISTORY_POISON = (
@@ -222,7 +244,7 @@ Follow the workflow in your system prompt exactly. Key focus for today:
 
 def _make_brief_from_bridge(slug: str, bridge_md: str) -> None:
     date_str = slug[:10]  # slug may carry an intraday slot suffix; the body shows the trading day
-    _refresh_signal_ledger(date_str, bridge_md)  # keep the prose ledger fresh even if the brief truncates
+    _refresh_signal_ledger(slug, bridge_md)  # keep the prose ledger fresh even if the brief truncates
     task_id = f"TONY-DAILY-BRIEF-{slug.replace('-', '')}"
     title = f"Tony Brief — {slug}"
 
@@ -321,7 +343,7 @@ def _make_intraday_brief(slug: str, bridge_md: str) -> None:
     holdings. With only ~4-5 handoffs a day there is ample time between them for real analysis,
     and an `adjust` here re-prices the live stop/target on a position Tony already holds."""
     date_str = slug[:10]
-    _refresh_signal_ledger(date_str, bridge_md)  # keep the prose ledger fresh through the day
+    _refresh_signal_ledger(slug, bridge_md)  # keep the prose ledger fresh through the day
     slot = slug[11:] or "intraday"  # e.g. "2026-06-02T1030" -> "1030"
     task_id = f"TONY-INTRADAY-{slug.replace('-', '').replace('T', '-')}"
     title = f"Tony Intraday Deep-Dive — {date_str} {slot} ET"
@@ -504,10 +526,19 @@ Then write 1–3 cross-cutting `write_tony_insight` notes and update the signal 
 
 
 def _extract_tier1_symbols(md: str) -> list[str]:
-    """Pull [[TICKER]] names from the Tier 1 section only."""
-    after = md.split("Tier 1", 1)[-1]
-    after = after.split("Tier 2", 1)[0]
-    return list(dict.fromkeys(_TIER1_SYM_RE.findall(after)))
+    """Pull [[TICKER]] names from the Tier 1 section only — anchored on the section heading and
+    bounded by the next section heading. Bare substring splitting ('Tier 1'..'Tier 2') over-
+    captured: a bridge with no Tier-2 section, or prose merely mentioning 'Tier 1', dragged
+    Tier-3/watchlist names into the fan-out. The bound is the next level-2 (`## `) heading, so
+    the `### [[SYM]]` ticker sub-headings inside the section are preserved."""
+    m = re.search(r"^#{1,3}\s*Tier\s*1\b", md, re.M)
+    if not m:
+        return []
+    section = md[m.end():]
+    nxt = re.search(r"^##\s", section, re.M)  # next section (e.g. ## Tier 2); not ### tickers
+    if nxt:
+        section = section[:nxt.start()]
+    return list(dict.fromkeys(_TIER1_SYM_RE.findall(section)))
 
 
 _TIER1_BLOCK_RE = re.compile(
@@ -564,7 +595,7 @@ def _parse_bridge_signals(bridge_md: str) -> dict:
     return {"tier1": tier1, "newer": newer}
 
 
-def _refresh_signal_ledger(date_str: str, bridge_md: str) -> bool:
+def _refresh_signal_ledger(slug: str, bridge_md: str) -> bool:
     """Deterministically rebuild signal-ledger.md from the authoritative scanner bridge so the
     prose ledger is never stale — even when Tony's brief truncates before its 'update ledger'
     step (the 50-step tool cap is exhausted by per-ticker research on a big slate). The signal
@@ -576,23 +607,30 @@ def _refresh_signal_ledger(date_str: str, bridge_md: str) -> bool:
     active = [s for s in sig["tier1"] if s["days"] < 3] + sig["newer"]
     if not persistent and not active:
         return False
-    # Monotonic: never move the ledger backwards in time. Bridges are ingested newest-first,
-    # so when several are unprocessed (e.g. after a restart) an older one must not clobber the
-    # fresher ledger it already wrote. date_str is YYYY-MM-DD, so a string compare is a date compare.
+    date_str = slug[:10]
+    # Monotonic: never move the ledger backwards. Bridges are ingested newest-first, so when
+    # several are unprocessed (e.g. after a restart) an older one must not clobber the fresher
+    # ledger. Compare at SLOT granularity (full slug), not date — within one day the slots sort
+    # daily < T1030 < T1300 < T1530 < T1600 < Teod, so an earlier slot can't overwrite eod.
     ledger = _signal_ledger_path()
     existing = ""
     try:
         for line in ledger.read_text(encoding="utf-8").splitlines():
-            if line.lower().startswith("last updated:"):
+            m = re.match(r"<!--\s*bridge-slug:\s*(\S+)\s*-->", line)
+            if m:
+                existing = m.group(1)
+                break
+            if line.lower().startswith("last updated:"):  # legacy ledger w/o marker -> date only
                 existing = line.split(":", 1)[1].strip()[:10]
                 break
     except OSError:
         pass
-    if existing and date_str < existing:
-        _log.info("tony_bridge: skip ledger refresh — bridge %s older than ledger %s", date_str, existing)
+    if existing and slug < existing:
+        _log.info("tony_bridge: skip ledger refresh — bridge %s older than ledger %s", slug, existing)
         return False
     lines = [
         "---", "tags: [tony]", "---", "",
+        f"<!-- bridge-slug: {slug} -->",
         "# Tony Stocks — Signal Ledger", "",
         "Auto-maintained from the scanner bridge on each ingestion. Tony's qualitative calls "
         "live in the live verdict book (dashboard Paper Book / Tony's Calls), not in this file.",
@@ -655,6 +693,7 @@ def _scan_markdown_bridge(processed: set) -> None:
         reverse=True,
     )
 
+    now = time.time()
     for md_file in md_files:
         slug = md_file.stem
         date_str = slug[:10]
@@ -664,17 +703,27 @@ def _scan_markdown_bridge(processed: set) -> None:
         if key in processed:
             continue
         try:
+            # Quiescence gate: don't read a bridge the bot may still be writing — ingesting a
+            # truncated file and then marking it processed would lock in the partial version.
+            if now - md_file.stat().st_mtime < _QUIESCE_SECONDS:
+                continue
             bridge_md = md_file.read_text(encoding="utf-8")
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             _log.warning("tony_bridge: could not read %s: %s", md_file, exc)
             continue
         if not bridge_md.strip():
             continue
-        if slug == date_str:
-            _make_brief_from_bridge(slug, bridge_md)       # full morning/EOD deep analysis
-        else:
-            _make_intraday_brief(slug, bridge_md)          # light intraday update, not a re-run
+        try:
+            if slug == date_str:
+                _make_brief_from_bridge(slug, bridge_md)   # full morning/EOD deep analysis
+            else:
+                _make_intraday_brief(slug, bridge_md)      # light intraday update, not a re-run
+        except Exception as exc:
+            # One malformed bridge must not abort ingestion of the others this cycle.
+            _log.warning("tony_bridge: failed to process %s: %s", md_file, exc)
+            continue
         processed.add(key)
+        _save_processed(processed)  # persist per-spawn so a crash mid-scan can't double-spawn
 
 
 def _scan_json_reports(processed: set) -> None:
@@ -706,8 +755,13 @@ def _scan_json_reports(processed: set) -> None:
         if not reports:
             continue
 
-        _make_daily_brief(date_str, reports)
+        try:
+            _make_daily_brief(date_str, reports)
+        except Exception as exc:
+            _log.warning("tony_bridge: failed to process reports for %s: %s", date_str, exc)
+            continue
         processed.add(key)
+        _save_processed(processed)  # persist per-spawn so a crash mid-scan can't double-spawn
 
 
 def scan_and_process() -> None:
