@@ -42,3 +42,22 @@ def test_parse_updates_handles_malformed_gracefully():
 
     updates, summary = _parse_updates("some random text with no agent blocks")
     assert updates == {}
+
+
+def test_reads_newest_nonempty_day(tmp_path, monkeypatch):
+    # the 2 AM hook used to read 'today' (empty at 2 AM) -> nightly self-improvement silently skipped
+    import scripts.improvement_loop as il
+    s = tmp_path / "sessions"
+    (s / "2026-06-11").mkdir(parents=True)                       # "today" at 2 AM — empty
+    (s / "2026-06-10").mkdir(); (s / "2026-06-10" / "t1.md").write_text("YESTERDAY_WORK")
+    (s / "2026-06-09").mkdir(); (s / "2026-06-09" / "t0.md").write_text("OLDER")
+    monkeypatch.setattr(il, "VAULT_DIR", tmp_path)
+    out = il._read_recent_sessions()
+    assert "YESTERDAY_WORK" in out and "OLDER" not in out
+
+
+def test_read_recent_sessions_empty(tmp_path, monkeypatch):
+    import scripts.improvement_loop as il
+    (tmp_path / "sessions").mkdir()
+    monkeypatch.setattr(il, "VAULT_DIR", tmp_path)
+    assert il._read_recent_sessions() == ""

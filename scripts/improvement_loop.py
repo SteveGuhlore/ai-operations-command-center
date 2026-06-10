@@ -86,13 +86,22 @@ After all agent blocks, write a one-paragraph plain-text summary of what you cha
 """
 
 
-def _read_vault_today() -> str:
-    today = datetime.now().strftime("%Y-%m-%d")
-    session_dir = VAULT_DIR / "sessions" / today
-    if not session_dir.exists():
+def _read_recent_sessions() -> str:
+    """Concatenated session text for the most recent day that HAS sessions. The hook runs at ~2 AM
+    when today's session dir is still empty, so reading 'today' skipped review every night (the
+    silent-since-June-5 bug). Scan newest-first and take the first non-empty day — that's yesterday
+    at 2 AM, or today if run midday. Look back a bounded window so a quiet stretch can't reach back
+    forever."""
+    base = VAULT_DIR / "sessions"
+    if not base.exists():
         return ""
-    parts = [f.read_text(encoding="utf-8") for f in sorted(session_dir.glob("*.md"))]
-    return "\n\n---\n\n".join(parts)
+    days = sorted((p for p in base.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)
+    for d in days[:7]:
+        parts = [f.read_text(encoding="utf-8") for f in sorted(d.glob("*.md"))]
+        if parts:
+            log.info("Reviewing %d session(s) from %s", len(parts), d.name)
+            return "\n\n---\n\n".join(parts)
+    return ""
 
 
 def _read_workspace_context() -> str:
@@ -165,9 +174,9 @@ def _write_improvement_summary(summary: str, agents_updated: list[str]) -> None:
 def run() -> None:
     log.info("Improvement loop starting")
 
-    vault_today = _read_vault_today()
+    vault_today = _read_recent_sessions()
     if not vault_today:
-        log.info("No session data for today — skipping")
+        log.info("No session data in the last 7 days — skipping")
         return
 
     workspace_ctx = _read_workspace_context()
