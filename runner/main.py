@@ -895,6 +895,46 @@ def _maybe_health_alert() -> None:
         log.info("health alert skipped: %s", exc)
 
 
+def _eod_handoff_present(now=None) -> bool:
+    """True if the bot's end-of-day scanner handoff landed today — an EOD-slot bridge for today.
+    The bot guarantees the emit via its 16:30 ET timer; this is the CC-side check behind the alert."""
+    from datetime import datetime
+    from runner.ledger.market_clock import _ET
+    from runner.bridge.tony_bridge import BRIDGE_MD_DIR
+    today = (now or datetime.now(_ET)).strftime("%Y-%m-%d")
+    if not BRIDGE_MD_DIR.exists():
+        return False
+    for f in BRIDGE_MD_DIR.glob(f"{today}*"):
+        s = f.stem.lower()
+        if "eod" in s or "t1530" in s or "t1600" in s or "t16" in s:
+            return True
+    return False
+
+
+def _maybe_eod_alert() -> None:
+    """After the close, alert (once/day) if the bot's end-of-day handoff didn't land — a defense-in-
+    depth anomaly signal now that the bot guarantees the emit via its 16:30 ET timer, so it only
+    fires if BOTH the watch loop and that timer failed (today's exact failure mode). Fail-soft."""
+    try:
+        from datetime import datetime
+        from runner.ledger.market_clock import _ET, _HOLIDAYS_2026
+        now = datetime.now(_ET)
+        if now.weekday() >= 5 or now.strftime("%Y-%m-%d") in _HOLIDAYS_2026 or now.hour < 17:
+            return  # weekday, and only after 17:00 ET (give the close + the bot's 16:30 timer time)
+        from runner.scheduler.daily_jobs import alert_due, mark_alert_ran
+        if not alert_due("eod_missing") or _eod_handoff_present(now):
+            return
+        try:
+            from runner.tools.notify import notify
+            notify("⚠️ EOD handoff missing today — no end-of-day scanner bridge landed. "
+                   "Check the bot's tradingbot-eod.timer / export-to-vault --slot eod.")
+        except Exception:
+            pass
+        mark_alert_ran("eod_missing")
+    except Exception as exc:
+        log.info("eod alert skipped: %s", exc)
+
+
 def _maybe_intraday_sweep() -> None:
     """Continuous intraday research — flag-gated, DEFAULT OFF. When the market is OPEN, top up
     deep-dives for cooled-down names across BOTH sources — the bot's scanned universe (all tiers in
@@ -919,7 +959,9 @@ def _maybe_intraday_sweep() -> None:
 def run_cycle() -> None:
     _maybe_handle_telegram_chat()  # Phase 2 inbound chat — free + read-only, runs even if budget-capped
     _maybe_preopen_backstop()  # cron-independent pre-open reset + missing-flush alert (before budget gate)
-    _maybe_health_alert()      # hourly backlog / oversized-position warning    # Off-hours research runs in its own high/uncapped budget lane so a depleted daytime budget
+    _maybe_health_alert()      # hourly backlog / oversized-position warning
+    _maybe_eod_alert()         # alert if the bot's end-of-day handoff didn't land (anomaly signal)
+    # Off-hours research runs in its own high/uncapped budget lane so a depleted daytime budget
     # never aborts the overnight wave; the daytime cap is unchanged when the market is open.
     off_hours = _is_market_closed()
     if is_budget_exceeded(off_hours=off_hours):
