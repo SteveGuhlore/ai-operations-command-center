@@ -168,18 +168,20 @@ def reconcile_from_fills(fills: list) -> list:
 
 
 def rebuild_from_fills(fills: list) -> dict:
-    """Merge Alpaca-reconciled exits into the ledger: keep only id'd rows (drops legacy/bogus
-    un-id'd records), add any new reconciled exit not already present (dedup by exit_order_id).
-    Preserves history beyond the fetch window while making Alpaca the source of truth."""
+    """Merge Alpaca-reconciled exits into the ledger. The reconciled rows are AUTHORITATIVE: where
+    an exit_order_id exists in both, the reconciled row replaces the stored one (so a re-derivation
+    — e.g. relabeling a partial sell as a trim — actually updates history, instead of the stale row
+    shadowing it forever). Rows outside the fetch window are preserved; un-id'd legacy rows drop."""
     reconciled = reconcile_from_fills(fills)
-    existing = [r for r in _load() if r.get("exit_order_id")]
-    seen = {r.get("exit_order_id") for r in existing}
-    merged = existing + [r for r in reconciled if r.get("exit_order_id") not in seen]
+    rec_ids = {r.get("exit_order_id") for r in reconciled}
+    kept = [r for r in _load() if r.get("exit_order_id") and r.get("exit_order_id") not in rec_ids]
+    prior_count = len([r for r in _load() if r.get("exit_order_id")])
+    merged = kept + reconciled
     merged.sort(key=lambda r: (str(r.get("date", "")), str(r.get("symbol", ""))))
     try:
         REALIZED_FILE.parent.mkdir(parents=True, exist_ok=True)
         REALIZED_FILE.write_text(json.dumps(merged, indent=2), encoding="utf-8")
     except OSError as exc:
         _log.warning("realized rebuild write failed: %s", exc)
-    return {"records": len(merged), "added": len(merged) - len(existing),
+    return {"records": len(merged), "added": len(merged) - prior_count,
             "realized_pl": round(sum(float(r.get("realized_pl", 0) or 0) for r in merged), 2)}

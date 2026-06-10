@@ -41,3 +41,24 @@ def test_unpriced_exit_is_deferred_then_alerted(tmp_path, monkeypatch):
     assert len(alerts) == 1 and alerts[0][0] == "AAA"
     snap2 = json.loads(ap.NOTIFY_STATE.read_text())
     assert not any(p["symbol"] == "AAA" for p in snap2)
+
+
+def test_perpetually_unpriceable_ghost_expires(tmp_path, monkeypatch):
+    # the phantom-XXX bug: a fake-data leftover sat un-priceable in the snapshot for days, then
+    # 'resolved' against its fake entry into a bogus -$806 exit alert. Now it expires instead.
+    monkeypatch.setattr(ap, "NOTIFY_STATE", tmp_path / "notify.json")
+    monkeypatch.setattr(ap, "_latest_scanner_levels", lambda: {})
+    ap.NOTIFY_STATE.write_text(
+        json.dumps([{"symbol": "XXX", "qty": 10, "avg_entry_price": 100.0,
+                     "_unresolved_tries": 100}]))  # already at the cap
+    ap._notify_closed(_Broker(None))               # one more failed price -> expire
+    snap = json.loads(ap.NOTIFY_STATE.read_text())
+    assert not any(p["symbol"] == "XXX" for p in snap)
+
+
+def test_bump_unresolved_counts_and_drops():
+    carried = ap.bump_unresolved({"symbol": "Y", "qty": 1}, max_tries=2)
+    assert carried["_unresolved_tries"] == 1
+    carried = ap.bump_unresolved(carried, max_tries=2)
+    assert carried["_unresolved_tries"] == 2
+    assert ap.bump_unresolved(carried, max_tries=2) is None  # past the cap -> ghost dropped

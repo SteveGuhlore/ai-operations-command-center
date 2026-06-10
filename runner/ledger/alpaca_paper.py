@@ -632,26 +632,39 @@ def _alpaca_broker():
                     _log.info("cancel entry %s: %s", o.get("symbol"), exc)
             return cancelled
 
-        def filled_orders(self, limit=200):
+        def filled_orders(self, limit=200, pages=1):
             """Read-only: Alpaca's actual filled orders as chronological fill dicts. The authoritative
-            record for reconciling realized trades (captures stop-outs the live diff missed)."""
+            record for reconciling realized trades (captures stop-outs the live diff missed).
+            `pages` walks further back via `until` pagination: the CLOSED-orders window is flooded
+            with canceled OCO legs from reprice churn, so a single page can miss the BUY entries of
+            older holds — their exits then match no entry and silently vanish from the ledger."""
             from alpaca.trading.requests import GetOrdersRequest
             from alpaca.trading.enums import QueryOrderStatus
-            ords = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=limit))
             out = []
-            for o in ords:
-                if str(o.status).rsplit(".", 1)[-1].lower() != "filled" or not o.filled_avg_price:
-                    continue
-                out.append({
-                    "symbol": o.symbol,
-                    "side": str(o.side).rsplit(".", 1)[-1].lower(),
-                    "qty": float(o.filled_qty) if o.filled_qty else 0.0,
-                    "price": float(o.filled_avg_price),
-                    "order_id": str(o.id),
-                    "order_type": str(o.order_type).rsplit(".", 1)[-1].lower(),
-                    "time": str(o.filled_at),
-                    "date": str(o.filled_at)[:10],
-                })
+            until = None
+            for _ in range(max(1, pages)):
+                req = (GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=limit, until=until)
+                       if until else GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=limit))
+                ords = client.get_orders(req)
+                if not ords:
+                    break
+                for o in ords:
+                    if str(o.status).rsplit(".", 1)[-1].lower() != "filled" or not o.filled_avg_price:
+                        continue
+                    out.append({
+                        "symbol": o.symbol,
+                        "side": str(o.side).rsplit(".", 1)[-1].lower(),
+                        "qty": float(o.filled_qty) if o.filled_qty else 0.0,
+                        "price": float(o.filled_avg_price),
+                        "order_id": str(o.id),
+                        "order_type": str(o.order_type).rsplit(".", 1)[-1].lower(),
+                        "time": str(o.filled_at),
+                        "date": str(o.filled_at)[:10],
+                    })
+                oldest = min((o.submitted_at for o in ords if o.submitted_at), default=None)
+                if oldest is None or len(ords) < limit:
+                    break  # reached the start of history
+                until = oldest
             return out
 
     return _Broker()
@@ -666,10 +679,9 @@ def reconcile_realized(broker=None) -> dict:
         if broker is None:
             return {"status": "no_keys"}
         from runner.ledger.tony_realized import rebuild_from_fills
-        # 500 (Alpaca's per-request max): the CLOSED-orders window is flooded by canceled OCO legs
-        # from reprice churn, so 200 dropped the BUY entries of older holds that exited today (their
-        # sells matched no entry and vanished from the ledger). 500 reaches meaningfully further back.
-        res = rebuild_from_fills(broker.filled_orders(limit=500))
+        # Paginate well past the canceled-OCO churn so older holds' BUY entries are in the window
+        # and their exits FIFO-match (a sell with no matched entry is silently dropped).
+        res = rebuild_from_fills(broker.filled_orders(limit=500, pages=6))
         res["status"] = "ok"
         return res
     except Exception as exc:
@@ -685,6 +697,25 @@ def closed_positions(prior: list, current: list) -> list:
     cur = {p.get("symbol"): float(p.get("qty") or 0) for p in current}
     return [p for p in prior
             if float(p.get("qty") or 0) > 0 and cur.get(p.get("symbol"), 0) <= 0]
+
+
+_UNRESOLVED_MAX_TRIES = int(os.environ.get("TONY_UNRESOLVED_MAX_TRIES", "100"))
+
+
+def bump_unresolved(p: dict, max_tries: int = None) -> dict | None:
+    """Pure: carry an un-priceable 'closed' snapshot row for another retry, or expire it. A row that
+    can't be priced for ~max_tries cycles is a GHOST (e.g. a fake-data leftover like XXX that sat in
+    the snapshot for days, then 'resolved' against a fake entry into a phantom -$806 exit alert) —
+    drop it instead of retrying forever. Real exits price within a few cycles."""
+    n = int(p.get("_unresolved_tries", 0) or 0) + 1
+    cap = _UNRESOLVED_MAX_TRIES if max_tries is None else max_tries
+    if n > cap:
+        _log.warning("dropping unresolved ghost from notify snapshot: %s (no price after %d tries)",
+                     p.get("symbol"), n - 1)
+        return None
+    q = dict(p)
+    q["_unresolved_tries"] = n
+    return q
 
 
 def _verdict_thesis(verdicts, symbol) -> str:
@@ -740,8 +771,11 @@ def _notify_closed(broker) -> None:
             _log.info("exit price %s failed: %s", sym, exc)
             last = None
         if last is None:
-            # No price yet — don't alert/record on a phantom fill; defer to a later cycle.
-            unresolved.append(p)
+            # No price yet — don't alert/record on a phantom fill; defer to a later cycle,
+            # but EXPIRE after enough failed tries (a perpetual un-priceable row is a ghost).
+            carried = bump_unresolved(p)
+            if carried is not None:
+                unresolved.append(carried)
             continue
         lv = levels.get(sym) or {}
         try:
