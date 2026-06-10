@@ -10,6 +10,7 @@ A name whose protective legs have no stop/target is SKIPPED (we won't leave a re
 """
 import argparse
 import sys
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
@@ -19,6 +20,27 @@ from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")  # explicit path so cwd doesn't matter
 
 from runner.ledger.alpaca_paper import _alpaca_broker, ENTRY_NOTIONAL
+from runner.ledger.market_clock import market_session
+
+
+def _position_qty(broker, symbol) -> float:
+    for p in broker.account().get("open_positions", []):
+        if p.get("symbol") == symbol:
+            return float(p.get("qty") or 0)
+    return 0.0
+
+
+def _wait_until_reduced(broker, symbol, target_qty, timeout=40) -> bool:
+    """Poll until the market sell has actually reduced the position to ~target_qty. CRITICAL:
+    protect() cancels ALL open sell orders for a symbol, so we must NOT re-protect until the sell
+    has filled — otherwise protect() cancels the in-flight sell and the position never reduces
+    (the first --execute run's bug)."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _position_qty(broker, symbol) <= target_qty + 0.5:
+            return True
+        time.sleep(2)
+    return False
 
 
 def _legs(orders: list, symbol: str):
@@ -92,15 +114,32 @@ def main() -> None:
         print("[dry-run] nothing changed. Re-run with --execute to trim.")
         return
 
+    # A market sell only fills during RTH. If the market is closed we must NOT cancel-and-sell
+    # (the sell would hang and we'd strand the position), so instead RESTORE full protection on
+    # each name (covering any excess left naked by an earlier partial run) and defer the trim.
+    session = market_session()
+    if session != "open":
+        print(f"market is {session} — sells won't fill. Restoring FULL protection on these names "
+              f"(no excess left naked) and deferring the trim to the next open.")
+
     for sym, qty, price, mv, tq, ex, tgt, stop in plan:
         if not (tgt and stop):
-            print(f"  SKIP {sym}: legs have no stop/target — not trimming (would leave a naked remainder).")
+            print(f"  SKIP {sym}: legs have no stop/target — leaving as-is (won't risk a naked remainder).")
             continue
         try:
-            broker.reduce(sym, ex)                 # cancel legs + market-sell the excess
-            broker.protect(sym, tq, tgt, stop)     # re-OCO the remainder at its existing levels
-            print(f"  trimmed {sym}: sold {ex} (~${ex * price:,.0f}), re-protected {tq} @ "
-                  f"tgt {tgt} / stop {stop}")
+            if session != "open":
+                broker.protect(sym, int(_position_qty(broker, sym)), tgt, stop)
+                print(f"  DEFERRED {sym}: market {session}; restored full protection, not trimmed.")
+                continue
+            broker.reduce(sym, ex)                       # cancel legs + market-sell the excess
+            if _wait_until_reduced(broker, sym, tq):     # WAIT for the fill before re-protecting...
+                broker.protect(sym, tq, tgt, stop)       # ...protect() cancels all sells, so only after fill
+                print(f"  trimmed {sym}: sold {ex} (~${ex * price:,.0f}), re-protected {tq} @ "
+                      f"tgt {tgt} / stop {stop}")
+            else:
+                full = int(_position_qty(broker, sym))   # sell didn't fill in time — never leave it naked
+                broker.protect(sym, full, tgt, stop)
+                print(f"  DEFERRED {sym}: sell didn't fill in time — restored full protection on {full}.")
         except Exception as exc:
             print(f"  FAILED {sym}: {exc}")
 
