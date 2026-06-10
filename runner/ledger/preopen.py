@@ -14,7 +14,16 @@ def run_preopen_reset() -> dict:
     """Run the full pre-open routine and mark the day done. Each step is fail-soft so a single
     failure never aborts the rest. Returns a summary dict."""
     from runner.ledger import alpaca_paper as ap
-    summary: dict = {"flush": ap.flush_session()}
+    summary: dict = {}
+    # Persist the day's verdicts to the learning archive BEFORE the flush empties the live file —
+    # otherwise the verdict->outcome history the scorecard learns from is wiped daily (graded stays
+    # starved). Fail-soft: archiving must never block the flush.
+    try:
+        from runner.ledger.tony_scorecard import archive_verdicts
+        summary["archived"] = archive_verdicts()
+    except Exception as exc:
+        _log.warning("verdict archive skipped: %s", exc)
+    summary["flush"] = ap.flush_session()
 
     try:
         from runner.ledger.research_queue import recheck_queue

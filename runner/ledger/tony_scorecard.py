@@ -19,12 +19,53 @@ _log = logging.getLogger(__name__)
 _reports = Path(__file__).parent.parent.parent.parent / "TradingBotAgentProject" / "reports"
 _vault = Path(__file__).parent.parent.parent / "vault"
 VERDICTS_FILE = Path(os.environ.get("TONY_VERDICTS_FILE", str(_reports / "tony_stocks_verdicts.json")))
+# Learning archive: the live verdicts file is FLUSHED daily (needed for execution), which otherwise
+# wipes the verdict->outcome history the scorecard learns from. archive_verdicts() appends each day's
+# verdicts here before the flush, and grading reads archive UNION live so learning accumulates.
+VERDICTS_ARCHIVE = Path(os.environ.get(
+    "TONY_VERDICTS_ARCHIVE",
+    str(Path(__file__).parent.parent.parent / "workspace" / "tony-verdicts-archive.json")))
 OUTCOMES_FILE = Path(os.environ.get("TONY_OUTCOMES_FILE", str(_reports / "tony_stocks_outcomes.json")))
 RECORD_FILE = Path(os.environ.get("TONY_RECORD_FILE", str(_reports / "tony_stocks_record.json")))
 # Tony's weekly self-review reads the record alongside his other vault files, so mirror it there too.
 VAULT_RECORD_FILE = Path(os.environ.get("TONY_VAULT_RECORD_FILE", str(_vault / "tony-stocks" / "tony_stocks_record.json")))
 
 _BULLISH = {"reaffirm", "adjust"}
+
+
+def _verdict_key(v) -> tuple:
+    return (str(v.get("date", "")), str(v.get("symbol", "")).upper())
+
+
+def archive_verdicts() -> dict:
+    """Append the current (about-to-be-flushed) verdicts to the persistent learning archive so the
+    scorecard can grade verdict->outcome over time. Called from the pre-open reset BEFORE the flush
+    empties the live file. Dedup by (date, symbol), latest wins. Fail-soft."""
+    live = _load(VERDICTS_FILE)
+    arch = _load(VERDICTS_ARCHIVE)
+    by_key = {_verdict_key(v): v for v in arch if v.get("symbol") and v.get("date")}
+    before = len(by_key)
+    for v in live:
+        if v.get("symbol") and v.get("date"):
+            by_key[_verdict_key(v)] = v
+    merged = sorted(by_key.values(), key=lambda v: (str(v.get("date", "")), str(v.get("symbol", ""))))
+    try:
+        VERDICTS_ARCHIVE.parent.mkdir(parents=True, exist_ok=True)
+        VERDICTS_ARCHIVE.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+    except OSError as exc:
+        _log.warning("verdict archive write failed: %s", exc)
+    return {"archived": len(merged) - before, "total": len(merged)}
+
+
+def _all_verdicts() -> list:
+    """Full verdict history for grading: the persistent archive UNION today's live verdicts (deduped
+    by date+symbol, latest wins). The live file is flushed daily, so the archive is what lets the
+    scorecard/edge-mining/calibration learn off the FULL record instead of a single starved day."""
+    by_key: dict = {}
+    for v in _load(VERDICTS_ARCHIVE) + _load(VERDICTS_FILE):
+        if v.get("symbol") and v.get("date"):
+            by_key[_verdict_key(v)] = v
+    return list(by_key.values())
 
 
 def _load(p) -> list:
@@ -65,7 +106,7 @@ def _empty_agreement() -> dict:
 
 
 def compute_record() -> dict:
-    verdicts = _load(VERDICTS_FILE)
+    verdicts = _all_verdicts()
     outcomes = _load(OUTCOMES_FILE)
     if not outcomes:
         return {
@@ -132,7 +173,7 @@ def compute_record() -> dict:
 
 def discover_edges(min_n: int = 5) -> dict:
     """Mine graded picks for evidence-tag → win-rate edges (>= min_n samples each)."""
-    verdicts = _load(VERDICTS_FILE)
+    verdicts = _all_verdicts()
     outcomes = _load(OUTCOMES_FILE)
     if not outcomes:
         return {"status": "insufficient_history", "edges": []}
@@ -160,7 +201,7 @@ def sizing_attribution() -> dict:
     WITHOUT a second account. Realized return_pct is sizing-independent, so weighting each pick by
     its conviction multiplier and comparing to the equal-weight mean isolates what conviction
     sizing alone contributes. Lets B1 run in shadow (real sizing flat) and still be measured."""
-    verdicts = _load(VERDICTS_FILE)
+    verdicts = _all_verdicts()
     outcomes = _load(OUTCOMES_FILE)
     if not outcomes:
         return {"status": "awaiting_outcomes", "graded": 0, "picking_alpha_pct": None,
