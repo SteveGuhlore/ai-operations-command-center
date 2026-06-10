@@ -149,6 +149,37 @@ def test_fanout_spawns_per_ticker(tmp_path, monkeypatch):
     assert any("CCC" in n for n in names)  # all tiers now deep-dived (Tier 2/3 included)
 
 
+def test_fanout_includes_held_positions_stale_first(tmp_path, monkeypatch):
+    # a full book's holds get re-checked (adjust/close still execute at cap), stalest first —
+    # including names that aged OUT of the bridge entirely (OLDPOS)
+    _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(bridge_module, "FANOUT_MIN_TIER1", 2)
+    from runner.tools import tony_book as tb
+    monkeypatch.setattr(tb, "read_book_cache",
+                        lambda: {"positions": [{"symbol": "OLDPOS"}, {"symbol": "AAA"}]})
+    body = ("## Tier 1\n### [[AAA]]\n- Days active: 3\n### [[BBB]]\n- Days active: 4\n"
+            "## For Tony\nx")
+    _write_bridge(bridge_dir, "2026-06-03", body)
+    bridge_module.scan_and_process()
+    names = [p.name for p in tasks_dir.glob("*.md")]
+    assert any("TONY-TKR-OLDPOS" in n for n in names)  # held but not in the bridge -> still re-checked
+    assert any("TONY-TKR-AAA" in n for n in names)     # held + in bridge -> spawned once (deduped)
+    assert sum(1 for n in names if "TONY-TKR-AAA" in n) == 1
+    # the deep-dive body carries the at-cap persistence + held-position instructions
+    task = next(p for p in tasks_dir.glob("*.md") if "TONY-TKR-BBB" in p.name).read_text(encoding="utf-8")
+    assert "queue_research_candidate" in task and "If you HOLD" in task
+
+
+def test_held_symbols_stale_first_ordering(tmp_path, monkeypatch):
+    from runner.tools import tony_book as tb
+    from runner.ledger import deepdive_ledger as dl
+    monkeypatch.setattr(dl, "LEDGER_FILE", tmp_path / "dd.json")
+    monkeypatch.setattr(tb, "read_book_cache",
+                        lambda: {"positions": [{"symbol": "FRESH"}, {"symbol": "NEVER"}, {"symbol": "STALE"}]})
+    dl.LEDGER_FILE.write_text('{"FRESH": "2026-06-10T15:00:00", "STALE": "2026-06-09T10:00:00"}')
+    assert bridge_module._held_symbols_stale_first() == ["NEVER", "STALE", "FRESH"]
+
+
 def test_fanout_off_by_default(tmp_path, monkeypatch):
     _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
     monkeypatch.setattr(bridge_module, "FANOUT_MIN_TIER1", 0)

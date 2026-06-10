@@ -680,6 +680,12 @@ def _spawn_ticker_task(slug: str, sym: str) -> None:
         f"3. `web_research(action=search)` — news/catalysts.\n"
         f"4. `write_tony_verdict(...)` — your independent score + verdict + (for adjust/override) "
         f"your own target & stop.\n"
+        f"5. If you HOLD {sym}: re-test the thesis — reaffirm, `adjust` (re-prices your live "
+        f"stop/target), or `close`. Exits and re-prices execute even when the book is FULL.\n"
+        f"6. If you do NOT hold it and it's a real setup, ALSO call "
+        f"`queue_research_candidate('{sym}', score, ..., proposed_target, proposed_stop)` — a full "
+        f"book/cap means an entry verdict can never fill and is wiped at the 09:25 flush, but the "
+        f"queue SURVIVES the flush and is re-validated at the next open into freed slots.\n"
         f"Then append your findings to `vault/tickers/{sym}.md`.\n",
         encoding="utf-8",
     )
@@ -691,10 +697,28 @@ def _spawn_ticker_task(slug: str, sym: str) -> None:
     _log.info("tony_bridge: fan-out ticker task %s", task_id)
 
 
+def _held_symbols_stale_first() -> list:
+    """Open-position symbols ordered stalest-deep-dive first (never-dived lead), from the book
+    cache + the cooldown ledger. With a FULL book, re-examining what we HOLD is the research that
+    can still ACT (adjust/close execute regardless of the entry cap), and names that aged out of
+    the bot's bridge otherwise get no intraday re-evaluation at all. Fail-soft to empty."""
+    try:
+        from runner.tools.tony_book import read_book_cache
+        from runner.ledger.deepdive_ledger import _read as _dd_stamps
+        syms = [p.get("symbol") for p in (read_book_cache() or {}).get("positions", [])
+                if p.get("symbol")]
+        stamps = _dd_stamps()
+        return sorted(syms, key=lambda s: stamps.get(s, ""))
+    except Exception:
+        return []
+
+
 def _fanout_deepdives(slug: str, bridge_md: str) -> None:
     """Spawn deep-dive tasks for the WHOLE universe — every scanned name (Tier 1 + Tier 2/3 via
-    `newer`) PLUS Tony's own originated ideas — cooldown-gated so the SAME names aren't re-graded
-    every bridge. FANOUT_MAX paces queue growth per bridge (NOT a coverage cap; the cooldown plus
+    `newer`) PLUS held positions (stalest re-check first) PLUS Tony's own originated ideas —
+    cooldown-gated so the SAME names aren't re-graded every bridge. Held names lead: with a full
+    book they're the only research that can still act (adjust/close are never cap-gated).
+    FANOUT_MAX paces queue growth per bridge (NOT a coverage cap; the cooldown plus
     successive bridges sweep the rest). No-op unless the bridge carries >= FANOUT_MIN_TIER1 Tier-1
     names (i.e. a substantial bridge). Fail-soft — never breaks ingestion."""
     if not FANOUT_MIN_TIER1:
@@ -705,7 +729,8 @@ def _fanout_deepdives(slug: str, bridge_md: str) -> None:
         if len(tier1) < FANOUT_MIN_TIER1:
             return
         from runner.ledger.deepdive_ledger import due_for_deepdive
-        universe = [s.get("symbol") for s in sig.get("tier1", []) + sig.get("newer", [])]
+        universe = _held_symbols_stale_first()
+        universe += [s.get("symbol") for s in sig.get("tier1", []) + sig.get("newer", [])]
         try:
             from runner.bridge.research_wave import _recent_idea_symbols
             universe += _recent_idea_symbols()
