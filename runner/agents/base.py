@@ -1,10 +1,14 @@
 import json
+import logging
 import os
+import time
 
 import openai
 
 from runner.ledger.budget import record_spend
 from runner.agents.tool_runner import dispatch_tool
+
+_log = logging.getLogger(__name__)
 
 # Vertex AI: lazy-imported only when VERTEX_PROJECT is set so the rest of the
 # system stays runnable without google-auth installed.
@@ -106,6 +110,33 @@ class AgentBase:
                 api_key=os.environ.get("OPENROUTER_API_KEY"),
             )
 
+    def _completion_with_backoff(self, **kwargs):
+        """Gemini/Vertex returns 429 RESOURCE_EXHAUSTED under load (the whole-universe sweep +
+        overnight rounds burst past the per-minute quota). Back off and retry instead of letting a
+        transient rate-limit hard-fail the whole task. Non-rate-limit errors raise immediately."""
+        tries = int(os.environ.get("TONY_LLM_RETRY_TRIES", "5"))
+        last = None
+        for attempt in range(max(1, tries)):
+            if self._use_vertex:
+                self.client.api_key = _vertex_token()  # refresh the short-lived token each attempt
+            try:
+                return self.client.chat.completions.create(**kwargs)
+            except Exception as exc:
+                s = str(exc)
+                is_rate = ("429" in s or "RESOURCE_EXHAUSTED" in s
+                           or isinstance(exc, getattr(openai, "RateLimitError", ())))
+                if not is_rate or attempt == tries - 1:
+                    if is_rate:
+                        last = exc
+                        break
+                    raise
+                wait = min(30.0, 2.0 ** attempt)  # 1, 2, 4, 8, 16s
+                _log.warning("%s rate-limited (429) — backing off %.0fs (attempt %d/%d)",
+                             self.model, wait, attempt + 1, tries)
+                time.sleep(wait)
+                last = exc
+        raise last
+
     def run(self, task: dict) -> dict:
         task_text = f"# Task: {task.get('task_id', 'unknown')}\n\n{task.get('body', '')}"
         messages: list[dict] = [
@@ -149,9 +180,7 @@ class AgentBase:
         tool_calls_total = 0
         tool_calls_errored = 0
         while step < max_steps:
-            if self._use_vertex:
-                self.client.api_key = _vertex_token()
-            response = self.client.chat.completions.create(**kwargs)
+            response = self._completion_with_backoff(**kwargs)
             usage = response.usage
             if usage:
                 total_input += usage.prompt_tokens or 0
