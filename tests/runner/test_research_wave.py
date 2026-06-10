@@ -155,9 +155,41 @@ def test_followups_round_sequence_then_idle(monkeypatch):
     assert r3["round"] == 3 and r3["task_count"] == 1
     assert _task_types(rw.TASKS_DIR).get("tony_broaden_scan") == 1
 
+    # past the 3 fixed rounds the discovery cycle takes over (alternating), not idle
     _drain_rw()
     r4 = rw.maybe_stage_research_followups(now=now)
-    assert r4["staged"] is False and r4["reason"] == "exhausted"
+    assert r4["round"] == 4 and r4["task_count"] == 1
+    assert _task_types(rw.TASKS_DIR).get("tony_discovery_scan") == 1
+
+    _drain_rw()
+    r5 = rw.maybe_stage_research_followups(now=now)
+    assert r5["round"] == 5
+    assert _task_types(rw.TASKS_DIR).get("tony_second_opinion") == 1
+
+    _drain_rw()
+    r6 = rw.maybe_stage_research_followups(now=now)
+    assert r6["round"] == 6
+    assert _task_types(rw.TASKS_DIR).get("tony_discovery_scan") == 1  # cycle repeats
+
+
+def test_followups_stop_at_ceiling(monkeypatch):
+    monkeypatch.setenv("TONY_MARKET_SESSION", "closed")
+    now = dt.datetime(2026, 6, 6, 18, 0, tzinfo=ET)
+    rw.maybe_stage_research_wave(now=now)
+    for _ in range(rw._MAX_FOLLOWUP_ROUNDS):
+        _drain_rw()
+        assert rw.maybe_stage_research_followups(now=now)["staged"] is True
+    _drain_rw()
+    last = rw.maybe_stage_research_followups(now=now)
+    assert last["staged"] is False and last["reason"] == "exhausted"
+
+
+def test_discovery_body_injects_exclude_and_universe_blocks():
+    # discovery hunts OUTSIDE the bot's universe; second-opinion re-examines it
+    disc = rw._augment_body("tony_discovery_scan", "BASE")
+    assert "BASE" in disc and "ALREADY COVERED" in disc and "AAA" in disc
+    so = rw._augment_body("tony_second_opinion", "BASE")
+    assert "BASE" in so and "re-examine" in so.lower() and "AAA" in so
 
 
 def test_followups_reset_on_new_open(monkeypatch):

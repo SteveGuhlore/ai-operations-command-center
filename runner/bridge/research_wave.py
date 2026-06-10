@@ -63,7 +63,8 @@ _WAVE_TASKS = [
 ]
 
 # Follow-on research ROUNDS staged AFTER the main wave (round 0) drains — one round per drain, in
-# order, then idle. Genuinely-new, deeper work led by a self-learning battery that exploits Tony's
+# order, then the repeating _DISCOVERY_CYCLE below. Genuinely-new, deeper work led by a self-learning
+# battery that exploits Tony's
 # already-built analytics (tony_scorecard.discover_edges / calibration / sizing_attribution) and his
 # real realized record. Each entry: (title, task_type, body).
 _ROUNDS = [
@@ -115,6 +116,37 @@ _ROUNDS = [
          "queue."),
     ],
 ]
+
+# After _ROUNDS drains, KEEP working the rest of the closed window instead of idling ~22h: cycle
+# these two passes (one round per drain, alternating) so each pass does genuinely-NEW work rather
+# than re-reading the static records _ROUNDS already covered. Discovery originates names the bot
+# is NOT scanning; second-opinion re-examines the bot's OWN scanned list for entries it skipped.
+# Both feed the ranked queue (and tony_ideas), which also keeps research-queue.json populated.
+_DISCOVERY_CYCLE = [
+    [
+        ("Tony Discovery Scan", "tony_discovery_scan",
+         "Originate FRESH candidates the bot is NOT scanning. Read `regime` for the current "
+         "sector-rotation read, then use `web_research` to surface 3-5 high-quality setups OUTSIDE "
+         "the ALREADY COVERED list below that fit the regime (sector themes, post-earnings drift, "
+         "fresh catalysts). VALIDATE each with `get_stock_data` + `get_price_history` — use REAL "
+         "levels, never invent them. Log each with `log_tony_idea` (thesis, source, score), and for "
+         "any name with a real proposed_target AND proposed_stop also call `queue_research_candidate` "
+         "so the next open re-check can act on it. Skip anything already on the list."),
+    ],
+    [
+        ("Tony Second-Opinion Sweep", "tony_second_opinion",
+         "Second-opinion pass on the BOT's own scanned universe (the names listed below) for entries "
+         "the bot did NOT flag. Pick names you have not already deep-dived this window, pull "
+         "`get_stock_data` + `get_price_history` + `get_stock_news`, and where YOU see a real setup "
+         "the bot skipped, write a `write_tony_verdict` (with target & stop) or `log_tony_idea` so it "
+         "feeds the ranked queue. Don't force calls — only flag genuine setups with real levels."),
+    ],
+]
+
+# Per-open ceiling on follow-on rounds (the 3 _ROUNDS + the repeating _DISCOVERY_CYCLE). The
+# off-hours budget lane is the real nightly spend cap; this just stops a fast-draining pass from
+# looping unbounded if budget is generous.
+_MAX_FOLLOWUP_ROUNDS = 12
 
 
 def _read_state() -> dict:
@@ -196,6 +228,53 @@ def _write_task(task_id: str, title: str, task_type: str, body: str, priority: s
 
 _REALIZED_TASKS = {"tony_self_review", "tony_realized_postmortem", "tony_regrade"}
 _SMALL_SAMPLE_TASKS = {"tony_calibration_study", "tony_edge_mining"}
+_DISCOVERY_TASKS = {"tony_discovery_scan"}
+_SECOND_OPINION_TASKS = {"tony_second_opinion"}
+
+
+def _recent_idea_symbols(limit: int = 40) -> list:
+    """Symbols Tony has already originated (tony_stocks_ideas.json), newest first — part of the
+    discovery exclude set so each pass hunts new ground instead of resurfacing the same names."""
+    try:
+        from runner.tools.tony_ideas import IDEAS_FILE
+        entries = json.loads(IDEAS_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, FileNotFoundError, ImportError):
+        return []
+    out = []
+    for e in reversed(entries if isinstance(entries, list) else []):
+        s = (e.get("symbol") or "").upper()
+        if s and s not in out:
+            out.append(s)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _discovery_exclude_block() -> str:
+    """For the discovery pass: the 'already covered' set (bot's scanned universe + Tony's recent
+    ideas) to hunt OUTSIDE. Deterministic; fail-soft to empty (the body still stands alone)."""
+    covered = []
+    for s in _universe_symbols() + _recent_idea_symbols():
+        if s and s not in covered:
+            covered.append(s)
+    if not covered:
+        return ""
+    return ("\n\n--- ALREADY COVERED — hunt OUTSIDE these ---\n"
+            "The bot already scans these and you've already logged ideas on some. Do NOT re-pitch "
+            "any of them; find genuinely NEW names:\n" + ", ".join(covered))
+
+
+def _second_opinion_universe_block() -> str:
+    """For the second-opinion pass: the bot's scanned universe is the TARGET to re-examine, with
+    names you've already originated flagged to skip. Deterministic; fail-soft to empty."""
+    universe = _universe_symbols()
+    if not universe:
+        return ""
+    block = "\n\n--- THE BOT'S SCANNED UNIVERSE (re-examine THESE) ---\n" + ", ".join(universe)
+    already = _recent_idea_symbols()
+    if already:
+        block += "\n\nAlready originated (skip — don't re-log): " + ", ".join(already)
+    return block
 
 
 def _realized_block() -> str:
@@ -235,6 +314,10 @@ def _augment_body(task_type: str, body: str) -> str:
         return body + _realized_block()
     if task_type in _SMALL_SAMPLE_TASKS:
         return body + _small_sample_guard()
+    if task_type in _DISCOVERY_TASKS:
+        return body + _discovery_exclude_block()
+    if task_type in _SECOND_OPINION_TASKS:
+        return body + _second_opinion_universe_block()
     return body
 
 
@@ -293,9 +376,11 @@ def _rw_tasks_outstanding() -> bool:
 
 
 def maybe_stage_research_followups(now: datetime | None = None) -> dict:
-    """After the main wave drains, stage the next deeper research round (self-learning → deepen →
-    broaden), one round per drain, then idle. No-op when the market is open, the main wave for the
-    upcoming open isn't staged yet, the prior round is still draining, or all rounds are exhausted."""
+    """After the main wave drains, stage the next research round, one round per drain. First the 3
+    fixed _ROUNDS (self-learning → deepen → broaden), then the repeating _DISCOVERY_CYCLE (discover
+    new names ↔ second-opinion the bot's list) until `_MAX_FOLLOWUP_ROUNDS`, so the closed window
+    keeps doing NEW work instead of idling. No-op when the market is open, the main wave for the
+    upcoming open isn't staged yet, the prior round is still draining, or the ceiling is reached."""
     if market_session(now) != "closed":
         return {"staged": False, "reason": "market_open"}
 
@@ -306,15 +391,18 @@ def maybe_stage_research_followups(now: datetime | None = None) -> dict:
 
     rounds_done = state.get("rounds_done") or {}
     done = int(rounds_done.get(open_date, 0))
-    if done >= len(_ROUNDS):
-        return {"staged": False, "reason": "exhausted", "open_date": open_date}
     if _rw_tasks_outstanding():
         return {"staged": False, "reason": "prior_round_draining", "open_date": open_date}
+    if done >= _MAX_FOLLOWUP_ROUNDS:
+        return {"staged": False, "reason": "exhausted", "open_date": open_date}
 
+    # First the fixed learning rounds, then cycle the discovery passes (alternating).
+    round_tasks = (_ROUNDS[done] if done < len(_ROUNDS)
+                   else _DISCOVERY_CYCLE[(done - len(_ROUNDS)) % len(_DISCOVERY_CYCLE)])
     round_no = done + 1
     suffix = open_date.replace("-", "")
     enqueued = 0
-    for title, task_type, body in _ROUNDS[done]:
+    for title, task_type, body in round_tasks:
         _write_task(f"TONY-RW-R{round_no}-{task_type.upper()}-{suffix}",
                     f"{title} (for {open_date} open)", task_type, _augment_body(task_type, body))
         enqueued += 1
