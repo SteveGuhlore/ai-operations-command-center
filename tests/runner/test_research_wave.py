@@ -13,6 +13,8 @@ ET = mc._ET
 def _isolate(tmp_path, monkeypatch):
     monkeypatch.setattr(rw, "TASKS_DIR", tmp_path / "todo")
     monkeypatch.setattr(rw, "STATE_FILE", tmp_path / "research-wave-state.json")
+    from runner.ledger import deepdive_ledger as dl
+    monkeypatch.setattr(dl, "LEDGER_FILE", tmp_path / "deepdive-ledger.json")  # isolate the cooldown
     bd = tmp_path / "bridge"; bd.mkdir()
     monkeypatch.setattr(rw, "BRIDGE_MD_DIR", bd)
     (bd / "2026-06-05.md").write_text(

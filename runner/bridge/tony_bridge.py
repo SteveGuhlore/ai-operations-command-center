@@ -52,7 +52,7 @@ _TIER1_SYM_RE = re.compile(r"\[\[([A-Z][A-Z0-9.\-]{0,9})\]\]")
 # up the queue. Tune via env; 0 disables. See the lightened daily brief (synthesis + the
 # names fan-out didn't cover).
 FANOUT_MIN_TIER1 = int(os.environ.get("TONY_FANOUT_MIN_TIER1", "3"))
-FANOUT_MAX = int(os.environ.get("TONY_FANOUT_MAX", "6"))
+FANOUT_MAX = int(os.environ.get("TONY_FANOUT_MAX", "20"))  # per-bridge pacing cap (cooldown gates repeats)
 
 _REPORT_FILES = ["eod_report", "strategy_proposal", "approval_package"]
 _VAULT_HISTORY_DAYS = 7
@@ -330,11 +330,7 @@ Then, across the whole brief:
     )
     _log.info("tony_bridge: created daily brief %s (markdown bridge)", task_id)
 
-    if FANOUT_MIN_TIER1:
-        syms = _extract_tier1_symbols(bridge_md)
-        if len(syms) >= FANOUT_MIN_TIER1:
-            for s in syms[:FANOUT_MAX]:  # top-N in bridge order (score desc)
-                _spawn_ticker_task(slug, s)
+    _fanout_deepdives(slug, bridge_md)
 
 
 def _make_intraday_brief(slug: str, bridge_md: str) -> None:
@@ -428,11 +424,7 @@ Then, across the whole brief:
     )
     _log.info("tony_bridge: created intraday update %s", task_id)
 
-    if FANOUT_MIN_TIER1:
-        syms = _extract_tier1_symbols(bridge_md)
-        if len(syms) >= FANOUT_MIN_TIER1:
-            for s in syms[:FANOUT_MAX]:  # one focused deep-dive task per top Tier-1 name this slot
-                _spawn_ticker_task(slug, s)
+    _fanout_deepdives(slug, bridge_md)
 
 
 def _latest_bridge_md() -> tuple[str, str]:
@@ -691,7 +683,48 @@ def _spawn_ticker_task(slug: str, sym: str) -> None:
         f"Then append your findings to `vault/tickers/{sym}.md`.\n",
         encoding="utf-8",
     )
+    try:  # cooldown ledger: stamp the spawn so the same name isn't re-fanned every bridge
+        from runner.ledger.deepdive_ledger import mark_deepdived
+        mark_deepdived(sym)
+    except Exception:
+        pass
     _log.info("tony_bridge: fan-out ticker task %s", task_id)
+
+
+def _fanout_deepdives(slug: str, bridge_md: str) -> None:
+    """Spawn deep-dive tasks for the WHOLE universe — every scanned name (Tier 1 + Tier 2/3 via
+    `newer`) PLUS Tony's own originated ideas — cooldown-gated so the SAME names aren't re-graded
+    every bridge. FANOUT_MAX paces queue growth per bridge (NOT a coverage cap; the cooldown plus
+    successive bridges sweep the rest). No-op unless the bridge carries >= FANOUT_MIN_TIER1 Tier-1
+    names (i.e. a substantial bridge). Fail-soft — never breaks ingestion."""
+    if not FANOUT_MIN_TIER1:
+        return
+    try:
+        sig = _parse_bridge_signals(bridge_md)
+        tier1 = [s.get("symbol") for s in sig.get("tier1", []) if s.get("symbol")]
+        if len(tier1) < FANOUT_MIN_TIER1:
+            return
+        from runner.ledger.deepdive_ledger import due_for_deepdive
+        universe = [s.get("symbol") for s in sig.get("tier1", []) + sig.get("newer", [])]
+        try:
+            from runner.bridge.research_wave import _recent_idea_symbols
+            universe += _recent_idea_symbols()
+        except Exception:
+            pass
+        seen: set = set()
+        spawned = 0
+        for s in universe:
+            s = (s or "").strip().upper()
+            if not s or s in seen:
+                continue
+            seen.add(s)
+            if due_for_deepdive(s):
+                _spawn_ticker_task(slug, s)
+                spawned += 1
+                if spawned >= FANOUT_MAX:
+                    break
+    except Exception as exc:
+        _log.warning("deep-dive fan-out skipped: %s", exc)
 
 
 def _scan_markdown_bridge(processed: set) -> None:

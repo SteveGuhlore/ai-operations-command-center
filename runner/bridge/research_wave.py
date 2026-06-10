@@ -334,7 +334,16 @@ def maybe_stage_research_wave(now: datetime | None = None) -> dict:
 
     suffix = open_date.replace("-", "")
     enqueued = 0
-    for sym in _universe_symbols():
+    # Whole-universe overnight sweep: every scanned name (all tiers) + Tony's own originated ideas,
+    # cooldown-gated and marked so the intraday fan-out doesn't immediately re-grade the same names.
+    from runner.ledger.deepdive_ledger import due_for_deepdive, mark_deepdived
+    wave_universe: list = list(_universe_symbols())
+    for s in _recent_idea_symbols():
+        if s not in wave_universe:
+            wave_universe.append(s)
+    for sym in wave_universe:
+        if not due_for_deepdive(sym):
+            continue
         _write_task(
             f"TONY-RW-TKR-{sym}-{suffix}",
             f"Off-market deep-dive — {sym} (for {open_date} open)",
@@ -348,6 +357,7 @@ def maybe_stage_research_wave(now: datetime | None = None) -> dict:
             f"ranked queue that the next open re-validates against fresh prices.\n"
             f"Then append findings to `vault/tickers/{sym}.md`.",
         )
+        mark_deepdived(sym)
         enqueued += 1
 
     for title, task_type, body in _WAVE_TASKS:
