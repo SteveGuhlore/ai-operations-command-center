@@ -180,6 +180,27 @@ def test_held_symbols_stale_first_ordering(tmp_path, monkeypatch):
     assert bridge_module._held_symbols_stale_first() == ["NEVER", "STALE", "FRESH"]
 
 
+def test_fanout_throttles_new_names_at_cap(tmp_path, monkeypatch):
+    # book at the position cap -> new-name research drops to the floor (2/bridge trickle into the
+    # queue) while held re-checks keep full pace; scales back up automatically as slots free
+    _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(bridge_module, "FANOUT_MIN_TIER1", 2)
+    from runner.tools import tony_book as tb
+    from runner.ledger import alpaca_paper as ap
+    monkeypatch.setattr(tb, "read_book_cache",
+                        lambda: {"positions": [{"symbol": "H1"}, {"symbol": "H2"}]})
+    monkeypatch.setattr(ap, "MAX_OPEN_POSITIONS", 2)   # held == cap -> 0 free slots
+    body = ("## Tier 1\n### [[N1]]\n- Days active: 3\n### [[N2]]\n- Days active: 4\n"
+            "### [[N3]]\n- Days active: 3\n### [[N4]]\n- Days active: 3\n## For Tony\nx")
+    _write_bridge(bridge_dir, "2026-06-03", body)
+    bridge_module.scan_and_process()
+    names = [p.name for p in tasks_dir.glob("TONY-TKR-*.md")]
+    held_spawned = [n for n in names if "TONY-TKR-H" in n]
+    new_spawned = [n for n in names if any(f"TONY-TKR-N{i}" in n for i in (1, 2, 3, 4))]
+    assert len(held_spawned) == 2          # all held re-checks spawn
+    assert len(new_spawned) == 2           # new names throttled to the floor (default 2)
+
+
 def test_fanout_off_by_default(tmp_path, monkeypatch):
     _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
     monkeypatch.setattr(bridge_module, "FANOUT_MIN_TIER1", 0)

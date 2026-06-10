@@ -729,25 +729,43 @@ def _fanout_deepdives(slug: str, bridge_md: str) -> None:
         if len(tier1) < FANOUT_MIN_TIER1:
             return
         from runner.ledger.deepdive_ledger import due_for_deepdive
-        universe = _held_symbols_stale_first()
+        held_list = _held_symbols_stale_first()
+        held = {(s or "").strip().upper() for s in held_list}
+        universe = list(held_list)
         universe += [s.get("symbol") for s in sig.get("tier1", []) + sig.get("newer", [])]
         try:
             from runner.bridge.research_wave import _recent_idea_symbols
             universe += _recent_idea_symbols()
         except Exception:
             pass
+        # Adaptive spend throttle: scale NEW-NAME research to OPEN CAPACITY. At/near the position
+        # cap a new name can't enter anyway (its queue entry competes for ~0 slots), so don't burn
+        # API $ on 20 of them per bridge — keep a small floor trickling into the flush-proof queue
+        # so the BEST few are ready when exits free slots, and auto-scale back up as slots open.
+        # Held re-checks always keep the full pace (adjust/close act regardless of the cap).
+        try:
+            from runner.ledger.alpaca_paper import MAX_OPEN_POSITIONS
+            slots_free = max(0, MAX_OPEN_POSITIONS - len(held))
+        except Exception:
+            slots_free = FANOUT_MAX
+        floor = int(os.environ.get("TONY_NEWNAME_FANOUT_FLOOR", "2"))
+        new_budget = min(FANOUT_MAX, max(floor, slots_free))
         seen: set = set()
-        spawned = 0
+        spawned = new_spawned = 0
         for s in universe:
             s = (s or "").strip().upper()
             if not s or s in seen:
                 continue
             seen.add(s)
-            if due_for_deepdive(s):
-                _spawn_ticker_task(slug, s)
-                spawned += 1
-                if spawned >= FANOUT_MAX:
-                    break
+            if not due_for_deepdive(s):
+                continue
+            if s not in held and new_spawned >= new_budget:
+                continue  # at/near cap: skip extra new names, keep sweeping held re-checks
+            _spawn_ticker_task(slug, s)
+            spawned += 1
+            new_spawned += 0 if s in held else 1
+            if spawned >= FANOUT_MAX:
+                break
     except Exception as exc:
         _log.warning("deep-dive fan-out skipped: %s", exc)
 
