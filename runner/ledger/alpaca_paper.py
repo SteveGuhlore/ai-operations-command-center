@@ -328,6 +328,10 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
     scanner_levels = scanner_levels or {}
     plan = []
     buys = 0
+    planned_buys: set[str] = set()  # at most ONE entry per symbol per run. A missed daily flush can
+    # leave multiple dated buy verdicts for the same name stacked in the file; without this they all
+    # fire in one sync and pyramid the position to 2-4x size (the June 2026 over-sizing). The held /
+    # exited-today guards only catch names already in the book, not repeats within this same run.
     for v in verdicts:
         sym = v.get("symbol")
         verdict = v.get("verdict")
@@ -337,7 +341,7 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
         # fires after that day's earlier BUY — exit on either side, all day.
         if verdict in _OPEN:
             key = f"{v.get('date')}:{sym}:open"
-            if key in already_done or sym in held_symbols:
+            if key in already_done or sym in held_symbols or sym in planned_buys:
                 continue
             if sym in exited_today:
                 # Exited this session (stop / target / close) — don't buy it right back. He stepped
@@ -362,6 +366,7 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
             plan.append({"key": key, "symbol": sym, "action": "buy", "notional": NOTIONAL,
                          "target": target, "stop": stop, "confidence": v.get("confidence", "medium")})
             buys += 1
+            planned_buys.add(sym)
         elif verdict == "close":
             key = f"{v.get('date')}:{sym}:close"
             if key in already_done:
@@ -533,6 +538,36 @@ def _alpaca_broker():
                     # open against Tony's decision forever with no retry and no signal.
                     raise
             raise last  # qty never freed after retries — leave unmarked so next cycle retries
+
+        def reduce(self, symbol, sell_qty):
+            """Trim an oversized (pyramided) position: cancel its protective SELL legs — they HOLD
+            the shares, so a sell would otherwise fail on held qty — then market-sell `sell_qty`
+            whole shares. Re-protecting the remainder is the caller's job (or the next-cycle
+            reconcile). Retries while Alpaca asynchronously frees the cancelled qty (same pattern
+            as close/protect)."""
+            q = int(float(sell_qty or 0))
+            if q < 1:
+                return
+            for o in self.open_orders():
+                if o.get("symbol") == symbol and o.get("side") == "sell":
+                    try:
+                        client.cancel_order_by_id(o["id"])
+                    except Exception as exc:
+                        _log.info("reduce cancel %s: %s", symbol, exc)
+            last = None
+            for _ in range(12):
+                try:
+                    client.submit_order(MarketOrderRequest(
+                        symbol=symbol, qty=q, side=OrderSide.SELL, time_in_force=TimeInForce.DAY))
+                    return
+                except Exception as exc:
+                    last = exc
+                    if "insufficient qty" in str(exc).lower() or "40310000" in str(exc):
+                        time.sleep(0.5)
+                        continue
+                    raise
+            if last:
+                raise last
 
         def account(self):
             a = client.get_account()
