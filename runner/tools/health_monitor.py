@@ -10,26 +10,30 @@ import os
 from pathlib import Path
 
 
-def _verdict_count() -> int:
+def _load_verdicts() -> list:
     from runner.ledger.alpaca_paper import VERDICTS_FILE
     try:
         data = json.loads(Path(VERDICTS_FILE).read_text(encoding="utf-8"))
-        return len(data) if isinstance(data, list) else 0
+        return data if isinstance(data, list) else []
     except (json.JSONDecodeError, OSError, FileNotFoundError):
-        return 0
+        return []
 
 
-def collect_issues(positions: list | None = None, verdict_count: int | None = None) -> list:
-    """Return human-readable health issues (empty list = healthy). Pure given its inputs; the
-    defaults read live state (verdicts file + book cache) so the caller can just call it."""
+def collect_issues(positions: list | None = None, verdicts: list | None = None) -> list:
+    """Return human-readable health issues (empty list = healthy). The daily 9:25 flush should
+    leave only TODAY's verdicts, so verdicts spanning MORE THAN ONE date mean the flush failed and
+    a backlog is building (the precursor to the June 2026 pyramiding). A raw count is intentionally
+    NOT used — whole-universe daily deep-dives legitimately produce ~150 verdicts in a single day."""
     from runner.ledger.alpaca_paper import ENTRY_NOTIONAL
-    backlog = int(os.environ.get("TONY_VERDICT_BACKLOG_ALERT", "60"))
     oversize_mult = float(os.environ.get("TONY_OVERSIZE_ALERT_MULT", "1.6"))
 
     issues: list = []
-    vc = _verdict_count() if verdict_count is None else verdict_count
-    if vc > backlog:
-        issues.append(f"Verdict backlog: {vc} verdicts queued (the daily pre-open flush may have failed).")
+    if verdicts is None:
+        verdicts = _load_verdicts()
+    dates = sorted({x.get("date") for x in verdicts if x.get("date")})
+    if len(dates) > 1:
+        issues.append(f"Verdict backlog: {len(verdicts)} verdicts spanning {len(dates)} dates "
+                      f"({dates}) — the daily pre-open flush may have failed.")
 
     if positions is None:
         from runner.tools.tony_book import read_book_cache

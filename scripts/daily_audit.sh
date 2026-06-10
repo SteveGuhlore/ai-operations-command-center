@@ -37,9 +37,9 @@ echo "[5] Verdict hygiene (should be ~one day's worth, NOT hundreds)"
 $PY -c "
 from runner.ledger.alpaca_paper import VERDICTS_FILE,_load
 from collections import Counter
-v=_load(VERDICTS_FILE)
-print('    count:',len(v),'| by date:',dict(Counter(x.get('date') for x in v)))
-print('    BACKLOG (flush may have failed)' if len(v)>60 else '    healthy daily size')
+v=_load(VERDICTS_FILE); dates=sorted(set(x.get('date') for x in v if x.get('date')))
+print('    count:',len(v),'| dates:',dates)
+print('    BACKLOG — flush failed (multiple dates)' if len(dates)>1 else '    healthy (single day; count is fine even if large)')
 " 2>/dev/null || warn "verdicts read failed"
 
 echo "[6] Research queue (populates after the close via the wave)"
