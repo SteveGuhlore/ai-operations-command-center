@@ -73,15 +73,30 @@ def record_realized(symbol, qty, entry, exit_price, target=None, stop=None) -> d
     return row
 
 
+def _pl(r) -> float:
+    try:
+        return float(r.get("realized_pl", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _agg(rows: list) -> dict:
-    wins = sum(1 for r in rows if float(r.get("realized_pl", 0) or 0) > 0)
-    losses = sum(1 for r in rows if float(r.get("realized_pl", 0) or 0) < 0)
+    # `count`/`wins`/`losses` are TRADES — actual position closes (target/stop/close). Trims
+    # (partial re-sizes that left the position open) are tracked separately so they never inflate
+    # the "trades closed" narrative, but their realized P/L still rolls into `realized_pl` (real $).
+    closed = [r for r in rows if r.get("reason") != "trim"]
+    trims = [r for r in rows if r.get("reason") == "trim"]
     by_reason: dict[str, int] = {}
     for r in rows:
         by_reason[r.get("reason", "unknown")] = by_reason.get(r.get("reason", "unknown"), 0) + 1
     return {
-        "count": len(rows), "wins": wins, "losses": losses,
-        "realized_pl": round(sum(float(r.get("realized_pl", 0) or 0) for r in rows), 2),
+        "count": len(closed),
+        "wins": sum(1 for r in closed if _pl(r) > 0),
+        "losses": sum(1 for r in closed if _pl(r) < 0),
+        "realized_pl": round(sum(_pl(r) for r in rows), 2),       # total incl. trims (real money)
+        "closed_pl": round(sum(_pl(r) for r in closed), 2),       # P/L from actual closes only
+        "trims": len(trims),
+        "trim_pl": round(sum(_pl(r) for r in trims), 2),
         "by_reason": by_reason,
     }
 
@@ -137,6 +152,12 @@ def reconcile_from_fills(fills: list) -> list:
             avg_entry = cost / matched
             ot = (f.get("order_type") or "").lower()
             reason = "stop" if ot == "stop" else ("target" if ot in ("limit", "take_profit") else "close")
+            # A sell that leaves shares STILL OPEN is a TRIM (a partial re-size, e.g. the operator
+            # trimming a pyramided position), NOT a position close — so it must not inflate the
+            # "trades closed" count or the win/loss/exit-reason stats. The realized P/L is still
+            # real money and stays in the total; it's just bucketed as `trim`, not a trade.
+            if sum(lot[0] for lot in dq) > 1e-9:
+                reason = "trim"
             rows.append({
                 "symbol": sym, "qty": round(matched, 4), "entry": round(avg_entry, 4),
                 "exit": round(price, 4), "realized_pl": round((price - avg_entry) * matched, 2),
