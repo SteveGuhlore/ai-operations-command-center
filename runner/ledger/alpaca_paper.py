@@ -158,19 +158,43 @@ def positions_needing_protection(positions: list, open_orders: list, levels: dic
     `fallback_pct=(stop_pct, target_pct)` derives a catastrophic bracket from the entry price so
     the position is NEVER left naked overnight. Off by default (preserves the old skip behavior);
     skips when the entry price is unknown."""
-    # "Protected" means a working STOP leg — NOT just any sell order. A lone take-profit (limit)
-    # with no stop is a half-bracket: the position still has unlimited downside, so it must be
-    # re-protected (protect() cancels the lone TP and places a full OCO).
-    has_stop = {o.get("symbol") for o in open_orders
-                if o.get("side") == "sell" and str(o.get("type") or "").startswith("stop")}
+    # "Protected" means a working STOP leg covering the WHOLE-SHARE FLOOR — not just any sell
+    # order. A lone take-profit (limit) with no stop is a half-bracket: the position still has
+    # unlimited downside, so it must be re-protected (protect() cancels the lone TP and places a
+    # full OCO). A stop whose quantity is SMALLER than the floor (stale qty after a partial fill /
+    # re-add — the DVN 212-of-218 case) is also under-protected and gets a full re-OCO. A stop leg
+    # that reports no qty is treated as covering (unknown ≠ proven short).
+    stop_qty: dict[str, float] = {}
+    stop_unknown: set = set()
+    leg_levels: dict[str, dict] = {}
+    for o in open_orders:
+        if o.get("side") != "sell":
+            continue
+        sym = o.get("symbol")
+        if o.get("limit_price") is not None:
+            leg_levels.setdefault(sym, {})["target"] = float(o["limit_price"])
+        if str(o.get("type") or "").startswith("stop"):
+            if o.get("stop_price") is not None:
+                leg_levels.setdefault(sym, {})["stop"] = float(o["stop_price"])
+            q = o.get("qty")
+            if q is None:
+                stop_unknown.add(sym)
+            stop_qty[sym] = stop_qty.get(sym, 0.0) + (float(q) if q is not None else 0.0)
     out = []
     for p in positions:
         sym = p.get("symbol")
         whole = int(float(p.get("qty", 0) or 0))  # floor — legs can only cover whole shares
-        if whole < 1 or sym in has_stop:
+        if whole < 1:
             continue
+        if sym in stop_qty and (sym in stop_unknown or stop_qty[sym] >= whole):
+            continue  # protected: a stop covers the floor (or its qty is unreported)
         lv = levels.get(sym) or {}
         target, stop = lv.get("target"), lv.get("stop")
+        if not (target and stop):
+            # Under-covered with no scanner/verdict levels: inherit the position's OWN current
+            # leg prices so the full re-OCO keeps its existing risk line (the GLW/MCHP case).
+            ll = leg_levels.get(sym) or {}
+            target, stop = target or ll.get("target"), stop or ll.get("stop")
         if not (target and stop) or float(target) <= float(stop):
             if fallback_pct:
                 try:

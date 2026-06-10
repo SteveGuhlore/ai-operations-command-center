@@ -232,6 +232,31 @@ def test_positions_needing_protection_skips_degenerate():
     assert ap.positions_needing_protection(positions, [], {"D": {"target": 66.53, "stop": 66.53}}) == []
 
 
+def test_under_covered_stop_gets_full_reprotect():
+    # DVN case: stop exists but covers fewer shares than the floor -> re-protect the full floor
+    positions = [{"symbol": "DVN", "qty": 218.0}]
+    orders = [{"symbol": "DVN", "side": "sell", "type": "stop", "qty": "212", "stop_price": 42.0}]
+    out = ap.positions_needing_protection(positions, orders, {"DVN": {"target": 55.0, "stop": 42.0}})
+    assert out == [{"symbol": "DVN", "qty": 218, "target": 55.0, "stop": 42.0}]
+
+
+def test_under_covered_inherits_existing_leg_levels_when_no_dict_levels():
+    # GLW case: under-covered AND not in scanner/verdict levels -> reuse the legs' own prices
+    positions = [{"symbol": "GLW", "qty": 5.0}]
+    orders = [{"symbol": "GLW", "side": "sell", "type": "stop", "qty": "2", "stop_price": 158.0},
+              {"symbol": "GLW", "side": "sell", "type": "limit", "qty": "2", "limit_price": 198.0}]
+    out = ap.positions_needing_protection(positions, orders, {})
+    assert out == [{"symbol": "GLW", "qty": 5, "target": 198.0, "stop": 158.0}]
+
+
+def test_fully_covered_and_unknown_qty_stops_left_alone():
+    positions = [{"symbol": "FULL", "qty": 100.0}, {"symbol": "UNK", "qty": 50.0}]
+    orders = [{"symbol": "FULL", "side": "sell", "type": "stop", "qty": "100", "stop_price": 10.0},
+              {"symbol": "UNK", "side": "sell", "type": "stop", "stop_price": 9.0}]  # no qty reported
+    assert ap.positions_needing_protection(
+        positions, orders, {"FULL": {"target": 20.0, "stop": 10.0}, "UNK": {"target": 20.0, "stop": 9.0}}) == []
+
+
 def test_latest_scanner_levels_uses_newest_including_intraday(tmp_path, monkeypatch):
     (tmp_path / "2026-06-03.md").write_text("### [[AAA]]\n- Target: $30.0 (+1%) | Stop: $25.0 (-1%)\n")
     (tmp_path / "2026-06-03T1530.md").write_text("### [[SLB]]\n- Target: $61.17 (+1%) | Stop: $54.6 (-1%)\n")
