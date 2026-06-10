@@ -666,7 +666,10 @@ def reconcile_realized(broker=None) -> dict:
         if broker is None:
             return {"status": "no_keys"}
         from runner.ledger.tony_realized import rebuild_from_fills
-        res = rebuild_from_fills(broker.filled_orders())
+        # 500 (Alpaca's per-request max): the CLOSED-orders window is flooded by canceled OCO legs
+        # from reprice churn, so 200 dropped the BUY entries of older holds that exited today (their
+        # sells matched no entry and vanished from the ledger). 500 reaches meaningfully further back.
+        res = rebuild_from_fills(broker.filled_orders(limit=500))
         res["status"] = "ok"
         return res
     except Exception as exc:

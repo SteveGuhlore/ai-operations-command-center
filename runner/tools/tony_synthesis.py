@@ -73,10 +73,14 @@ def daily_wrap() -> str:
         f"- Account equity: {acct.get('equity')}\n"
         f"- Open positions: {len(pos)} ({', '.join(p.get('symbol', '?') for p in pos[:10]) or 'none'})\n"
         f"- Unrealized P/L on what I hold: {round(unreal, 2)}\n"
-        f"- Closed today: {today.get('count', 0)} "
+        f"- Closed today: {today.get('count', 0)} trade(s) "
         f"({today.get('wins', 0)} win / {today.get('losses', 0)} loss), "
-        f"realized {today.get('realized_pl', 0)}\n"
-        "Tell my friend how my day went and what I'm watching, in my voice."
+        f"P/L {today.get('closed_pl', today.get('realized_pl', 0))}\n"
+        + (f"- Trimmed today: {today.get('trims', 0)} position(s) (operator re-sizing of oversized "
+           f"holds — STILL held, not closed trades), P/L {today.get('trim_pl', 0)}\n"
+           if today.get('trims') else "")
+        + "Tell my friend how my day went and what I'm watching, in my voice. Do NOT count trims "
+        "as closed trades."
     )
     return _narrate(facts)
 

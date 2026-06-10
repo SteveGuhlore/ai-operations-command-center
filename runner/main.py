@@ -710,9 +710,12 @@ def _build_recap_lines(acct: dict, rec: dict, realized: dict) -> list:
     line_open = f"Open: {len(pos)} positions · unrealized P/L ${unreal:,.2f}"
 
     t = realized.get("today", {})
-    line_closed = (f"Closed today: {t.get('count', 0)}  "
+    line_closed = (f"Closed today: {t.get('count', 0)} trade(s) "
                    f"({t.get('wins', 0)} win / {t.get('losses', 0)} loss) "
-                   f"· realized P/L ${float(t.get('realized_pl', 0) or 0):,.2f}")
+                   f"· P/L ${float(t.get('closed_pl', t.get('realized_pl', 0)) or 0):,.2f}")
+    if t.get("trims"):
+        line_closed += (f"   |   trimmed {t.get('trims')} position(s) "
+                        f"· P/L ${float(t.get('trim_pl', 0) or 0):,.2f}")
 
     wr = rec.get("win_rate")
     line_acc = (f"Scanner-verdict accuracy: {wr}% ({rec.get('graded', 0)})"

@@ -16,10 +16,20 @@ def test_recap_lines_full():
     assert lines[0].startswith("Equity: $1,010,000")
     assert "▲" in lines[0] and "$10,000" in lines[0] and "+1.00%" in lines[0]
     assert lines[1] == "Open: 2 positions · unrealized P/L $200.00"
-    assert lines[2] == "Closed today: 3  (2 win / 1 loss) · realized P/L $420.00"
+    assert lines[2] == "Closed today: 3 trade(s) (2 win / 1 loss) · P/L $420.00"
     # the graded metric is RELABELED — must never read as Tony's own trade record
     assert lines[3] == "Scanner-verdict accuracy: 62.5% (8)"
     assert "win-rate" not in lines[3].lower()
+
+
+def test_recap_separates_trims_from_closed_trades():
+    # the June 2026 bug: 10 operator trims masqueraded as "12 closed trades, +$1,665"
+    acct = {"equity": 1_000_000.0, "last_equity": 1_000_000.0, "open_positions": []}
+    realized = {"today": {"count": 2, "wins": 1, "losses": 1, "closed_pl": -28.0,
+                          "realized_pl": 1665.0, "trims": 10, "trim_pl": 1693.0}}
+    line = _build_recap_lines(acct, {"win_rate": None, "graded": 0}, realized)[2]
+    assert "Closed today: 2 trade(s)" in line and "$-28.00" in line   # real closes, not 12
+    assert "trimmed 10 position(s)" in line and "$1,693.00" in line   # trims shown separately
 
 
 def test_recap_lines_down_day_and_no_winrate():

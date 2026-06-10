@@ -63,6 +63,23 @@ def test_partial_fifo_across_two_lots():
     # 10 @5 + 5 @7 = 85 cost over 15 -> avg 5.6667; pl = (8-5.6667)*15
     assert r["entry"] == round(85 / 15, 4)
     assert r["realized_pl"] == round((8.0 - 85 / 15) * 15, 2)
+    assert r["reason"] == "trim"   # sold 15 of 20 -> 5 still held -> a TRIM, not a close
+
+
+def test_full_exit_is_not_a_trim_and_agg_splits_them():
+    fills = [
+        _fill("F", "buy", 10, 100.0, "b1", t="2026-06-01T10:00:00Z"),
+        _fill("F", "sell", 6, 110.0, "s1", "market", t="2026-06-02T10:00:00Z"),   # trim (4 left)
+        _fill("F", "sell", 4, 120.0, "s2", "market", t="2026-06-03T10:00:00Z"),   # close (0 left)
+    ]
+    rows = tr.reconcile_from_fills(fills)
+    assert [r["reason"] for r in rows] == ["trim", "close"]
+    agg = tr._agg(rows)
+    assert agg["count"] == 1 and agg["trims"] == 1          # one CLOSED trade, one trim
+    assert agg["wins"] == 1 and agg["losses"] == 0          # win/loss over closes only
+    assert agg["closed_pl"] == round((120 - 100) * 4, 2)    # close P/L only
+    assert agg["trim_pl"] == round((110 - 100) * 6, 2)      # trim P/L separate
+    assert agg["realized_pl"] == round(agg["closed_pl"] + agg["trim_pl"], 2)  # total = real $
 
 
 def test_rebuild_drops_bogus_unid_rows_and_dedups():
