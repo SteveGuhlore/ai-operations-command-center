@@ -46,6 +46,7 @@ from runner.tools.vault_memory import write_memory
 from runner.tools.inbox_reader import read_inbox
 from runner.tools.flag_issue import flag_issue
 from runner.tools.outreach_crm import log_outreach_lead
+from runner.ledger.research_queue import queue_research_candidate
 
 register_tool("file_editor",        file_editor)
 register_tool("web_research",       web_research)
@@ -81,6 +82,7 @@ register_tool("write_memory",       write_memory)
 register_tool("read_inbox",         read_inbox)
 register_tool("flag_issue",         flag_issue)
 register_tool("log_outreach_lead",  log_outreach_lead)
+register_tool("queue_research_candidate", queue_research_candidate)
 
 from runner.plugins.loader import load_design_skill
 register_tool("load_design_skill",  load_design_skill)

@@ -53,6 +53,74 @@ def read_queue() -> dict:
         return {"candidates": []}
 
 
+def _to_float(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+def queue_research_candidate(symbol: str, score, confidence: str = "medium",
+                             proposed_target=None, proposed_stop=None,
+                             thesis_ref: str = "", source: str = "research_wave") -> dict:
+    """Append ONE ranked candidate to workspace/research-queue.json — deterministically. The
+    research-wave RANK step used to have the LLM hand-write the whole JSON file; it narrated the
+    step without reliably producing it, so the queue came out empty (and triggered a Scout/Forge
+    'empty research-queue' investigation loop). This tool takes the fields and persists the row
+    itself: reads the queue, dedupes by symbol (latest wins), re-sorts best-first, writes it back,
+    and stamps the target-open header. Call it once per candidate."""
+    symbol = (symbol or "").strip().upper()
+    if not symbol:
+        return {"error": "symbol is required"}
+    sc = _to_float(score)
+    if sc is None:
+        return {"error": f"score must be numeric, got {score!r}"}
+    try:
+        from runner.bridge.research_wave import _next_open_date
+        target_open = _next_open_date()
+    except Exception:
+        target_open = ""
+    existing = read_queue()
+    cands = [c for c in (existing.get("candidates") or [])
+             if (c.get("symbol") or "").upper() != symbol]
+    cands.append({
+        "symbol": symbol, "thesis_ref": thesis_ref, "score": sc, "confidence": confidence,
+        "proposed_target": _to_float(proposed_target), "proposed_stop": _to_float(proposed_stop),
+        "source": source, "generated_at": datetime.now().isoformat(),
+    })
+    payload = write_queue(cands, existing.get("target_open") or target_open)
+    return {"success": True, "symbol": symbol, "queue_size": len(payload.get("candidates", []))}
+
+
+TOOL_SPEC = {
+    "name": "queue_research_candidate",
+    "description": (
+        "Add ONE name to your ranked overnight research queue (workspace/research-queue.json) — "
+        "call this once per candidate in the FINAL research-rank step instead of hand-writing the "
+        "JSON file. The queue is re-validated against fresh prices at the next open and the "
+        "survivors auto-execute within the risk caps, so a name only belongs here with a real "
+        "proposed_target/proposed_stop. Deterministic + deduped by symbol; narrating that you "
+        "'wrote the queue' without calling this means it was NOT saved. "
+        "Example: queue_research_candidate(symbol='GTLB', score=82, confidence='high', "
+        "proposed_target=78.5, proposed_stop=71.0, thesis_ref='4-day momentum + XLK tailwind', "
+        "source='conviction_deepdive')"
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "symbol": {"type": "string", "description": "Ticker (required)."},
+            "score": {"type": "number", "description": "Your 0-100 conviction for ranking (required)."},
+            "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+            "proposed_target": {"type": "number", "description": "Proposed take-profit price."},
+            "proposed_stop": {"type": "number", "description": "Proposed stop price."},
+            "thesis_ref": {"type": "string", "description": "Short thesis / where the idea came from."},
+            "source": {"type": "string", "description": "Which research step produced it, e.g. 'edge_mining'."},
+        },
+        "required": ["symbol", "score"],
+    },
+}
+
+
 def _setup_holds(price, target, stop) -> bool:
     """A candidate's setup still holds only if there is a FRESH price strictly inside the
     proposed (stop, target) band — i.e. it hasn't already stopped out or run past the target."""

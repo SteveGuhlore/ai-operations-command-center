@@ -54,10 +54,12 @@ _WAVE_TASKS = [
      "vault/tony-stocks/pattern-library.md with concrete, evidence-tagged adjustments."),
     ("Tony Research Rank", "tony_research_rank",
      "FINAL step — synthesize this window's verdicts + ideas into a scored, ranked candidate queue. "
-     "Write workspace/research-queue.json: a best-first list of "
-     "{symbol, thesis_ref, score, confidence, proposed_target, proposed_stop, source, generated_at} "
-     "with a generated_at + target-open-date header. This queue is re-validated at the next open "
-     "before anything executes."),
+     "Call `queue_research_candidate` ONCE PER NAME (symbol, score, confidence, proposed_target, "
+     "proposed_stop, thesis_ref, source) — do NOT hand-write workspace/research-queue.json; the tool "
+     "persists, dedupes, and ranks each row for you. Only queue names with a real proposed_target AND "
+     "proposed_stop — the queue is re-validated against fresh prices at the next open and survivors "
+     "auto-execute. Narrating that you 'wrote the queue' without calling the tool means nothing was "
+     "saved (the #1 failure of this step)."),
 ]
 
 # Follow-on research ROUNDS staged AFTER the main wave (round 0) drains — one round per drain, in
