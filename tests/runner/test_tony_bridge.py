@@ -15,6 +15,8 @@ def _setup(tmp_path, monkeypatch):
     monkeypatch.setattr(bridge_module, "_PROCESSED_LOG", tmp_path / "processed.json")
     monkeypatch.setattr(bridge_module, "VAULT_DIR", tmp_path / "vault")
     monkeypatch.setattr(bridge_module, "_QUIESCE_SECONDS", 0.0)  # tests scan files immediately
+    from runner.ledger import deepdive_ledger as dl
+    monkeypatch.setattr(dl, "LEDGER_FILE", tmp_path / "deepdive-ledger.json")  # isolate the cooldown
     return reports_dir, bridge_dir, tasks_dir
 
 
@@ -144,7 +146,7 @@ def test_fanout_spawns_per_ticker(tmp_path, monkeypatch):
     names = [p.name for p in tasks_dir.glob("*.md")]
     assert any("TONY-TKR-AAA" in n for n in names)
     assert any("TONY-TKR-BBB" in n for n in names)
-    assert not any("CCC" in n for n in names)  # Tier 2 excluded
+    assert any("CCC" in n for n in names)  # all tiers now deep-dived (Tier 2/3 included)
 
 
 def test_fanout_off_by_default(tmp_path, monkeypatch):
@@ -168,7 +170,7 @@ def test_fanout_spawns_on_intraday(tmp_path, monkeypatch):
     names = [p.name for p in tasks_dir.glob("*.md")]
     assert any("TONY-TKR-AAA" in n for n in names)
     assert any("TONY-TKR-BBB" in n for n in names)
-    assert not any("CCC" in n for n in names)  # Tier 2 excluded
+    assert any("CCC" in n for n in names)  # all tiers now deep-dived (Tier 2/3 included)
 
 
 def test_make_preopen_deepdive(tmp_path, monkeypatch):

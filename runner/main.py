@@ -835,9 +835,88 @@ def _maybe_handle_telegram_chat() -> None:
         log.info("telegram poller start failed: %s", exc)
 
 
+def _maybe_preopen_backstop() -> None:
+    """The 09:25 ET cron is primary; this is the redundant backstop + missing-flush alert (the
+    09:25 job was lost once in the Windows->Linux move). In the pre-open window (market closed,
+    just before the open) run the reset if the cron hasn't yet; once the market is open with no
+    flush today, alert instead (do NOT flush mid-session). Fail-soft — never breaks the cycle."""
+    try:
+        from runner.scheduler.daily_jobs import preopen_done_today, alert_due, mark_alert_ran
+        if preopen_done_today():
+            return
+        from datetime import datetime, time as _t
+        from runner.ledger.market_clock import _ET, _HOLIDAYS_2026, market_session
+        now = datetime.now(_ET)
+        if now.weekday() >= 5 or now.strftime("%Y-%m-%d") in _HOLIDAYS_2026:
+            return
+        session = market_session()
+        t = now.timetz().replace(tzinfo=None)
+        if session == "closed" and _t(9, 5) <= t < _t(9, 30):
+            from runner.ledger.preopen import run_preopen_reset
+            run_preopen_reset()
+            log.info("pre-open backstop: ran the reset from the runner (cron had not yet)")
+            try:
+                from runner.tools.notify import notify
+                notify("🔄 Pre-open reset ran from the runner backstop (the 09:25 cron hadn't run yet).")
+            except Exception:
+                pass
+        elif session == "open" and alert_due("preopen_missing"):
+            try:
+                from runner.tools.notify import notify
+                notify("⚠️ Pre-open flush did NOT run today — verdicts were not cleared before the "
+                       "open. Check the 09:25 cron (scripts/preopen_reset.py).")
+            except Exception:
+                pass
+            mark_alert_ran("preopen_missing")
+    except Exception as exc:
+        log.info("preopen backstop skipped: %s", exc)
+
+
+def _maybe_health_alert() -> None:
+    """Once an hour, warn the operator (Telegram) about a verdict backlog or an oversized position
+    — the failure modes behind the June 2026 pyramiding. Read-only + fail-soft."""
+    try:
+        from runner.scheduler.daily_jobs import health_alert_due, mark_health_check_ran
+        if not health_alert_due(interval_hours=1):
+            return
+        from runner.tools.health_monitor import collect_issues
+        issues = collect_issues()
+        if issues:
+            try:
+                from runner.tools.notify import notify
+                notify("⚠️ Tony health check:\n- " + "\n- ".join(issues))
+            except Exception:
+                pass
+        mark_health_check_ran()
+    except Exception as exc:
+        log.info("health alert skipped: %s", exc)
+
+
+def _maybe_intraday_sweep() -> None:
+    """Continuous intraday research — flag-gated, DEFAULT OFF. When the market is OPEN, top up
+    deep-dives for cooled-down names across BOTH sources — the bot's scanned universe (all tiers in
+    the latest bridge) AND Tony's own originated ideas — instead of only firing on the bot's next
+    bridge. The per-symbol cooldown paces it (a name re-grades at most every few hours) and the
+    stock_research_pod budget cap is the hard $ ceiling. Set TONY_INTRADAY_SWEEP=on to enable.
+    Fail-soft — never breaks the cycle."""
+    import os
+    if os.environ.get("TONY_INTRADAY_SWEEP", "off").strip().lower() != "on":
+        return
+    try:
+        if _is_market_closed():
+            return  # off-market is the research wave's job
+        from runner.bridge.tony_bridge import _latest_bridge_md, _fanout_deepdives
+        slug, md = _latest_bridge_md()
+        if md:
+            _fanout_deepdives(slug, md)
+    except Exception as exc:
+        log.info("intraday sweep skipped: %s", exc)
+
+
 def run_cycle() -> None:
     _maybe_handle_telegram_chat()  # Phase 2 inbound chat — free + read-only, runs even if budget-capped
-    # Off-hours research runs in its own high/uncapped budget lane so a depleted daytime budget
+    _maybe_preopen_backstop()  # cron-independent pre-open reset + missing-flush alert (before budget gate)
+    _maybe_health_alert()      # hourly backlog / oversized-position warning    # Off-hours research runs in its own high/uncapped budget lane so a depleted daytime budget
     # never aborts the overnight wave; the daytime cap is unchanged when the market is open.
     off_hours = _is_market_closed()
     if is_budget_exceeded(off_hours=off_hours):
@@ -848,6 +927,7 @@ def run_cycle() -> None:
     _reap_stale_tasks()
     _maybe_refresh_regime()   # off-path: keeps the macro cache warm for the briefs below
     scan_tony_bridge()
+    _maybe_intraday_sweep()  # flag-gated continuous intraday deep-dives (scanner + Tony's ideas)
     try:
         from runner.ledger.equity_history import snapshot as _equity_snapshot
         _equity_snapshot()  # one Tony-vs-bot equity point each cycle for the head-to-head curve

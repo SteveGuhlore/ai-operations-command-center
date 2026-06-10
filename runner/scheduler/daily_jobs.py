@@ -70,6 +70,46 @@ def mark_tony_self_review_ran() -> None:
     _write(data)
 
 
+def preopen_done_today() -> bool:
+    """True once the pre-open reset has run today (set by either the 09:25 cron or the runner
+    backstop), so the two never double-run and the missing-flush alert stays quiet."""
+    return _read().get("last_preopen_date") == str(date.today())
+
+
+def mark_preopen_ran() -> None:
+    data = _read()
+    data["last_preopen_date"] = str(date.today())
+    _write(data)
+
+
+def alert_due(key: str) -> bool:
+    """True once per day per alert key — a persistent issue nags at most daily, not every cycle."""
+    return _read().get(f"alert_{key}") != str(date.today())
+
+
+def mark_alert_ran(key: str) -> None:
+    data = _read()
+    data[f"alert_{key}"] = str(date.today())
+    _write(data)
+
+
+def health_alert_due(interval_hours: float = 1.0) -> bool:
+    last = _read().get("last_health_check")
+    if not last:
+        return True
+    try:
+        elapsed = datetime.now() - datetime.fromisoformat(last)
+    except ValueError:
+        return True
+    return elapsed.total_seconds() >= interval_hours * 3600
+
+
+def mark_health_check_ran() -> None:
+    data = _read()
+    data["last_health_check"] = datetime.now().isoformat()
+    _write(data)
+
+
 def weekly_sage_due() -> bool:
     """True once on Sundays (weekday 6) if not already run today."""
     data = _read()

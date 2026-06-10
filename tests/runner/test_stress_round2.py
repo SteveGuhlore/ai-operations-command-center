@@ -415,6 +415,8 @@ def test_full_pipeline_bot_to_broker_to_feedback(tmp_path, monkeypatch):
     monkeypatch.setattr(bridge, "VAULT_DIR", tmp_path / "vault")
     monkeypatch.setattr(bridge, "_QUIESCE_SECONDS", 0.0)
     monkeypatch.setattr(bridge, "FANOUT_MIN_TIER1", 1)  # default 3; one ticker drives this test
+    from runner.ledger import deepdive_ledger as dl
+    monkeypatch.setattr(dl, "LEDGER_FILE", tmp_path / "deepdive-ledger.json")  # isolate the cooldown
     (bridge_dir / "2026-06-09.md").write_text(
         "---\ndate: 2026-06-09\n---\n\n## Tier 1\n### [[AAPL]]\nDays active: 4\nScore: 91\n"
         "Setup: Momentum Continuation\nLast close: $200.00 | Target: $220.00 (+10%) | Stop: $190.00 (-5%)\n",

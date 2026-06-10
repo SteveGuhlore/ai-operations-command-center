@@ -79,6 +79,7 @@ def _wire_env(root: Path) -> dict:
         "TONY_VAULT_RECORD_FILE": root / "vault" / "tony-stocks" / "tony_stocks_record.json",
         "TONY_REPORTS_DIR": reports,
         "TONY_EQUITY_HISTORY": root / "equity-history.json",
+        "TONY_DEEPDIVE_LEDGER_FILE": root / "deepdive-ledger.json",  # fan-out cooldown -> sandbox
     }
     for k, v in paths.items():
         os.environ[k] = str(v)
@@ -97,12 +98,15 @@ def _verify_isolation(root: Path):
     from runner.bridge import tony_bridge as tb
     from runner.ledger import tony_scorecard as sc
     from runner.tools import tony_verdict as tv
+    from runner.ledger import deepdive_ledger as dl
 
     tb.TASKS_DIR = root / "tasks"
     tb.VAULT_DIR = root / "vault"
     tb._PROCESSED_LOG = root / "processed.json"
+    dl.LEDGER_FILE = root / "deepdive-ledger.json"  # module may pre-date the env var — force it
 
     checks = {
+        "deepdive_ledger.LEDGER_FILE": dl.LEDGER_FILE,
         "tony_bridge.BRIDGE_MD_DIR": tb.BRIDGE_MD_DIR,
         "tony_bridge.TASKS_DIR": tb.TASKS_DIR,
         "tony_bridge.VAULT_DIR": tb.VAULT_DIR,

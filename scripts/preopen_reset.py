@@ -31,25 +31,19 @@ def main() -> None:
               f"and queue a pre-open deep-dive task")
         return
 
-    print("preopen_reset:", ap.flush_session())
-
-    # Component C — open re-check gate: after the flush wipes the verdicts/executed-log, re-validate
-    # the off-market research queue (a SEPARATE file the flush does not touch) against FRESH prices
-    # and write execution verdicts for the survivors. Stale closed-market prices never execute.
-    try:
-        from runner.ledger.research_queue import recheck_queue
-        res = recheck_queue()
-        print(f"preopen_reset: research-queue re-check — {len(res['validated'])} validated, "
-              f"{len(res['discarded'])} discarded")
-    except Exception as exc:
-        print(f"preopen_reset: research-queue re-check skipped: {exc}")
-
-    # Queue a pre-open deep-dive so Tony re-evaluates his book and the watchlist before the open,
-    # rather than waiting on the bot's first intraday bridge (which can land late morning).
-    from datetime import date
-    from runner.bridge import tony_bridge
-    tony_bridge.make_preopen_deepdive(str(date.today()))
-    print("preopen_reset: queued pre-open deep-dive")
+    # Shared routine (also used by the runner backstop) so the two can never diverge: flush the
+    # session, re-check the research queue against fresh prices, queue the pre-open deep-dive, and
+    # mark the day done.
+    from runner.ledger.preopen import run_preopen_reset
+    summary = run_preopen_reset()
+    print("preopen_reset:", summary.get("flush"))
+    rc = summary.get("recheck", {})
+    if "error" in rc:
+        print(f"preopen_reset: research-queue re-check skipped: {rc['error']}")
+    else:
+        print(f"preopen_reset: research-queue re-check — {rc.get('validated', 0)} validated, "
+              f"{rc.get('discarded', 0)} discarded")
+    print(f"preopen_reset: pre-open deep-dive {summary.get('deepdive')}")
 
 
 if __name__ == "__main__":
