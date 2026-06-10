@@ -98,3 +98,20 @@ def test_rebuild_drops_bogus_unid_rows_and_dedups():
     tr.rebuild_from_fills(fills)
     rows2 = json.loads(tr.REALIZED_FILE.read_text(encoding="utf-8"))
     assert len(rows2) == len(rows)
+
+
+def test_rebuild_reconciled_rows_override_stale_labels():
+    # a stored row mislabeled 'close' must be UPDATED when re-derivation says 'trim' —
+    # the first repair attempt failed because existing rows shadowed the reconciled ones
+    tr.REALIZED_FILE.write_text(json.dumps([
+        {"symbol": "HAL", "realized_pl": 187.33, "reason": "close",
+         "exit_order_id": "s1", "date": "2026-06-10"},
+    ]), encoding="utf-8")
+    fills = [
+        _fill("HAL", "buy", 753, 40.0, "b1", t="2026-06-09T10:00:00Z"),
+        _fill("HAL", "sell", 505, 40.28, "s1", "market", t="2026-06-10T14:33:00Z"),  # 248 still held
+    ]
+    tr.rebuild_from_fills(fills)
+    rows = json.loads(tr.REALIZED_FILE.read_text(encoding="utf-8"))
+    assert len(rows) == 1
+    assert rows[0]["reason"] == "trim"   # re-derived label wins over the stale stored one
