@@ -892,11 +892,31 @@ def _maybe_health_alert() -> None:
         log.info("health alert skipped: %s", exc)
 
 
+def _maybe_intraday_sweep() -> None:
+    """Continuous intraday research — flag-gated, DEFAULT OFF. When the market is OPEN, top up
+    deep-dives for cooled-down names across BOTH sources — the bot's scanned universe (all tiers in
+    the latest bridge) AND Tony's own originated ideas — instead of only firing on the bot's next
+    bridge. The per-symbol cooldown paces it (a name re-grades at most every few hours) and the
+    stock_research_pod budget cap is the hard $ ceiling. Set TONY_INTRADAY_SWEEP=on to enable.
+    Fail-soft — never breaks the cycle."""
+    import os
+    if os.environ.get("TONY_INTRADAY_SWEEP", "off").strip().lower() != "on":
+        return
+    try:
+        if _is_market_closed():
+            return  # off-market is the research wave's job
+        from runner.bridge.tony_bridge import _latest_bridge_md, _fanout_deepdives
+        slug, md = _latest_bridge_md()
+        if md:
+            _fanout_deepdives(slug, md)
+    except Exception as exc:
+        log.info("intraday sweep skipped: %s", exc)
+
+
 def run_cycle() -> None:
     _maybe_handle_telegram_chat()  # Phase 2 inbound chat — free + read-only, runs even if budget-capped
     _maybe_preopen_backstop()  # cron-independent pre-open reset + missing-flush alert (before budget gate)
-    _maybe_health_alert()      # hourly backlog / oversized-position warning
-    # Off-hours research runs in its own high/uncapped budget lane so a depleted daytime budget
+    _maybe_health_alert()      # hourly backlog / oversized-position warning    # Off-hours research runs in its own high/uncapped budget lane so a depleted daytime budget
     # never aborts the overnight wave; the daytime cap is unchanged when the market is open.
     off_hours = _is_market_closed()
     if is_budget_exceeded(off_hours=off_hours):
@@ -907,6 +927,7 @@ def run_cycle() -> None:
     _reap_stale_tasks()
     _maybe_refresh_regime()   # off-path: keeps the macro cache warm for the briefs below
     scan_tony_bridge()
+    _maybe_intraday_sweep()  # flag-gated continuous intraday deep-dives (scanner + Tony's ideas)
     try:
         from runner.ledger.equity_history import snapshot as _equity_snapshot
         _equity_snapshot()  # one Tony-vs-bot equity point each cycle for the head-to-head curve
