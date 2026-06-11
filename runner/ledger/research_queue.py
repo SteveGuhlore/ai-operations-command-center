@@ -12,6 +12,9 @@ import json
 import logging
 import os
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
+
+_ET = ZoneInfo("America/New_York")  # verdict dates = Eastern trading day, not the UTC server day
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
@@ -155,7 +158,7 @@ def recheck_queue(price_fn=None, top_n: int = 10) -> dict:
     queue = read_queue()
     candidates = (queue.get("candidates") or [])[:top_n]
     validated, discarded, new_verdicts = [], [], []
-    today = str(date.today())
+    today = str(datetime.now(_ET).date())  # ET trading day so recheck verdicts match the flush's day
     for c in candidates:
         sym = c.get("symbol")
         if not sym:

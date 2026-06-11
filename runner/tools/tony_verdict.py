@@ -11,10 +11,22 @@ import json
 import logging
 import os
 import threading
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 _log = logging.getLogger(__name__)
+
+# Verdict dates must be the EASTERN trading day, not the server's UTC day. On a UTC box,
+# date.today() rolls to "tomorrow" at 8 PM ET, so the evening research wave stamped verdicts with
+# tomorrow's date — making the file span 2 dates and false-firing the "flush may have failed"
+# health alert even when the daily flush ran fine.
+_ET = ZoneInfo("America/New_York")
+
+
+def _trading_date() -> str:
+    return str(datetime.now(_ET).date())
+
 # Fan-out runs several ticker tasks concurrently (ThreadPoolExecutor); serialize the verdicts
 # file's read-modify-write so concurrent calls don't clobber each other's entries.
 _WRITE_LOCK = threading.Lock()
@@ -61,7 +73,7 @@ def write_tony_verdict(
         return {"error": "tony_score must be a number 0-100"}
 
     entry = {
-        "date": str(date.today()),
+        "date": _trading_date(),
         "symbol": sym,
         "tony_score": round(score, 1),
         "scanner_score": round(float(scanner_score), 2) if scanner_score is not None else None,
