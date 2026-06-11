@@ -44,6 +44,22 @@ def test_coerces_numeric_strings(rq):
     assert c["score"] == 82.0 and c["proposed_target"] == 40.0 and c["proposed_stop"] == 35.0
 
 
+def test_new_open_resets_queue_and_advances_target(rq, monkeypatch):
+    import runner.bridge.research_wave as rw
+    # day 1: queue targets the first open
+    monkeypatch.setattr(rw, "_next_open_date", lambda *a, **k: "2026-06-10")
+    rq.queue_research_candidate("OLD1", 70)
+    rq.queue_research_candidate("OLD2", 72)
+    assert rq.read_queue()["target_open"] == "2026-06-10"
+    # day 2: a new open must reset the queue (drop stale names) and ADVANCE target_open,
+    # not freeze it at 2026-06-10
+    monkeypatch.setattr(rw, "_next_open_date", lambda *a, **k: "2026-06-11")
+    rq.queue_research_candidate("NEW1", 85)
+    q = rq.read_queue()
+    assert q["target_open"] == "2026-06-11"
+    assert [c["symbol"] for c in q["candidates"]] == ["NEW1"]  # OLD1/OLD2 dropped
+
+
 def test_tool_spec_shape(rq):
     assert rq.TOOL_SPEC["name"] == "queue_research_candidate"
     assert set(rq.TOOL_SPEC["input_schema"]["required"]) == {"symbol", "score"}

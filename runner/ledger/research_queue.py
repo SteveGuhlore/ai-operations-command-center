@@ -84,14 +84,20 @@ def queue_research_candidate(symbol: str, score, confidence: str = "medium",
     except Exception:
         target_open = ""
     existing = read_queue()
-    cands = [c for c in (existing.get("candidates") or [])
-             if (c.get("symbol") or "").upper() != symbol]
+    existing_open = existing.get("target_open")
+    # A NEW target open means a new trading day's queue: drop the prior open's candidates so the
+    # queue reflects only the upcoming open, and let target_open advance. The old code did
+    # `existing.get("target_open") or target_open`, which FROZE target_open at its first value
+    # and let stale candidates from past opens pile up.
+    rolled = bool(existing_open and target_open and existing_open != target_open)
+    prior = [] if rolled else (existing.get("candidates") or [])
+    cands = [c for c in prior if (c.get("symbol") or "").upper() != symbol]
     cands.append({
         "symbol": symbol, "thesis_ref": thesis_ref, "score": sc, "confidence": confidence,
         "proposed_target": _to_float(proposed_target), "proposed_stop": _to_float(proposed_stop),
         "source": source, "generated_at": datetime.now().isoformat(),
     })
-    payload = write_queue(cands, existing.get("target_open") or target_open)
+    payload = write_queue(cands, target_open or existing_open)
     return {"success": True, "symbol": symbol, "queue_size": len(payload.get("candidates", []))}
 
 
