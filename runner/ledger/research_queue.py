@@ -168,6 +168,7 @@ def recheck_queue(price_fn=None, top_n: int = 10) -> dict:
         if _setup_holds(price, c.get("proposed_target"), c.get("proposed_stop")):
             new_verdicts.append({
                 "date": today, "symbol": sym, "verdict": "override",
+                "tony_score": c.get("score"),  # carry the queue score so it isn't "undefined" on the board
                 "target": float(c.get("proposed_target")), "stop": float(c.get("proposed_stop")),
                 "confidence": c.get("confidence", "medium"),
                 "source": "research_queue_recheck",

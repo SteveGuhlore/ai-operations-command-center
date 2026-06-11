@@ -1720,7 +1720,7 @@ async function renderTonyStocks() {
         <div style="display:flex;align-items:baseline;gap:8px">
           <span style="font-family:monospace;color:var(--cyan);font-weight:600;min-width:46px">${v.symbol}</span>
           <span style="color:${c};text-transform:uppercase;font-size:9px;font-weight:600;min-width:58px">${v.verdict}</span>
-          <span style="font-size:9px;color:var(--muted)">Tony <span style="color:var(--text)">${v.tony_score}</span> &#9656; Bot <span style="color:var(--text)">${v.scanner_score ?? "—"}</span></span>
+          <span style="font-size:9px;color:var(--muted)">Tony <span style="color:var(--text)">${v.tony_score ?? "—"}</span> &#9656; Bot <span style="color:var(--text)">${v.scanner_score ?? "—"}</span></span>
           ${v.confidence ? `<span style="font-size:8px;color:${confColor(v.confidence)};text-transform:uppercase;margin-left:auto">${v.confidence}</span>` : ""}
         </div>
         <div style="font-size:9px;font-family:monospace;margin-top:3px">${transform}</div>
