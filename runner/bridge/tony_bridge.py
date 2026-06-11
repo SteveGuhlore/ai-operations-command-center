@@ -577,10 +577,14 @@ def _parse_bridge_signals(bridge_md: str) -> dict:
     newer = []
     seen = {t["symbol"] for t in tier1}  # a symbol in two tiers must not double-enter the ledger
     for tier_name, days in (("Tier 2", 2), ("Tier 3", 1)):
-        seg = bridge_md.split(tier_name, 1)
-        if len(seg) < 2:
+        # Anchor on the section HEADING and bound by the next section — bare split(tier_name)
+        # mis-sliced on prose like "compared to Tier 2 names" (the same bug Tier 1 was hardened for).
+        hdr = re.search(rf"^#{{1,3}}\s*{tier_name}\b", bridge_md, re.M)
+        if not hdr:
             continue
-        body = re.split(r"\n##\s", seg[1], maxsplit=1)[0]
+        after = bridge_md[hdr.end():]
+        nxt = re.search(r"^##\s", after, re.M)
+        body = after[:nxt.start()] if nxt else after
         for row in body.splitlines():
             if not row.strip().startswith("|"):
                 continue

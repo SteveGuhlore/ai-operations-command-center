@@ -211,6 +211,14 @@ def _universe_symbols() -> list:
 
 def _write_task(task_id: str, title: str, task_type: str, body: str, priority: str = "normal") -> None:
     TASKS_DIR.mkdir(parents=True, exist_ok=True)
+    # Idempotent on existence: if this exact task already sits anywhere in the pipeline, don't
+    # re-stage it. A lost/rotated research-wave-state.json (which degrades to {}) would otherwise
+    # re-stage the whole wave's fixed tasks wholesale (the per-symbol deep-dives are cooldown-gated,
+    # but the 6 fixed tasks had no such guard).
+    tasks_root = TASKS_DIR.parent if TASKS_DIR.name == "todo" else TASKS_DIR
+    for sub in ("todo", "in_progress", "done", "failed"):
+        if (tasks_root / sub / f"{task_id}.md").exists():
+            return
     (TASKS_DIR / f"{task_id}.md").write_text(
         f"---\n"
         f"task_id: {task_id}\n"

@@ -480,3 +480,28 @@ def test_full_pipeline_bot_to_broker_to_feedback(tmp_path, monkeypatch):
     monkeypatch.setenv("TONY_EXECUTED_LOG", str(tmp_path / "exec.json"))
     feedback = tb.execution_feedback_block()
     assert "AAPL (reaffirm) filled — in your book" in feedback
+
+
+def test_tier23_parse_ignores_prose_mention():
+    # "Tier 2" in prose BEFORE the real section must not mis-slice the signal parse
+    md = ("We rank fewer names than Tier 2 peers today.\n"
+          "## Tier 1\n### [[AAA]]\nDays active: 4\n"
+          "## Tier 2\n| [[BBB]] | 72 | Momentum | $40 |\n"
+          "## Tier 3\n| [[CCC]] | 65 | Pullback | $20 |\n")
+    sig = bridge._parse_bridge_signals(md)
+    syms = {s["symbol"] for s in sig["tier1"] + sig["newer"]}
+    assert syms == {"AAA", "BBB", "CCC"}  # BBB/CCC parsed from the real sections, not the prose
+
+
+def test_wave_fixed_task_is_idempotent(tmp_path, monkeypatch):
+    from runner.bridge import research_wave as rw
+    todo = tmp_path / "tasks" / "todo"; todo.mkdir(parents=True)
+    (tmp_path / "tasks" / "done").mkdir()
+    monkeypatch.setattr(rw, "TASKS_DIR", todo)
+    rw._write_task("TONY-RW-TONY_RESEARCH_RANK-20260611", "Rank", "tony_research_rank", "body")
+    first = (todo / "TONY-RW-TONY_RESEARCH_RANK-20260611.md").read_text()
+    # move it to done, then a re-stage (e.g. after a lost state file) must NOT recreate it in todo
+    (todo / "TONY-RW-TONY_RESEARCH_RANK-20260611.md").rename(
+        tmp_path / "tasks" / "done" / "TONY-RW-TONY_RESEARCH_RANK-20260611.md")
+    rw._write_task("TONY-RW-TONY_RESEARCH_RANK-20260611", "Rank", "tony_research_rank", "body")
+    assert not (todo / "TONY-RW-TONY_RESEARCH_RANK-20260611.md").exists()
