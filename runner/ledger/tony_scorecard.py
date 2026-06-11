@@ -76,8 +76,11 @@ def _load(p) -> list:
         return []
 
 
-def _is_right(verdict: str, ret: float) -> bool:
-    return ret > 0 if verdict in _BULLISH else ret <= 0
+def _is_right(verdict: str, ret: float, source: str = "") -> bool:
+    # A research_queue_recheck 'override' is an AUTO long entry (a queue survivor the system
+    # bought), not a step-off — so it's right when it goes UP, like the other bullish entries.
+    bullish = verdict in _BULLISH or source == "research_queue_recheck"
+    return ret > 0 if bullish else ret <= 0
 
 
 def _matched_verdict(o: dict, verdicts: list) -> dict | None:
@@ -140,7 +143,7 @@ def compute_record() -> dict:
             target_hits += 1
         elif result == "stop_hit":
             stop_hits += 1
-        right = _is_right(v.get("verdict", ""), ret)
+        right = _is_right(v.get("verdict", ""), ret, v.get("source", ""))
         tony_right += int(right)
         if v.get("verdict") in _BULLISH:
             agg["agreed_right" if ret > 0 else "agreed_wrong"] += 1
@@ -182,7 +185,7 @@ def discover_edges(min_n: int = 5) -> dict:
         v = _matched_verdict(o, verdicts)
         if not v:
             continue
-        right = int(_is_right(v.get("verdict", ""), float(o.get("return_pct", 0) or 0)))
+        right = int(_is_right(v.get("verdict", ""), float(o.get("return_pct", 0) or 0), v.get("source", "")))
         for tag in v.get("evidence", []) or []:
             tally.setdefault(tag, []).append(right)
     edges = [
