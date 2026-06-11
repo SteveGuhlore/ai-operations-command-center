@@ -66,15 +66,21 @@ def build_plan(positions: list, orders: list, broker, threshold: float) -> list:
             print(f"  skip {sym}: no live price")
             continue
         price = float(price)
-        mktval = qty * price
-        if mktval <= threshold * ENTRY_NOTIONAL:
+        # Trim by COST BASIS (qty x avg_entry), not market value: pyramiding doubles the share
+        # count; a winner just appreciates. Using market value would trim winners back down.
+        entry = p.get("avg_entry_price")
+        entry_px = float(entry) if entry not in (None, "") else price
+        if entry_px <= 0:
             continue
-        target_qty = int(ENTRY_NOTIONAL / price)   # ~$10k in whole shares
+        cost_basis = qty * entry_px
+        if cost_basis <= threshold * ENTRY_NOTIONAL:
+            continue
+        target_qty = max(1, int(ENTRY_NOTIONAL / entry_px))   # ~$10k of shares at the entry price
         excess = int(qty) - target_qty
-        if excess < 1:
+        if excess < 1:                                        # already ~1x (or a >$10k share)
             continue
         tgt, stop = _legs(orders, sym)
-        plan.append((sym, qty, price, mktval, target_qty, excess, tgt, stop))
+        plan.append((sym, qty, price, cost_basis, target_qty, excess, tgt, stop))
     return plan
 
 

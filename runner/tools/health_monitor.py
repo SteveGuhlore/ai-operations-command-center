@@ -25,25 +25,36 @@ def collect_issues(positions: list | None = None, verdicts: list | None = None) 
     a backlog is building (the precursor to the June 2026 pyramiding). A raw count is intentionally
     NOT used — whole-universe daily deep-dives legitimately produce ~150 verdicts in a single day."""
     from runner.ledger.alpaca_paper import ENTRY_NOTIONAL
+    from runner.ledger.market_clock import trading_day
     oversize_mult = float(os.environ.get("TONY_OVERSIZE_ALERT_MULT", "1.6"))
 
     issues: list = []
     if verdicts is None:
         verdicts = _load_verdicts()
-    dates = sorted({x.get("date") for x in verdicts if x.get("date")})
-    if len(dates) > 1:
-        issues.append(f"Verdict backlog: {len(verdicts)} verdicts spanning {len(dates)} dates "
-                      f"({dates}) — the daily pre-open flush may have failed.")
+    # Real backlog = a verdict dated BEFORE today (ET) still in the file — the daily flush should
+    # leave only today's. A bare "spans >1 date" false-fires on a legitimate next-day verdict the
+    # evening research wave wrote that simply hasn't been flushed yet.
+    today = trading_day()
+    stale = sorted({d for x in verdicts if (d := x.get("date")) and d < today})
+    if stale:
+        issues.append(f"Verdict backlog: {len(verdicts)} verdicts including stale date(s) {stale} "
+                      f"(before today {today}) — the daily pre-open flush may have failed.")
 
     if positions is None:
         from runner.tools.tony_book import read_book_cache
         positions = (read_book_cache() or {}).get("positions") or []
     for p in positions:
+        # COST BASIS (qty x avg_entry), not market value: pyramiding doubles the share count while a
+        # winner just appreciates — using current_price flags every big winner as "oversized". Fall
+        # back to current_price only when entry is missing.
         try:
-            mv = float(p.get("qty") or 0) * float(p.get("current_price") or 0)
+            qty = float(p.get("qty") or 0)
+            entry = p.get("avg_entry_price")
+            px = float(entry if entry is not None else (p.get("current_price") or 0))
         except (TypeError, ValueError):
             continue
-        if mv > oversize_mult * ENTRY_NOTIONAL:
-            issues.append(f"Oversized position {p.get('symbol')}: ${mv:,.0f} "
-                          f"(~{mv / ENTRY_NOTIONAL:.1f}x the ${ENTRY_NOTIONAL:,.0f} target).")
+        cost = qty * px
+        if cost > oversize_mult * ENTRY_NOTIONAL:
+            issues.append(f"Oversized position {p.get('symbol')}: cost basis ${cost:,.0f} "
+                          f"(~{cost / ENTRY_NOTIONAL:.1f}x the ${ENTRY_NOTIONAL:,.0f} entry) — possible pyramiding.")
     return issues
