@@ -815,7 +815,12 @@ def sync(broker=None) -> dict:
     except Exception as exc:
         _log.warning("held read failed: %s", exc)
         held = set()
-    today = str(date.today())
+    # ET trading day — verdict keys are ET-stamped (tony_verdict/research_queue), so counting the
+    # daily-order cap by the UTC day undercounts the evening recheck window and effectively disables
+    # the cap after 8 PM ET. RTH fills never cross midnight-UTC (=8 PM ET), so the re-entry cooldown
+    # is correct in ET too.
+    from runner.ledger.market_clock import trading_day
+    today = trading_day()
     try:
         # Wide window so a busy day's exits aren't pushed out of the fetch by other closed orders.
         exited_today = symbols_exited_today(broker.filled_orders(limit=500), today)

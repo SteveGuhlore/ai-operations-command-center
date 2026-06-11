@@ -1,9 +1,17 @@
 # runner/scheduler/daily_jobs.py
 import json
-from datetime import datetime, date
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from runner.ledger.market_clock import trading_day
 
 STATE_FILE = Path(__file__).parent.parent.parent / "workspace" / "scheduler-state.json"
+_ET = ZoneInfo("America/New_York")
+# Day-identity gates key on the ET trading day (trading_day()), NOT the UTC date.today(): on a
+# UTC server date.today() rolls to "tomorrow" at 8 PM ET, which flipped every daily gate a day early
+# each evening and false-fired the missing-flush alert. Duration gates (scout/health/self-review)
+# stay on datetime.now() — they compare elapsed time, which is tz-agnostic.
 
 
 def _read() -> dict:
@@ -40,7 +48,7 @@ def mark_scout_ran() -> None:
 def daily_learning_due(hour_after: int = 2) -> bool:
     """True once per day, only after the given hour (local)."""
     data = _read()
-    today = str(date.today())
+    today = trading_day()
     if data.get("last_learning_date") == today:
         return False
     return datetime.now().hour >= hour_after
@@ -48,7 +56,7 @@ def daily_learning_due(hour_after: int = 2) -> bool:
 
 def mark_learning_ran() -> None:
     data = _read()
-    data["last_learning_date"] = str(date.today())
+    data["last_learning_date"] = trading_day()
     _write(data)
 
 
@@ -73,23 +81,23 @@ def mark_tony_self_review_ran() -> None:
 def preopen_done_today() -> bool:
     """True once the pre-open reset has run today (set by either the 09:25 cron or the runner
     backstop), so the two never double-run and the missing-flush alert stays quiet."""
-    return _read().get("last_preopen_date") == str(date.today())
+    return _read().get("last_preopen_date") == trading_day()
 
 
 def mark_preopen_ran() -> None:
     data = _read()
-    data["last_preopen_date"] = str(date.today())
+    data["last_preopen_date"] = trading_day()
     _write(data)
 
 
 def alert_due(key: str) -> bool:
     """True once per day per alert key — a persistent issue nags at most daily, not every cycle."""
-    return _read().get(f"alert_{key}") != str(date.today())
+    return _read().get(f"alert_{key}") != trading_day()
 
 
 def mark_alert_ran(key: str) -> None:
     data = _read()
-    data[f"alert_{key}"] = str(date.today())
+    data[f"alert_{key}"] = trading_day()
     _write(data)
 
 
@@ -113,13 +121,13 @@ def mark_health_check_ran() -> None:
 def weekly_sage_due() -> bool:
     """True once on Sundays (weekday 6) if not already run today."""
     data = _read()
-    today = str(date.today())
-    if datetime.now().weekday() != 6:
+    today = trading_day()
+    if datetime.now(_ET).weekday() != 6:
         return False
     return data.get("last_sage_date") != today
 
 
 def mark_sage_ran() -> None:
     data = _read()
-    data["last_sage_date"] = str(date.today())
+    data["last_sage_date"] = trading_day()
     _write(data)

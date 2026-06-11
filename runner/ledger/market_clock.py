@@ -19,6 +19,15 @@ _ET = ZoneInfo("America/New_York")
 _cache = {"value": None, "ts": 0.0}
 _CACHE_TTL = 60.0
 
+
+def trading_day(now: datetime | None = None) -> str:
+    """The current US-Eastern calendar day as 'YYYY-MM-DD'. Use this — never str(date.today()) —
+    for any once-per-trading-day identity (verdict dates, 'did X run today' gates, daily dedup
+    keys). On a UTC server date.today() rolls to tomorrow at 8 PM ET, which silently mis-attributes
+    the evening research window to the next day and false-fires daily gates. Duration-based gates
+    (elapsed >= N hours) are tz-agnostic and should keep using datetime.now()."""
+    return str((now or datetime.now(_ET)).astimezone(_ET).date())
+
 _OPEN = _time(9, 30)
 _CLOSE = _time(16, 0)
 

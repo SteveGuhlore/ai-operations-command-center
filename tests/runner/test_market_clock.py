@@ -83,3 +83,26 @@ def test_is_rth_weekend():
 def test_is_rth_holiday_juneteenth():
     # Friday 2026-06-19 is Juneteenth — a weekday but a market holiday
     assert mc._is_rth(dt.datetime(2026, 6, 19, 12, 0, tzinfo=ET)) is False
+
+
+def test_trading_day_is_eastern_not_utc(monkeypatch):
+    """8 PM ET = midnight UTC: trading_day() must stay on the ET day, not roll to tomorrow."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from runner.ledger import market_clock as mc
+    # 2026-06-11 21:00 ET (= 2026-06-12 01:00 UTC) -> ET day is still the 11th
+    et = datetime(2026, 6, 11, 21, 0, tzinfo=ZoneInfo("America/New_York"))
+    assert mc.trading_day(et) == "2026-06-11"
+    # passing the equivalent UTC-aware instant resolves to the same ET day
+    assert mc.trading_day(et.astimezone(ZoneInfo("UTC"))) == "2026-06-11"
+
+
+def test_daily_gates_stable_across_utc_evening(monkeypatch, tmp_path):
+    """preopen_done_today must not flip to False at 8 PM ET just because UTC rolled over."""
+    from runner.scheduler import daily_jobs as dj
+    monkeypatch.setattr(dj, "STATE_FILE", tmp_path / "sched.json")
+    monkeypatch.setattr(dj, "trading_day", lambda: "2026-06-11")
+    dj.mark_preopen_ran()
+    assert dj.preopen_done_today() is True   # same ET day -> still done
+    monkeypatch.setattr(dj, "trading_day", lambda: "2026-06-12")
+    assert dj.preopen_done_today() is False  # next ET day -> due again

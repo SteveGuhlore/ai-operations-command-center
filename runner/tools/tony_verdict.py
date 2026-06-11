@@ -25,7 +25,8 @@ _ET = ZoneInfo("America/New_York")
 
 
 def _trading_date() -> str:
-    return str(datetime.now(_ET).date())
+    from runner.ledger.market_clock import trading_day  # single source of truth for the ET day
+    return trading_day()
 
 # Fan-out runs several ticker tasks concurrently (ThreadPoolExecutor); serialize the verdicts
 # file's read-modify-write so concurrent calls don't clobber each other's entries.

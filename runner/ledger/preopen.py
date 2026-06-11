@@ -5,7 +5,8 @@ clean slate, re-checks the research queue against fresh prices, and queues the p
 Marks the day done so the cron and the backstop never double-run.
 """
 import logging
-from datetime import date
+
+from runner.ledger.market_clock import trading_day
 
 _log = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def run_preopen_reset() -> dict:
 
     try:
         from runner.bridge import tony_bridge
-        tony_bridge.make_preopen_deepdive(str(date.today()))
+        tony_bridge.make_preopen_deepdive(trading_day())  # ET day, so cron & backstop key the same task id
         summary["deepdive"] = "queued"
     except Exception as exc:
         _log.warning("preopen deepdive skipped: %s", exc)

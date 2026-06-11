@@ -164,7 +164,8 @@ def recheck_queue(price_fn=None, top_n: int = 10) -> dict:
     queue = read_queue()
     candidates = (queue.get("candidates") or [])[:top_n]
     validated, discarded, new_verdicts = [], [], []
-    today = str(datetime.now(_ET).date())  # ET trading day so recheck verdicts match the flush's day
+    from runner.ledger.market_clock import trading_day
+    today = trading_day()  # ET trading day so recheck verdicts match the flush's day
     for c in candidates:
         sym = c.get("symbol")
         if not sym:
