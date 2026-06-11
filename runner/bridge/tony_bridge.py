@@ -784,7 +784,6 @@ def _scan_markdown_bridge(processed: set) -> None:
         reverse=True,
     )
 
-    now = time.time()
     for md_file in md_files:
         slug = md_file.stem
         date_str = slug[:10]
@@ -796,9 +795,16 @@ def _scan_markdown_bridge(processed: set) -> None:
         try:
             # Quiescence gate: don't read a bridge the bot may still be writing — ingesting a
             # truncated file and then marking it processed would lock in the partial version.
-            if now - md_file.stat().st_mtime < _QUIESCE_SECONDS:
+            # Sample the clock and mtime PER FILE (a loop-wide `now` goes stale), then re-stat
+            # AFTER the read: if the bot extended the file during our read, skip it this cycle so
+            # a half-written bridge is never marked processed.
+            mtime_before = md_file.stat().st_mtime
+            if time.time() - mtime_before < _QUIESCE_SECONDS:
                 continue
             bridge_md = md_file.read_text(encoding="utf-8")
+            if md_file.stat().st_mtime != mtime_before:
+                _log.info("tony_bridge: %s changed during read — deferring to next cycle", md_file)
+                continue
         except (OSError, UnicodeDecodeError) as exc:
             _log.warning("tony_bridge: could not read %s: %s", md_file, exc)
             continue
