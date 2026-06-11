@@ -66,3 +66,26 @@ def test_analytics_agents_tolerates_missing_dirs(tmp_path, monkeypatch):
     client = TestClient(server.app, raise_server_exceptions=False)
     r = client.get("/api/analytics/agents")
     assert r.status_code == 200
+
+
+def test_tony_stocks_survives_malformed_verdicts_object(tmp_path, monkeypatch):
+    """A verdicts file that's a JSON object (not a list) must not blank the whole Tony column."""
+    import runner.ledger.alpaca_paper as ap
+    vf = tmp_path / "verdicts.json"
+    vf.write_text('{"oops": "not a list"}', encoding="utf-8")
+    monkeypatch.setattr(ap, "VERDICTS_FILE", vf)
+    from dashboard.server import _load_verdicts
+    assert _load_verdicts(vf) == []          # guarded loader degrades, doesn't iterate keys
+
+
+def test_update_status_finds_business_named_lead(tmp_path, monkeypatch):
+    client = _client(tmp_path, monkeypatch)
+    crm = tmp_path / "vault" / "outreach" / "crm.md"
+    crm.write_text(
+        "| Business | Type | City | Contact | Channel | Status | Date | Notes |\n"
+        "|----------|------|------|---------|---------|--------|------|-------|\n"
+        "| Joe's Business Services | Plumber | Lowell, MA | — | phone | call_queued | 2026-06-01 | |\n",
+        encoding="utf-8")
+    r = client.post("/api/outreach/update-status",
+                    json={"business": "Joe's Business Services", "status": "replied"})
+    assert r.json().get("success") is True   # the 'Business'-named lead is found, not skipped as header

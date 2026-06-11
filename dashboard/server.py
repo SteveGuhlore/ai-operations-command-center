@@ -38,6 +38,17 @@ def _read_state() -> dict:
         return {}
 
 
+def _load_verdicts(path) -> list:
+    """Verdicts file as a list — the single guarded loader both Tony endpoints use. A malformed
+    file that is a JSON object (not a list) used to slip past `... or []` and get iterated as
+    keys, raising AttributeError that silently blanked the whole Tony column."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, OSError, FileNotFoundError):
+        return []
+
+
 async def _broadcast(data: dict) -> None:
     dead = set()
     for ws in _connections:
@@ -328,9 +339,12 @@ async def update_outreach_status(request: Request):
         return {"error": "CRM not found"}
     lines = crm_file.read_text(encoding="utf-8").split("\n")
     for i, line in enumerate(lines):
-        if not line.startswith("|") or "Business" in line or line.startswith("|---"):
+        if not line.startswith("|"):
             continue
         parts = [p.strip() for p in line.strip("|").split("|")]
+        # skip only the header row + the |---| divider — NOT a lead named "...Business..."
+        if not parts or parts[0].lower() == "business" or set(parts[0]) <= {"-", ":", " "}:
+            continue
         if len(parts) >= 6 and parts[0].lower() == business.lower():
             if new_status:
                 parts[5] = new_status
@@ -980,10 +994,9 @@ async def api_tony_stocks():
         from runner.ledger import alpaca_paper as _ap
         held = {p["symbol"].upper() for p in (_ap.paper_book().get("open_positions") or []) if p.get("symbol")}
         vmap = {}
-        if _ap.VERDICTS_FILE.exists():
-            for v in (json.loads(_ap.VERDICTS_FILE.read_text(encoding="utf-8")) or []):
-                if v.get("symbol"):
-                    vmap[v["symbol"].upper()] = v.get("verdict")
+        for v in _load_verdicts(_ap.VERDICTS_FILE):
+            if isinstance(v, dict) and v.get("symbol"):
+                vmap[v["symbol"].upper()] = v.get("verdict")
         for s in signals:
             t = (s.get("Ticker") or "").strip().upper()
             verd, is_held = vmap.get(t), t in held
@@ -1021,13 +1034,7 @@ async def api_tony_book():
     """Tony's REAL second-layer book — the structured verdicts that drive trades and his live
     Alpaca paper positions/orders. Distinct from /api/tony/stocks, which is his prose ledger."""
     from runner.ledger import alpaca_paper as ap
-    verdicts = []
-    try:
-        if ap.VERDICTS_FILE.exists():
-            data = json.loads(ap.VERDICTS_FILE.read_text(encoding="utf-8"))
-            verdicts = data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError):
-        verdicts = []
+    verdicts = _load_verdicts(ap.VERDICTS_FILE)
     # Attach the bot's original target/stop (from the latest bridge) so the dashboard can show the
     # bot -> Tony divergence: what the scanner proposed vs what Tony decided after deeper research.
     try:
@@ -1035,7 +1042,7 @@ async def api_tony_book():
     except Exception:
         levels = {}
     for v in verdicts:
-        lv = levels.get(v.get("symbol")) or {}
+        lv = levels.get((v.get("symbol") or "").upper()) or {}  # bridge keys are uppercase
         v["scanner_target"] = lv.get("target")
         v["scanner_stop"] = lv.get("stop")
     try:

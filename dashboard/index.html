@@ -1680,7 +1680,8 @@ async function renderTonyStocks() {
     const bookRows = positions.length
       ? positions.map(p => {
           const lv = lvls[p.symbol] || {};
-          const plc = p.unrealized_pl >= 0 ? "var(--green)" : "var(--red)";
+          const hasPl = p.unrealized_pl != null;
+          const plc = !hasPl ? "var(--muted)" : (p.unrealized_pl >= 0 ? "var(--green)" : "var(--red)");
           const pct = p.unrealized_plpc != null ? ` (${p.unrealized_plpc >= 0 ? "+" : ""}${(p.unrealized_plpc * 100).toFixed(1)}%)` : "";
           const warn = (lv.target != null && lv.stop != null) ? "" : ` <span title="no protective bracket" style="color:var(--orange)">&#9888;</span>`;
           return `<tr>
@@ -1690,7 +1691,7 @@ async function renderTonyStocks() {
             <td style="font-family:monospace;color:var(--text)">${p.current_price != null ? "$" + p.current_price.toFixed(2) : "—"}</td>
             <td style="font-family:monospace;color:var(--green)">${lv.target != null ? "$" + lv.target : "—"}</td>
             <td style="font-family:monospace;color:var(--red)">${lv.stop != null ? "$" + lv.stop : "—"}</td>
-            <td style="font-family:monospace;color:${plc}">${p.unrealized_pl >= 0 ? "+" : ""}$${Number(p.unrealized_pl).toFixed(2)}${pct}</td>
+            <td style="font-family:monospace;color:${plc}">${hasPl ? (p.unrealized_pl >= 0 ? "+" : "") + "$" + Number(p.unrealized_pl).toFixed(2) + pct : "—"}</td>
           </tr>`;
         }).join("")
       : `<tr><td colspan="7" style="color:var(--muted)">No open positions${bk.status==='no_keys'?' (Alpaca not configured)':''}.</td></tr>`;
@@ -1718,8 +1719,8 @@ async function renderTonyStocks() {
       const thesis = v.thesis ? `<div style="font-size:9px;color:var(--muted);margin-top:2px;line-height:1.35" title="${safeThesis}">${v.thesis}</div>` : "";
       return `<div style="padding:6px 0;border-bottom:1px solid rgba(26,37,64,0.5)">
         <div style="display:flex;align-items:baseline;gap:8px">
-          <span style="font-family:monospace;color:var(--cyan);font-weight:600;min-width:46px">${v.symbol}</span>
-          <span style="color:${c};text-transform:uppercase;font-size:9px;font-weight:600;min-width:58px">${v.verdict}</span>
+          <span style="font-family:monospace;color:var(--cyan);font-weight:600;min-width:46px">${v.symbol ?? "—"}</span>
+          <span style="color:${c};text-transform:uppercase;font-size:9px;font-weight:600;min-width:58px">${v.verdict ?? "—"}</span>
           <span style="font-size:9px;color:var(--muted)">Tony <span style="color:var(--text)">${v.tony_score ?? "—"}</span> &#9656; Bot <span style="color:var(--text)">${v.scanner_score ?? "—"}</span></span>
           ${v.confidence ? `<span style="font-size:8px;color:${confColor(v.confidence)};text-transform:uppercase;margin-left:auto">${v.confidence}</span>` : ""}
         </div>
@@ -1892,7 +1893,7 @@ async function drawEquityCurve() {
     ctx.beginPath(); ctx.moveTo(mL, Y(100)); ctx.lineTo(w - mR, Y(100)); ctx.stroke(); ctx.setLineDash([]);
   }
   // X-axis time labels (start · mid · now)
-  const tLabel = ts => { const dt = new Date(ts); return `${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`; };
+  const tLabel = ts => { const dt = new Date(ts); if (isNaN(dt)) return ""; return `${dt.getMonth() + 1}/${dt.getDate()} ${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`; };
   ctx.fillStyle = "#5a6b8c"; ctx.textBaseline = "top";
   [0, Math.floor((pts.length - 1) / 2), pts.length - 1].forEach((i, idx) => {
     ctx.textAlign = idx === 0 ? "left" : idx === 2 ? "right" : "center";
