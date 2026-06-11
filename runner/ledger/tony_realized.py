@@ -73,15 +73,30 @@ def record_realized(symbol, qty, entry, exit_price, target=None, stop=None) -> d
     return row
 
 
+def _pl(r) -> float:
+    try:
+        return float(r.get("realized_pl", 0) or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _agg(rows: list) -> dict:
-    wins = sum(1 for r in rows if float(r.get("realized_pl", 0) or 0) > 0)
-    losses = sum(1 for r in rows if float(r.get("realized_pl", 0) or 0) < 0)
+    # `count`/`wins`/`losses` are TRADES — actual position closes (target/stop/close). Trims
+    # (partial re-sizes that left the position open) are tracked separately so they never inflate
+    # the "trades closed" narrative, but their realized P/L still rolls into `realized_pl` (real $).
+    closed = [r for r in rows if r.get("reason") != "trim"]
+    trims = [r for r in rows if r.get("reason") == "trim"]
     by_reason: dict[str, int] = {}
     for r in rows:
         by_reason[r.get("reason", "unknown")] = by_reason.get(r.get("reason", "unknown"), 0) + 1
     return {
-        "count": len(rows), "wins": wins, "losses": losses,
-        "realized_pl": round(sum(float(r.get("realized_pl", 0) or 0) for r in rows), 2),
+        "count": len(closed),
+        "wins": sum(1 for r in closed if _pl(r) > 0),
+        "losses": sum(1 for r in closed if _pl(r) < 0),
+        "realized_pl": round(sum(_pl(r) for r in rows), 2),       # total incl. trims (real money)
+        "closed_pl": round(sum(_pl(r) for r in closed), 2),       # P/L from actual closes only
+        "trims": len(trims),
+        "trim_pl": round(sum(_pl(r) for r in trims), 2),
         "by_reason": by_reason,
     }
 
@@ -137,6 +152,12 @@ def reconcile_from_fills(fills: list) -> list:
             avg_entry = cost / matched
             ot = (f.get("order_type") or "").lower()
             reason = "stop" if ot == "stop" else ("target" if ot in ("limit", "take_profit") else "close")
+            # A sell that leaves shares STILL OPEN is a TRIM (a partial re-size, e.g. the operator
+            # trimming a pyramided position), NOT a position close — so it must not inflate the
+            # "trades closed" count or the win/loss/exit-reason stats. The realized P/L is still
+            # real money and stays in the total; it's just bucketed as `trim`, not a trade.
+            if sum(lot[0] for lot in dq) > 1e-9:
+                reason = "trim"
             rows.append({
                 "symbol": sym, "qty": round(matched, 4), "entry": round(avg_entry, 4),
                 "exit": round(price, 4), "realized_pl": round((price - avg_entry) * matched, 2),
@@ -147,18 +168,20 @@ def reconcile_from_fills(fills: list) -> list:
 
 
 def rebuild_from_fills(fills: list) -> dict:
-    """Merge Alpaca-reconciled exits into the ledger: keep only id'd rows (drops legacy/bogus
-    un-id'd records), add any new reconciled exit not already present (dedup by exit_order_id).
-    Preserves history beyond the fetch window while making Alpaca the source of truth."""
+    """Merge Alpaca-reconciled exits into the ledger. The reconciled rows are AUTHORITATIVE: where
+    an exit_order_id exists in both, the reconciled row replaces the stored one (so a re-derivation
+    — e.g. relabeling a partial sell as a trim — actually updates history, instead of the stale row
+    shadowing it forever). Rows outside the fetch window are preserved; un-id'd legacy rows drop."""
     reconciled = reconcile_from_fills(fills)
-    existing = [r for r in _load() if r.get("exit_order_id")]
-    seen = {r.get("exit_order_id") for r in existing}
-    merged = existing + [r for r in reconciled if r.get("exit_order_id") not in seen]
+    rec_ids = {r.get("exit_order_id") for r in reconciled}
+    kept = [r for r in _load() if r.get("exit_order_id") and r.get("exit_order_id") not in rec_ids]
+    prior_count = len([r for r in _load() if r.get("exit_order_id")])
+    merged = kept + reconciled
     merged.sort(key=lambda r: (str(r.get("date", "")), str(r.get("symbol", ""))))
     try:
         REALIZED_FILE.parent.mkdir(parents=True, exist_ok=True)
         REALIZED_FILE.write_text(json.dumps(merged, indent=2), encoding="utf-8")
     except OSError as exc:
         _log.warning("realized rebuild write failed: %s", exc)
-    return {"records": len(merged), "added": len(merged) - len(existing),
+    return {"records": len(merged), "added": len(merged) - prior_count,
             "realized_pl": round(sum(float(r.get("realized_pl", 0) or 0) for r in merged), 2)}

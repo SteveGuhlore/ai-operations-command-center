@@ -52,7 +52,7 @@ _TIER1_SYM_RE = re.compile(r"\[\[([A-Z][A-Z0-9.\-]{0,9})\]\]")
 # up the queue. Tune via env; 0 disables. See the lightened daily brief (synthesis + the
 # names fan-out didn't cover).
 FANOUT_MIN_TIER1 = int(os.environ.get("TONY_FANOUT_MIN_TIER1", "3"))
-FANOUT_MAX = int(os.environ.get("TONY_FANOUT_MAX", "6"))
+FANOUT_MAX = int(os.environ.get("TONY_FANOUT_MAX", "20"))  # per-bridge pacing cap (cooldown gates repeats)
 
 _REPORT_FILES = ["eod_report", "strategy_proposal", "approval_package"]
 _VAULT_HISTORY_DAYS = 7
@@ -330,11 +330,7 @@ Then, across the whole brief:
     )
     _log.info("tony_bridge: created daily brief %s (markdown bridge)", task_id)
 
-    if FANOUT_MIN_TIER1:
-        syms = _extract_tier1_symbols(bridge_md)
-        if len(syms) >= FANOUT_MIN_TIER1:
-            for s in syms[:FANOUT_MAX]:  # top-N in bridge order (score desc)
-                _spawn_ticker_task(slug, s)
+    _fanout_deepdives(slug, bridge_md)
 
 
 def _make_intraday_brief(slug: str, bridge_md: str) -> None:
@@ -428,11 +424,7 @@ Then, across the whole brief:
     )
     _log.info("tony_bridge: created intraday update %s", task_id)
 
-    if FANOUT_MIN_TIER1:
-        syms = _extract_tier1_symbols(bridge_md)
-        if len(syms) >= FANOUT_MIN_TIER1:
-            for s in syms[:FANOUT_MAX]:  # one focused deep-dive task per top Tier-1 name this slot
-                _spawn_ticker_task(slug, s)
+    _fanout_deepdives(slug, bridge_md)
 
 
 def _latest_bridge_md() -> tuple[str, str]:
@@ -688,10 +680,94 @@ def _spawn_ticker_task(slug: str, sym: str) -> None:
         f"3. `web_research(action=search)` — news/catalysts.\n"
         f"4. `write_tony_verdict(...)` — your independent score + verdict + (for adjust/override) "
         f"your own target & stop.\n"
+        f"5. If you HOLD {sym}: re-test the thesis — reaffirm, `adjust` (re-prices your live "
+        f"stop/target), or `close`. Exits and re-prices execute even when the book is FULL.\n"
+        f"6. If you do NOT hold it and it's a real setup, ALSO call "
+        f"`queue_research_candidate('{sym}', score, ..., proposed_target, proposed_stop)` — a full "
+        f"book/cap means an entry verdict can never fill and is wiped at the 09:25 flush, but the "
+        f"queue SURVIVES the flush and is re-validated at the next open into freed slots.\n"
         f"Then append your findings to `vault/tickers/{sym}.md`.\n",
         encoding="utf-8",
     )
+    try:  # cooldown ledger: stamp the spawn so the same name isn't re-fanned every bridge
+        from runner.ledger.deepdive_ledger import mark_deepdived
+        mark_deepdived(sym)
+    except Exception:
+        pass
     _log.info("tony_bridge: fan-out ticker task %s", task_id)
+
+
+def _held_symbols_stale_first() -> list:
+    """Open-position symbols ordered stalest-deep-dive first (never-dived lead), from the book
+    cache + the cooldown ledger. With a FULL book, re-examining what we HOLD is the research that
+    can still ACT (adjust/close execute regardless of the entry cap), and names that aged out of
+    the bot's bridge otherwise get no intraday re-evaluation at all. Fail-soft to empty."""
+    try:
+        from runner.tools.tony_book import read_book_cache
+        from runner.ledger.deepdive_ledger import _read as _dd_stamps
+        syms = [p.get("symbol") for p in (read_book_cache() or {}).get("positions", [])
+                if p.get("symbol")]
+        stamps = _dd_stamps()
+        return sorted(syms, key=lambda s: stamps.get(s, ""))
+    except Exception:
+        return []
+
+
+def _fanout_deepdives(slug: str, bridge_md: str) -> None:
+    """Spawn deep-dive tasks for the WHOLE universe — every scanned name (Tier 1 + Tier 2/3 via
+    `newer`) PLUS held positions (stalest re-check first) PLUS Tony's own originated ideas —
+    cooldown-gated so the SAME names aren't re-graded every bridge. Held names lead: with a full
+    book they're the only research that can still act (adjust/close are never cap-gated).
+    FANOUT_MAX paces queue growth per bridge (NOT a coverage cap; the cooldown plus
+    successive bridges sweep the rest). No-op unless the bridge carries >= FANOUT_MIN_TIER1 Tier-1
+    names (i.e. a substantial bridge). Fail-soft — never breaks ingestion."""
+    if not FANOUT_MIN_TIER1:
+        return
+    try:
+        sig = _parse_bridge_signals(bridge_md)
+        tier1 = [s.get("symbol") for s in sig.get("tier1", []) if s.get("symbol")]
+        if len(tier1) < FANOUT_MIN_TIER1:
+            return
+        from runner.ledger.deepdive_ledger import due_for_deepdive
+        held_list = _held_symbols_stale_first()
+        held = {(s or "").strip().upper() for s in held_list}
+        universe = list(held_list)
+        universe += [s.get("symbol") for s in sig.get("tier1", []) + sig.get("newer", [])]
+        try:
+            from runner.bridge.research_wave import _recent_idea_symbols
+            universe += _recent_idea_symbols()
+        except Exception:
+            pass
+        # Adaptive spend throttle: scale NEW-NAME research to OPEN CAPACITY. At/near the position
+        # cap a new name can't enter anyway (its queue entry competes for ~0 slots), so don't burn
+        # API $ on 20 of them per bridge — keep a small floor trickling into the flush-proof queue
+        # so the BEST few are ready when exits free slots, and auto-scale back up as slots open.
+        # Held re-checks always keep the full pace (adjust/close act regardless of the cap).
+        try:
+            from runner.ledger.alpaca_paper import MAX_OPEN_POSITIONS
+            slots_free = max(0, MAX_OPEN_POSITIONS - len(held))
+        except Exception:
+            slots_free = FANOUT_MAX
+        floor = int(os.environ.get("TONY_NEWNAME_FANOUT_FLOOR", "2"))
+        new_budget = min(FANOUT_MAX, max(floor, slots_free))
+        seen: set = set()
+        spawned = new_spawned = 0
+        for s in universe:
+            s = (s or "").strip().upper()
+            if not s or s in seen:
+                continue
+            seen.add(s)
+            if not due_for_deepdive(s):
+                continue
+            if s not in held and new_spawned >= new_budget:
+                continue  # at/near cap: skip extra new names, keep sweeping held re-checks
+            _spawn_ticker_task(slug, s)
+            spawned += 1
+            new_spawned += 0 if s in held else 1
+            if spawned >= FANOUT_MAX:
+                break
+    except Exception as exc:
+        _log.warning("deep-dive fan-out skipped: %s", exc)
 
 
 def _scan_markdown_bridge(processed: set) -> None:

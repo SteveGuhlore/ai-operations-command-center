@@ -158,19 +158,43 @@ def positions_needing_protection(positions: list, open_orders: list, levels: dic
     `fallback_pct=(stop_pct, target_pct)` derives a catastrophic bracket from the entry price so
     the position is NEVER left naked overnight. Off by default (preserves the old skip behavior);
     skips when the entry price is unknown."""
-    # "Protected" means a working STOP leg — NOT just any sell order. A lone take-profit (limit)
-    # with no stop is a half-bracket: the position still has unlimited downside, so it must be
-    # re-protected (protect() cancels the lone TP and places a full OCO).
-    has_stop = {o.get("symbol") for o in open_orders
-                if o.get("side") == "sell" and str(o.get("type") or "").startswith("stop")}
+    # "Protected" means a working STOP leg covering the WHOLE-SHARE FLOOR — not just any sell
+    # order. A lone take-profit (limit) with no stop is a half-bracket: the position still has
+    # unlimited downside, so it must be re-protected (protect() cancels the lone TP and places a
+    # full OCO). A stop whose quantity is SMALLER than the floor (stale qty after a partial fill /
+    # re-add — the DVN 212-of-218 case) is also under-protected and gets a full re-OCO. A stop leg
+    # that reports no qty is treated as covering (unknown ≠ proven short).
+    stop_qty: dict[str, float] = {}
+    stop_unknown: set = set()
+    leg_levels: dict[str, dict] = {}
+    for o in open_orders:
+        if o.get("side") != "sell":
+            continue
+        sym = o.get("symbol")
+        if o.get("limit_price") is not None:
+            leg_levels.setdefault(sym, {})["target"] = float(o["limit_price"])
+        if str(o.get("type") or "").startswith("stop"):
+            if o.get("stop_price") is not None:
+                leg_levels.setdefault(sym, {})["stop"] = float(o["stop_price"])
+            q = o.get("qty")
+            if q is None:
+                stop_unknown.add(sym)
+            stop_qty[sym] = stop_qty.get(sym, 0.0) + (float(q) if q is not None else 0.0)
     out = []
     for p in positions:
         sym = p.get("symbol")
         whole = int(float(p.get("qty", 0) or 0))  # floor — legs can only cover whole shares
-        if whole < 1 or sym in has_stop:
+        if whole < 1:
             continue
+        if sym in stop_qty and (sym in stop_unknown or stop_qty[sym] >= whole):
+            continue  # protected: a stop covers the floor (or its qty is unreported)
         lv = levels.get(sym) or {}
         target, stop = lv.get("target"), lv.get("stop")
+        if not (target and stop):
+            # Under-covered with no scanner/verdict levels: inherit the position's OWN current
+            # leg prices so the full re-OCO keeps its existing risk line (the GLW/MCHP case).
+            ll = leg_levels.get(sym) or {}
+            target, stop = target or ll.get("target"), stop or ll.get("stop")
         if not (target and stop) or float(target) <= float(stop):
             if fallback_pct:
                 try:
@@ -328,6 +352,10 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
     scanner_levels = scanner_levels or {}
     plan = []
     buys = 0
+    planned_buys: set[str] = set()  # at most ONE entry per symbol per run. A missed daily flush can
+    # leave multiple dated buy verdicts for the same name stacked in the file; without this they all
+    # fire in one sync and pyramid the position to 2-4x size (the June 2026 over-sizing). The held /
+    # exited-today guards only catch names already in the book, not repeats within this same run.
     for v in verdicts:
         sym = v.get("symbol")
         verdict = v.get("verdict")
@@ -337,7 +365,7 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
         # fires after that day's earlier BUY — exit on either side, all day.
         if verdict in _OPEN:
             key = f"{v.get('date')}:{sym}:open"
-            if key in already_done or sym in held_symbols:
+            if key in already_done or sym in held_symbols or sym in planned_buys:
                 continue
             if sym in exited_today:
                 # Exited this session (stop / target / close) — don't buy it right back. He stepped
@@ -362,6 +390,7 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
             plan.append({"key": key, "symbol": sym, "action": "buy", "notional": NOTIONAL,
                          "target": target, "stop": stop, "confidence": v.get("confidence", "medium")})
             buys += 1
+            planned_buys.add(sym)
         elif verdict == "close":
             key = f"{v.get('date')}:{sym}:close"
             if key in already_done:
@@ -534,6 +563,36 @@ def _alpaca_broker():
                     raise
             raise last  # qty never freed after retries — leave unmarked so next cycle retries
 
+        def reduce(self, symbol, sell_qty):
+            """Trim an oversized (pyramided) position: cancel its protective SELL legs — they HOLD
+            the shares, so a sell would otherwise fail on held qty — then market-sell `sell_qty`
+            whole shares. Re-protecting the remainder is the caller's job (or the next-cycle
+            reconcile). Retries while Alpaca asynchronously frees the cancelled qty (same pattern
+            as close/protect)."""
+            q = int(float(sell_qty or 0))
+            if q < 1:
+                return
+            for o in self.open_orders():
+                if o.get("symbol") == symbol and o.get("side") == "sell":
+                    try:
+                        client.cancel_order_by_id(o["id"])
+                    except Exception as exc:
+                        _log.info("reduce cancel %s: %s", symbol, exc)
+            last = None
+            for _ in range(12):
+                try:
+                    client.submit_order(MarketOrderRequest(
+                        symbol=symbol, qty=q, side=OrderSide.SELL, time_in_force=TimeInForce.DAY))
+                    return
+                except Exception as exc:
+                    last = exc
+                    if "insufficient qty" in str(exc).lower() or "40310000" in str(exc):
+                        time.sleep(0.5)
+                        continue
+                    raise
+            if last:
+                raise last
+
         def account(self):
             a = client.get_account()
             positions = client.get_all_positions()
@@ -573,26 +632,39 @@ def _alpaca_broker():
                     _log.info("cancel entry %s: %s", o.get("symbol"), exc)
             return cancelled
 
-        def filled_orders(self, limit=200):
+        def filled_orders(self, limit=200, pages=1):
             """Read-only: Alpaca's actual filled orders as chronological fill dicts. The authoritative
-            record for reconciling realized trades (captures stop-outs the live diff missed)."""
+            record for reconciling realized trades (captures stop-outs the live diff missed).
+            `pages` walks further back via `until` pagination: the CLOSED-orders window is flooded
+            with canceled OCO legs from reprice churn, so a single page can miss the BUY entries of
+            older holds — their exits then match no entry and silently vanish from the ledger."""
             from alpaca.trading.requests import GetOrdersRequest
             from alpaca.trading.enums import QueryOrderStatus
-            ords = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=limit))
             out = []
-            for o in ords:
-                if str(o.status).rsplit(".", 1)[-1].lower() != "filled" or not o.filled_avg_price:
-                    continue
-                out.append({
-                    "symbol": o.symbol,
-                    "side": str(o.side).rsplit(".", 1)[-1].lower(),
-                    "qty": float(o.filled_qty) if o.filled_qty else 0.0,
-                    "price": float(o.filled_avg_price),
-                    "order_id": str(o.id),
-                    "order_type": str(o.order_type).rsplit(".", 1)[-1].lower(),
-                    "time": str(o.filled_at),
-                    "date": str(o.filled_at)[:10],
-                })
+            until = None
+            for _ in range(max(1, pages)):
+                req = (GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=limit, until=until)
+                       if until else GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=limit))
+                ords = client.get_orders(req)
+                if not ords:
+                    break
+                for o in ords:
+                    if str(o.status).rsplit(".", 1)[-1].lower() != "filled" or not o.filled_avg_price:
+                        continue
+                    out.append({
+                        "symbol": o.symbol,
+                        "side": str(o.side).rsplit(".", 1)[-1].lower(),
+                        "qty": float(o.filled_qty) if o.filled_qty else 0.0,
+                        "price": float(o.filled_avg_price),
+                        "order_id": str(o.id),
+                        "order_type": str(o.order_type).rsplit(".", 1)[-1].lower(),
+                        "time": str(o.filled_at),
+                        "date": str(o.filled_at)[:10],
+                    })
+                oldest = min((o.submitted_at for o in ords if o.submitted_at), default=None)
+                if oldest is None or len(ords) < limit:
+                    break  # reached the start of history
+                until = oldest
             return out
 
     return _Broker()
@@ -607,7 +679,9 @@ def reconcile_realized(broker=None) -> dict:
         if broker is None:
             return {"status": "no_keys"}
         from runner.ledger.tony_realized import rebuild_from_fills
-        res = rebuild_from_fills(broker.filled_orders())
+        # Paginate well past the canceled-OCO churn so older holds' BUY entries are in the window
+        # and their exits FIFO-match (a sell with no matched entry is silently dropped).
+        res = rebuild_from_fills(broker.filled_orders(limit=500, pages=6))
         res["status"] = "ok"
         return res
     except Exception as exc:
@@ -623,6 +697,25 @@ def closed_positions(prior: list, current: list) -> list:
     cur = {p.get("symbol"): float(p.get("qty") or 0) for p in current}
     return [p for p in prior
             if float(p.get("qty") or 0) > 0 and cur.get(p.get("symbol"), 0) <= 0]
+
+
+_UNRESOLVED_MAX_TRIES = int(os.environ.get("TONY_UNRESOLVED_MAX_TRIES", "100"))
+
+
+def bump_unresolved(p: dict, max_tries: int = None) -> dict | None:
+    """Pure: carry an un-priceable 'closed' snapshot row for another retry, or expire it. A row that
+    can't be priced for ~max_tries cycles is a GHOST (e.g. a fake-data leftover like XXX that sat in
+    the snapshot for days, then 'resolved' against a fake entry into a phantom -$806 exit alert) —
+    drop it instead of retrying forever. Real exits price within a few cycles."""
+    n = int(p.get("_unresolved_tries", 0) or 0) + 1
+    cap = _UNRESOLVED_MAX_TRIES if max_tries is None else max_tries
+    if n > cap:
+        _log.warning("dropping unresolved ghost from notify snapshot: %s (no price after %d tries)",
+                     p.get("symbol"), n - 1)
+        return None
+    q = dict(p)
+    q["_unresolved_tries"] = n
+    return q
 
 
 def _verdict_thesis(verdicts, symbol) -> str:
@@ -678,8 +771,11 @@ def _notify_closed(broker) -> None:
             _log.info("exit price %s failed: %s", sym, exc)
             last = None
         if last is None:
-            # No price yet — don't alert/record on a phantom fill; defer to a later cycle.
-            unresolved.append(p)
+            # No price yet — don't alert/record on a phantom fill; defer to a later cycle,
+            # but EXPIRE after enough failed tries (a perpetual un-priceable row is a ghost).
+            carried = bump_unresolved(p)
+            if carried is not None:
+                unresolved.append(carried)
             continue
         lv = levels.get(sym) or {}
         try:

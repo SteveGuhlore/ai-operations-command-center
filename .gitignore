@@ -55,3 +55,5 @@ vault/
 workspace/equity-history.json
 workspace/nudge-state.json
 workspace/scheduler-state.json
+workspace/deepdive-ledger.json
+workspace/tony-verdicts-archive.json

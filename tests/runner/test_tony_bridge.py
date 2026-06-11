@@ -15,6 +15,8 @@ def _setup(tmp_path, monkeypatch):
     monkeypatch.setattr(bridge_module, "_PROCESSED_LOG", tmp_path / "processed.json")
     monkeypatch.setattr(bridge_module, "VAULT_DIR", tmp_path / "vault")
     monkeypatch.setattr(bridge_module, "_QUIESCE_SECONDS", 0.0)  # tests scan files immediately
+    from runner.ledger import deepdive_ledger as dl
+    monkeypatch.setattr(dl, "LEDGER_FILE", tmp_path / "deepdive-ledger.json")  # isolate the cooldown
     return reports_dir, bridge_dir, tasks_dir
 
 
@@ -144,7 +146,59 @@ def test_fanout_spawns_per_ticker(tmp_path, monkeypatch):
     names = [p.name for p in tasks_dir.glob("*.md")]
     assert any("TONY-TKR-AAA" in n for n in names)
     assert any("TONY-TKR-BBB" in n for n in names)
-    assert not any("CCC" in n for n in names)  # Tier 2 excluded
+    assert any("CCC" in n for n in names)  # all tiers now deep-dived (Tier 2/3 included)
+
+
+def test_fanout_includes_held_positions_stale_first(tmp_path, monkeypatch):
+    # a full book's holds get re-checked (adjust/close still execute at cap), stalest first —
+    # including names that aged OUT of the bridge entirely (OLDPOS)
+    _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(bridge_module, "FANOUT_MIN_TIER1", 2)
+    from runner.tools import tony_book as tb
+    monkeypatch.setattr(tb, "read_book_cache",
+                        lambda: {"positions": [{"symbol": "OLDPOS"}, {"symbol": "AAA"}]})
+    body = ("## Tier 1\n### [[AAA]]\n- Days active: 3\n### [[BBB]]\n- Days active: 4\n"
+            "## For Tony\nx")
+    _write_bridge(bridge_dir, "2026-06-03", body)
+    bridge_module.scan_and_process()
+    names = [p.name for p in tasks_dir.glob("*.md")]
+    assert any("TONY-TKR-OLDPOS" in n for n in names)  # held but not in the bridge -> still re-checked
+    assert any("TONY-TKR-AAA" in n for n in names)     # held + in bridge -> spawned once (deduped)
+    assert sum(1 for n in names if "TONY-TKR-AAA" in n) == 1
+    # the deep-dive body carries the at-cap persistence + held-position instructions
+    task = next(p for p in tasks_dir.glob("*.md") if "TONY-TKR-BBB" in p.name).read_text(encoding="utf-8")
+    assert "queue_research_candidate" in task and "If you HOLD" in task
+
+
+def test_held_symbols_stale_first_ordering(tmp_path, monkeypatch):
+    from runner.tools import tony_book as tb
+    from runner.ledger import deepdive_ledger as dl
+    monkeypatch.setattr(dl, "LEDGER_FILE", tmp_path / "dd.json")
+    monkeypatch.setattr(tb, "read_book_cache",
+                        lambda: {"positions": [{"symbol": "FRESH"}, {"symbol": "NEVER"}, {"symbol": "STALE"}]})
+    dl.LEDGER_FILE.write_text('{"FRESH": "2026-06-10T15:00:00", "STALE": "2026-06-09T10:00:00"}')
+    assert bridge_module._held_symbols_stale_first() == ["NEVER", "STALE", "FRESH"]
+
+
+def test_fanout_throttles_new_names_at_cap(tmp_path, monkeypatch):
+    # book at the position cap -> new-name research drops to the floor (2/bridge trickle into the
+    # queue) while held re-checks keep full pace; scales back up automatically as slots free
+    _reports_dir, bridge_dir, tasks_dir = _setup(tmp_path, monkeypatch)
+    monkeypatch.setattr(bridge_module, "FANOUT_MIN_TIER1", 2)
+    from runner.tools import tony_book as tb
+    from runner.ledger import alpaca_paper as ap
+    monkeypatch.setattr(tb, "read_book_cache",
+                        lambda: {"positions": [{"symbol": "H1"}, {"symbol": "H2"}]})
+    monkeypatch.setattr(ap, "MAX_OPEN_POSITIONS", 2)   # held == cap -> 0 free slots
+    body = ("## Tier 1\n### [[N1]]\n- Days active: 3\n### [[N2]]\n- Days active: 4\n"
+            "### [[N3]]\n- Days active: 3\n### [[N4]]\n- Days active: 3\n## For Tony\nx")
+    _write_bridge(bridge_dir, "2026-06-03", body)
+    bridge_module.scan_and_process()
+    names = [p.name for p in tasks_dir.glob("TONY-TKR-*.md")]
+    held_spawned = [n for n in names if "TONY-TKR-H" in n]
+    new_spawned = [n for n in names if any(f"TONY-TKR-N{i}" in n for i in (1, 2, 3, 4))]
+    assert len(held_spawned) == 2          # all held re-checks spawn
+    assert len(new_spawned) == 2           # new names throttled to the floor (default 2)
 
 
 def test_fanout_off_by_default(tmp_path, monkeypatch):
@@ -168,7 +222,7 @@ def test_fanout_spawns_on_intraday(tmp_path, monkeypatch):
     names = [p.name for p in tasks_dir.glob("*.md")]
     assert any("TONY-TKR-AAA" in n for n in names)
     assert any("TONY-TKR-BBB" in n for n in names)
-    assert not any("CCC" in n for n in names)  # Tier 2 excluded
+    assert any("CCC" in n for n in names)  # all tiers now deep-dived (Tier 2/3 included)
 
 
 def test_make_preopen_deepdive(tmp_path, monkeypatch):
