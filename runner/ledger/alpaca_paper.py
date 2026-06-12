@@ -48,6 +48,7 @@ STOP_RATCHET = os.environ.get("TONY_STOP_RATCHET", "on").lower() in ("1", "true"
 RATCHET_BE_R = float(os.environ.get("TONY_RATCHET_BE_R", "0.75"))       # cushion (in R) before the floor arms
 RATCHET_TRAIL_R = float(os.environ.get("TONY_RATCHET_TRAIL_R", "1.25"))  # trail distance (in R) below the high-water
 RATCHET_MIN_STEP_PCT = float(os.environ.get("TONY_RATCHET_MIN_STEP_PCT", "0.5"))  # churn guard: min stop raise
+RATCHET_MAX_PER_CYCLE = int(os.environ.get("TONY_RATCHET_MAX_PER_CYCLE", "8"))    # deploy-day churn guard
 MAX_HOLD_DAYS = int(os.environ.get("TONY_MAX_HOLD_DAYS", "30"))         # swing mandate; 0 disables
 
 _OPEN = {"reaffirm", "adjust", "override"}
@@ -290,14 +291,18 @@ def _sell_legs(orders: list) -> dict:
 
 def plan_stop_ratchets(positions: list, live_legs: dict, meta: dict, today: str,
                        already_done: set, be_r: float | None = None,
-                       trail_r: float | None = None, min_step_pct: float | None = None) -> list:
+                       trail_r: float | None = None, min_step_pct: float | None = None,
+                       max_per_cycle: int | None = None) -> list:
     """Pure: the deterministic profit-floor under Tony's discretionary adjusts. Once a position's
     high-water mark clears entry + BE_R*R, its stop gets a floor of max(entry, hwm - TRAIL_R*R) —
     raised ONLY (never loosened), in whole steps >= min_step_pct above the live stop (churn guard),
     capped just below the current price so a placed stop is always valid. R is the position's
     entry->initial-stop distance (see position_meta.risk_unit). Tony's own tighter stop always
     wins — the floor only lifts stops he left behind. Naked positions are skipped (the protection
-    reconcile owns those first)."""
+    reconcile owns those first).
+
+    Capped at max_per_cycle reprices (biggest protection gain first) so adopting a large live book
+    on deploy day can't fire a burst of cancel/replaces — the rest follow over the next cycles."""
     from runner.ledger.position_meta import risk_unit
     be_r = RATCHET_BE_R if be_r is None else be_r
     trail_r = RATCHET_TRAIL_R if trail_r is None else trail_r
@@ -332,8 +337,10 @@ def plan_stop_ratchets(positions: list, live_legs: dict, meta: dict, today: str,
         if key in already_done:
             continue
         out.append({"key": key, "symbol": sym, "qty": qty, "target": float(legs["target"]),
-                    "stop": floor, "hwm": hwm})
-    return out
+                    "stop": floor, "hwm": hwm, "gain": floor - cur_stop})
+    out.sort(key=lambda r: r["gain"], reverse=True)        # protect the most-exposed winners first
+    cap = RATCHET_MAX_PER_CYCLE if max_per_cycle is None else max_per_cycle
+    return out[:cap] if cap and cap > 0 else out
 
 
 def plan_max_hold_closes(positions: list, meta: dict, today: str, already_done: set,

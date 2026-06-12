@@ -248,3 +248,18 @@ def test_sync_ratchet_gate_off(tmp_path, monkeypatch):
     b = _LifecycleBroker()
     res = ap.sync(broker=b)
     assert res["ratcheted"] == 0 and res["max_hold_closed"] == 0 and b.reprices == []
+
+
+def test_ratchet_caps_per_cycle_biggest_gain_first():
+    # 5 eligible winners; cap=2 -> only the two with the largest stop-raise fire this cycle
+    legs, meta, positions = {}, {}, []
+    for i, (cur, hwm) in enumerate([(92, 110), (92, 117), (92, 113), (92, 121), (92, 108)]):
+        sym = f"S{i}"
+        positions.append(_pos(sym, px=hwm))
+        legs[sym] = {"stop": float(cur), "target": 200.0}
+        meta[sym] = _meta(hwm=float(hwm))
+    plan = ap.plan_stop_ratchets(positions, legs, meta, "2026-06-11", set(),
+                                 be_r=0.75, trail_r=1.25, max_per_cycle=2)
+    assert len(plan) == 2
+    syms = {p["symbol"] for p in plan}
+    assert syms == {"S3", "S1"}        # hwm 121 and 117 -> highest floors -> biggest protection gain
