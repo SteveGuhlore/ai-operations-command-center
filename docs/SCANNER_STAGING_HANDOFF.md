@@ -11,10 +11,22 @@ command-center checkout. It assumes the session can see both working trees side 
 | Role | Repo | VM path |
 |---|---|---|
 | Command Center (CC) — Tony, runner, dashboard | `steveguhlore/ai-operations-command-center` | `/opt/command-center` |
-| Scanner bot (the "trading bot") | `steveguhlore/TradingBotAgentProject` *(confirm exact slug — the VM dir is `/opt/TradingBotAgentProject`)* | `/opt/TradingBotAgentProject` |
+| Scanner bot (the "trading bot") | `steveguhlore/TradingBotAgentProject` *(repo NAME; confirm exact owner/slug)* | **`/opt/trading-bot`** |
+
+**Confirmed VM layout (verified 2026-06-12):**
+- The scanner's checkout is **`/opt/trading-bot`**. `/opt/TradingBotAgentProject` exists as a
+  **symlink → `/opt/trading-bot`** (so old docs referencing `TradingBotAgentProject` paths still
+  resolve). Use `/opt/trading-bot` as the canonical path.
+- Scanner services: **`tradingbot-api`** + **`tradingbot-web`** (plus a `dashboard-web` npm
+  frontend). CC service: `cc-runner`. All `active`.
+- **Shared reports dir = `/opt/trading-bot/reports`** (dated subdirs). Prod CC's `.env` overrides
+  `TONY_OUTCOMES_FILE` / `TONY_VERDICTS_FILE` / `TONY_RECORD_FILE` to point there explicitly; the
+  other three (`TONY_REPORTS_DIR`, `TONY_INSIGHTS_FILE`, `TONY_IDEAS_FILE`) ride the code default
+  `/opt/TradingBotAgentProject/reports`, which resolves to the same dir via the symlink.
+- Bot→CC pointer: `/opt/trading-bot/config/default_config.yaml` → `command_center_dir: /opt/command-center`.
 
 If the scanner repo isn't attached, attach it before starting (claude.ai/code repo picker, or
-ask this session to add `…/TradingBotAgentProject`). If the picker doesn't list it, install the
+ask this session to add the scanner repo). If the picker doesn't list it, install the
 Claude GitHub App on that repo first.
 
 **Dev branch discipline (ENFORCED — production runs 24/7):** all work on a dev branch, never
@@ -43,7 +55,7 @@ Two repos, coupled only through **files in two directions**:
 
 **Scanner → CC (inbound to Tony):**
 - Scanner writes scan/tier reports into the **bridge** dir: `/opt/command-center/bridge/tony-stocks`
-- Scanner also writes into the **shared bot reports dir**: `/opt/TradingBotAgentProject/reports`
+- Scanner also writes into the **shared bot reports dir**: `/opt/trading-bot/reports`
 - Tony reads both.
 
 **CC → Scanner (outbound from Tony):** production-Tony writes these into the **same bot reports dir**,
@@ -86,7 +98,7 @@ isolation comments, and idempotency.
 
 ## 4. Your task: `setup_staging.sh` for the scanner repo
 
-Build the scanner equivalent (same recipe), producing `/opt/TradingBotAgentProject-staging`:
+Build the scanner equivalent (same recipe), producing `/opt/trading-bot-staging`:
 
 1. **Worktree** of the scanner repo on the dev branch (fall back to clone if worktree fails),
    own `.venv` from the scanner's requirements, isolated `.env`/config.
@@ -103,9 +115,11 @@ Build the scanner equivalent (same recipe), producing `/opt/TradingBotAgentProje
    second-paper-account treatment (placeholders + loud warning). If it's read-only market data,
    note that explicitly instead.
 4. **Outbound off:** disable any scanner alerts/notifications/posting in staging.
-5. **Own service unit** `bot-scanner-staging.service` (or the scanner's real unit name + `-staging`)
-   written to `/tmp` for hand-install; its own port if it binds one; logs to a staging logs dir.
-   Never restart or touch the production scanner service.
+5. **Own service units** — the prod scanner runs `tradingbot-api` + `tradingbot-web` (and a
+   `dashboard-web` frontend). Mint `tradingbot-api-staging` / `tradingbot-web-staging` units
+   written to `/tmp` for hand-install, on their own ports (prod API is on :8001 per the handoffs —
+   pick free ports for staging), logs to a staging logs dir. Never restart or touch the production
+   scanner services.
 6. **Idempotent** re-runs (don't clobber a filled-in staging `.env`).
 7. Tests + a short `docs/DEVELOPMENT.md` (or update the existing one) on the scanner side.
 
@@ -138,8 +152,8 @@ stop it.** CC staging can run longer for Tony-side soaks; the scanner twin is on
 ## 7. Safety checklist (state-and-confirm before any VM action)
 
 - [ ] Dev branch on the scanner repo — never its deploy branch.
-- [ ] `setup_staging.sh` never writes into `/opt/TradingBotAgentProject`, never edits the prod
-      `.env`/config, never restarts the production scanner service.
+- [ ] `setup_staging.sh` never writes into `/opt/trading-bot`, never edits the prod
+      `.env`/config, never restarts the production scanner services (`tradingbot-api`/`-web`).
 - [ ] Every scanner output path repointed at **staging-CC**, verified by reading the scanner code
       (no production reports-dir left as a default).
 - [ ] Second Alpaca paper account (or confirmed read-only) — staging never touches the live $1M book.
