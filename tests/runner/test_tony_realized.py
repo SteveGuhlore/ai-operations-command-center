@@ -1,6 +1,8 @@
 import json
 from datetime import date
 
+from runner.ledger.market_clock import trading_day
+
 from runner.ledger import tony_realized as tr
 
 
@@ -25,14 +27,14 @@ def test_record_realized_appends(tmp_path, monkeypatch):
     a = rows[0]
     assert a["symbol"] == "AAA" and a["realized_pl"] == 100.0
     assert a["reason"] == "target" and a["pct"] == 50.0
-    assert a["date"] == str(date.today())
+    assert a["date"] == trading_day()  # ET trading day — a 9 PM ET exit is still TODAY's trade
     assert rows[1]["symbol"] == "BBB" and rows[1]["realized_pl"] == -25.0
     assert rows[1]["reason"] == "stop"
 
 
 def test_summary_today_and_all_time(tmp_path, monkeypatch):
     monkeypatch.setattr(tr, "REALIZED_FILE", tmp_path / "realized.json")
-    today = str(date.today())
+    today = trading_day()  # match the clock summary() uses
     rows = [
         {"symbol": "A", "qty": 1, "entry": 10, "exit": 12, "realized_pl": 2.0, "pct": 20.0,
          "reason": "target", "date": today},
