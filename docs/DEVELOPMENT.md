@@ -60,6 +60,24 @@ If requirements.txt changed on the branch, re-run `setup_staging.sh <branch>`
 | **Outbound sends** | Same Telegram/SendGrid/Instagram creds in the copied `.env` — a soak could DM real leads or post publicly. | Hard-off in staging: `TONY_NOTIFY/TONY_TELEGRAM_CHAT/TONY_PUBLIC=off`, tokens blanked, `OUTREACH_AUTOMATION=false`. |
 | **workspace/ + vault/** | — not shared: all other state paths resolve relative to the checkout, so staging gets fresh copies automatically (verified per env var in `setup_staging.sh` comments). | Nothing to do. |
 
+## The scanner staging twin (the other half of the tandem)
+
+The bot repo now has the matching kit: `scripts/setup_staging.sh` there builds
+`/opt/trading-bot-staging`, with every exchange path (bridge briefs, outcomes,
+insights, verdict/record reads) repointed at **this** staging checkout
+(`/opt/command-center-staging`). See the bot repo's `docs/DEVELOPMENT.md`.
+
+Two rules that involve this side:
+
+- **Mirror-bridge either/or:** while the scanner twin is running, the
+  `--mirror-bridge` cron must be OFF — otherwise production scan output and the
+  twin's output both land in staging's bridge and the soak grades garbage.
+- **Schema-change trigger:** staging-CC's verdict write-back is severed from the
+  live bot on purpose, so a CC change to the format of the five exchange files
+  (`tony_stocks_verdicts/outcomes/record/ideas.json`, `agent_insights.json`) or
+  to the bridge/tier report format is **invisible to CC staging alone**. Any such
+  change → spin up the scanner twin and soak the full round trip before promoting.
+
 Other notes:
 
 - Staging is a **git worktree** of the production clone (shared object store,
