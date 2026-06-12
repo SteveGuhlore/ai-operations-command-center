@@ -61,7 +61,7 @@ def record_realized(symbol, qty, entry, exit_price, target=None, stop=None) -> d
     row = {
         "symbol": symbol, "qty": q, "entry": round(en, 4), "exit": round(ex, 4),
         "realized_pl": realized_pl, "pct": pct,
-        "reason": infer_reason(ex, target, stop), "date": str(date.today()),
+        "reason": infer_reason(ex, target, stop), "date": _trading_day(),
     }
     rows = _load()
     rows.append(row)
@@ -101,10 +101,15 @@ def _agg(rows: list) -> dict:
     }
 
 
+def _trading_day() -> str:
+    from runner.ledger.market_clock import trading_day
+    return trading_day()
+
+
 def summary() -> dict:
     """today + all-time realized P/L, win/loss counts, by-exit-reason."""
     rows = _load()
-    today = str(date.today())
+    today = _trading_day()  # ET — a 9 PM ET wrap must still see the day's exits (UTC has rolled)
     return {"today": _agg([r for r in rows if r.get("date") == today]),
             "all_time": _agg(rows)}
 

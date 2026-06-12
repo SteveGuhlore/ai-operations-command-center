@@ -733,8 +733,9 @@ def _maybe_send_daily_summary() -> None:
         from runner.tools.notify import notify_daily, _channel
         if _channel() in ("", "off"):
             return
+        from runner.ledger.market_clock import trading_day as _td
         state = _Path(__file__).parent.parent / "workspace" / "notify-daily-state.json"
-        today = str(_date.today())
+        today = _td()
         try:
             if json.loads(state.read_text()).get("date") == today:
                 return
@@ -1041,8 +1042,8 @@ def run_cycle() -> None:
         from runner.tools import tony_nudges
         tony_nudges.maybe_equity_high()
         if _is_market_closed():
-            from datetime import date
-            tony_nudges.maybe_eod_signoff(str(date.today()))
+            from runner.ledger.market_clock import trading_day
+            tony_nudges.maybe_eod_signoff(trading_day())
     except Exception as exc:
         log.info("nudges failed: %s", exc)
     try:

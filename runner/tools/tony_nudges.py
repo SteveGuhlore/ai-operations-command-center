@@ -91,4 +91,17 @@ def maybe_eod_signoff(day: str) -> dict:
         return {"sent": False, "reason": "no_text"}
     st["eod_day"] = day
     _save(st)
-    return _send_both("🌙 <b>That's a wrap on my day.</b>\n" + text)
+    return _send_both("🌙 <b>That's a wrap on my day.</b>\n" + text + _day_ledger_text(day))
+
+
+def _day_ledger_text(day: str) -> str:
+    """Deterministic list of today's closed trades — appended under the LLM prose so the wrap
+    ALWAYS shows what was sold (the narrative model may gloss over exits). Fail-soft to ''."""
+    try:
+        from runner.ledger.tony_realized import records, summary
+        from runner.tools.tony_voice import say_day_ledger
+        rows = [r for r in records() if r.get("date") == day]
+        return say_day_ledger(rows, (summary() or {}).get("today", {}))
+    except Exception as exc:
+        _log.info("day ledger build failed: %s", exc)
+        return ""

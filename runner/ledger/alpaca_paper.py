@@ -892,16 +892,29 @@ def bump_unresolved(p: dict, max_tries: int = None) -> dict | None:
     return q
 
 
+_THESIS_MAX = int(os.environ.get("TONY_THESIS_MAX_CHARS", "600"))
+
+
 def _verdict_thesis(verdicts, symbol) -> str:
-    """One-line thesis from Tony's latest verdict on `symbol`, so the entry alert says WHY.
-    Best-effort: empty string if none. Bounded so a long thesis never bloats the message."""
+    """Thesis from Tony's latest verdict on `symbol`, so the entry alert says WHY. Best-effort:
+    empty string if none. Telegram allows 4096 chars/message (and notify splits cleanly), so the
+    cap is roomy — and the cut lands on a sentence/word boundary, never mid-word ('Whi…').
+    Obsidian [[wikilinks]] are unwrapped — Telegram readers saw raw '[[Breakout Watch]]'."""
     sym = (symbol or "").upper()
     cands = [v for v in verdicts
              if (v.get("symbol") or "").upper() == sym and v.get("thesis")]
     if not cands:
         return ""
     thesis = " ".join(str(max(cands, key=lambda v: v.get("date", "")).get("thesis", "")).split())
-    return thesis[:160] + ("…" if len(thesis) > 160 else "")
+    thesis = re.sub(r"\[\[([^\]]+)\]\]", r"\1", thesis)
+    if len(thesis) <= _THESIS_MAX:
+        return thesis
+    cut = thesis[:_THESIS_MAX]
+    dot = cut.rfind(". ")
+    if dot > _THESIS_MAX * 0.6:
+        return cut[:dot + 1]                       # end on the last whole sentence
+    space = cut.rfind(" ")
+    return (cut[:space] if space > 0 else cut) + "…"  # else last whole word
 
 
 def _r_multiple(entry, exit_price, stop):

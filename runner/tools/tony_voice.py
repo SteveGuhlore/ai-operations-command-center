@@ -141,7 +141,8 @@ def _day_label(date_str) -> str:
         d = datetime.strptime(str(date_str), "%Y-%m-%d").date()
     except (TypeError, ValueError):
         return str(date_str or "")
-    delta = (date.today() - d).days
+    from runner.ledger.market_clock import trading_day
+    delta = (datetime.strptime(trading_day(), "%Y-%m-%d").date() - d).days
     if delta == 0:
         return "today"
     if delta == 1:
@@ -219,6 +220,23 @@ GLOSSARY = (
     "• <b>Unrealized P/L</b> — paper profit on stocks I still hold (not banked yet).\n"
     "• <b>Realized P/L</b> — actual profit/loss on trades I've already closed."
 )
+
+
+def say_day_ledger(rows_today: list, today_agg: dict | None = None) -> str:
+    """Deterministic end-of-day trade ledger: EVERY exit closed today as its own line, plus the
+    win/loss tally. Rides under the LLM wrap prose so the day report always shows what was
+    actually sold — the narrative model may summarize, but the ledger never omits. Pure; ''
+    when nothing closed."""
+    if not rows_today:
+        return ""
+    lines = ["", "<b>Today's closed trades:</b>"]
+    lines.extend(_record_row(r) for r in rows_today)
+    t = today_agg or {}
+    if t.get("count"):
+        pl = float(t.get("realized_pl", 0) or 0)
+        amt = f"+${_money(pl)}" if pl >= 0 else f"−${_money(abs(pl))}"
+        lines.append(f"Net: <b>{amt}</b> realized · {t.get('wins', 0)} win / {t.get('losses', 0)} loss")
+    return "\n".join(lines)
 
 
 def say_daily_header(equity, day_delta=None) -> str:
