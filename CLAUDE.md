@@ -18,6 +18,16 @@ Before writing or modifying ANY code, you MUST:
 
 This applies to all code changes. Simple one-liners are exempt.
 
+## Branch Discipline (ENFORCED — production runs 24/7)
+The VM (`/opt/command-center`, systemd `cc-runner`) deploys from `master`. Broken code on
+master = broken live service and live paper-trading.
+1. ALL development happens on a dev branch — never commit straight to master
+2. Soak the branch in the staging environment (`/opt/command-center-staging`, port 8766 —
+   `scripts/setup_staging.sh`) for at least one evening of live market data
+3. Promote only via `scripts/promote_staging.sh` (full test suite + readiness check must pass),
+   and only OUTSIDE market hours (after 4 PM ET)
+4. Production deploy = fast-forward pull on the VM + `cc-runner` restart + readiness sweep
+
 ## Code Standards
 - Python 3.x — follow existing patterns in `runner/` and `agents/`
 - No unnecessary abstractions — solve the specific problem, not hypothetical future ones

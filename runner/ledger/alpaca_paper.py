@@ -40,6 +40,16 @@ MAX_NOTIONAL = float(os.environ.get("TONY_MAX_NOTIONAL_PER_POSITION", "10000")) 
 MAX_OPEN_POSITIONS = int(os.environ.get("TONY_MAX_OPEN_POSITIONS", "50"))
 MAX_DAILY_ORDERS = int(os.environ.get("TONY_MAX_DAILY_ORDERS", "200"))
 
+# Profit ratchet (deterministic floor under Tony's discretionary adjusts) + swing max-hold.
+# Units are R = entry - initial stop, the scanner's own per-name volatility-calibrated risk
+# distance (scanner stops sit ~2 ATR below entry, so BE_R 0.75 ~ a 1.5-ATR cushion and TRAIL_R
+# 1.25 ~ a 2.5-ATR chandelier — the "tighter" frontier point from the Monte-Carlo stress test).
+STOP_RATCHET = os.environ.get("TONY_STOP_RATCHET", "on").lower() in ("1", "true", "on", "yes")
+RATCHET_BE_R = float(os.environ.get("TONY_RATCHET_BE_R", "0.75"))       # cushion (in R) before the floor arms
+RATCHET_TRAIL_R = float(os.environ.get("TONY_RATCHET_TRAIL_R", "1.25"))  # trail distance (in R) below the high-water
+RATCHET_MIN_STEP_PCT = float(os.environ.get("TONY_RATCHET_MIN_STEP_PCT", "0.5"))  # churn guard: min stop raise
+MAX_HOLD_DAYS = int(os.environ.get("TONY_MAX_HOLD_DAYS", "30"))         # swing mandate; 0 disables
+
 _OPEN = {"reaffirm", "adjust", "override"}
 _LEVELS_RE = re.compile(r"Target:\s*\$([\d.]+).*?Stop:\s*\$([\d.]+)", re.S)
 
@@ -218,13 +228,18 @@ def entry_orders_to_cancel(open_orders: list) -> list:
     return [o for o in open_orders if o.get("side") == "buy"]
 
 
-def plan_reprices(verdicts: list, positions: list, already_done: set, skip_symbols=()) -> list:
+def plan_reprices(verdicts: list, positions: list, already_done: set, skip_symbols=(),
+                  live_stops: dict | None = None) -> list:
     """Pure: an intraday `adjust` on a position already entered earlier should MOVE its live
     stop/target, not open more shares. Emits a re-price per held symbol whose latest verdict is
     `adjust` with new levels. Being in `positions` already proves it's an existing holding;
     `skip_symbols` excludes names opened THIS cycle (their fresh bracket already carries the new
     levels). Keyed by the levels so it fires once per distinct adjustment — including positions
-    carried over from a prior day, whose open intent was cleared by the pre-open reset."""
+    carried over from a prior day, whose open intent was cleared by the pre-open reset.
+
+    `live_stops` ({SYM: {"stop": x, "target": y}}, from the open sell legs) arms the never-loosen
+    guard: an adjust may move the TARGET freely, but a stop only ever tightens — a bad adjust that
+    widens risk is clamped to the current stop (and skipped entirely if that makes it a no-op)."""
     held = {}
     for p in positions:
         whole = int(float(p.get("qty", 0) or 0))
@@ -239,11 +254,170 @@ def plan_reprices(verdicts: list, positions: list, already_done: set, skip_symbo
         if not (target and stop) or float(target) <= float(stop):
             continue
         tp, sl = round(float(target), 2), round(float(stop), 2)
+        clamped = False
+        if live_stops:
+            legs = live_stops.get(sym) or {}
+            cur_stop = legs.get("stop")
+            if cur_stop is not None and sl < float(cur_stop):
+                sl, clamped = round(float(cur_stop), 2), True   # never loosen the stop
+                if tp <= sl:
+                    continue                                     # degenerate after clamp
+                cur_tp = legs.get("target")
+                if cur_tp is not None and round(float(cur_tp), 2) == tp:
+                    continue                                     # pure no-op after clamp
         key = f"{v.get('date')}:{sym}:adjust:{tp}:{sl}"
         if key in already_done:
             continue
-        out.append({"key": key, "symbol": sym, "qty": held[sym], "target": tp, "stop": sl})
+        out.append({"key": key, "symbol": sym, "qty": held[sym], "target": tp, "stop": sl,
+                    "clamped": clamped})
     return out
+
+
+def _sell_legs(orders: list) -> dict:
+    """{SYM: {"stop": x|None, "target": y|None}} from the open SELL legs (OCO tp + stop)."""
+    legs: dict[str, dict] = {}
+    for o in orders:
+        if o.get("side") != "sell":
+            continue
+        sym = (o.get("symbol") or "").upper()
+        d = legs.setdefault(sym, {"stop": None, "target": None})
+        if o.get("stop_price") is not None:
+            d["stop"] = float(o["stop_price"])
+        if o.get("limit_price") is not None:
+            d["target"] = float(o["limit_price"])
+    return legs
+
+
+def plan_stop_ratchets(positions: list, live_legs: dict, meta: dict, today: str,
+                       already_done: set, be_r: float | None = None,
+                       trail_r: float | None = None, min_step_pct: float | None = None) -> list:
+    """Pure: the deterministic profit-floor under Tony's discretionary adjusts. Once a position's
+    high-water mark clears entry + BE_R*R, its stop gets a floor of max(entry, hwm - TRAIL_R*R) —
+    raised ONLY (never loosened), in whole steps >= min_step_pct above the live stop (churn guard),
+    capped just below the current price so a placed stop is always valid. R is the position's
+    entry->initial-stop distance (see position_meta.risk_unit). Tony's own tighter stop always
+    wins — the floor only lifts stops he left behind. Naked positions are skipped (the protection
+    reconcile owns those first)."""
+    from runner.ledger.position_meta import risk_unit
+    be_r = RATCHET_BE_R if be_r is None else be_r
+    trail_r = RATCHET_TRAIL_R if trail_r is None else trail_r
+    min_step = (RATCHET_MIN_STEP_PCT if min_step_pct is None else min_step_pct) / 100.0
+    out = []
+    for p in positions:
+        sym = (p.get("symbol") or "").upper()
+        try:
+            qty = int(float(p.get("qty") or 0))
+            px = float(p.get("current_price") or 0)
+        except (TypeError, ValueError):
+            continue
+        m = meta.get(sym)
+        legs = live_legs.get(sym) or {}
+        if qty < 1 or px <= 0 or not m or legs.get("stop") is None or legs.get("target") is None:
+            continue
+        r = risk_unit(m)
+        try:
+            entry = float(m.get("entry") or 0)
+            hwm = float(m.get("hwm") or 0)
+        except (TypeError, ValueError):
+            continue
+        if not r or entry <= 0 or hwm < entry + be_r * r:
+            continue                                   # cushion not earned yet
+        floor = max(entry, hwm - trail_r * r)
+        floor = min(floor, px * 0.99)                  # a stop must sit below the market
+        cur_stop = float(legs["stop"])
+        if floor <= cur_stop * (1 + min_step):
+            continue                                   # already at/above the floor (Tony or a prior ratchet)
+        floor = round(floor, 2)
+        key = f"ratchet:{today}:{sym}:{floor}"
+        if key in already_done:
+            continue
+        out.append({"key": key, "symbol": sym, "qty": qty, "target": float(legs["target"]),
+                    "stop": floor, "hwm": hwm})
+    return out
+
+
+def plan_max_hold_closes(positions: list, meta: dict, today: str, already_done: set,
+                         default_days: int | None = None) -> list:
+    """Pure: the swing-mandate time stop. A position held >= its horizon's max days (default
+    TONY_MAX_HOLD_DAYS=30; horizon 'day'=1, 'long'=exempt) is closed — capital stops camping in
+    a stale thesis. Keyed once per day per symbol so a failed close retries next cycle/day."""
+    cap_default = MAX_HOLD_DAYS if default_days is None else default_days
+    if cap_default <= 0:
+        return []
+    from runner.ledger.position_meta import horizon_max_days
+    out = []
+    for p in positions:
+        sym = (p.get("symbol") or "").upper()
+        try:
+            qty = float(p.get("qty") or 0)
+        except (TypeError, ValueError):
+            continue
+        m = meta.get(sym)
+        if qty < 1 or not m or not m.get("first_seen"):
+            continue
+        cap = horizon_max_days(m, cap_default)
+        if cap is None:
+            continue                                   # true long — exempt
+        try:
+            age = (date.fromisoformat(today) - date.fromisoformat(m["first_seen"])).days
+        except (ValueError, TypeError):
+            continue
+        if age < cap:
+            continue
+        key = f"{today}:{sym}:maxhold_close"
+        if key in already_done:
+            continue
+        out.append({"key": key, "symbol": sym, "age_days": age, "cap_days": cap})
+    return out
+
+
+def _apply_lifecycle(broker, done: set, today: str) -> dict:
+    """Executor for the per-position lifecycle: refresh the position-meta ledger (first-seen /
+    high-water / initial R), raise ratchet floors via the existing reprice machinery, and close
+    max-hold breaches. Fail-soft per item; returns counts + whether `done` gained keys (so sync
+    re-persists the executed-log)."""
+    from runner.ledger.position_meta import load_meta, save_meta, update_meta
+    res = {"ratcheted": 0, "max_hold_closed": 0, "added": False}
+    try:
+        positions = broker.account().get("open_positions", [])
+        legs = _sell_legs(broker.open_orders())
+    except Exception as exc:
+        _log.warning("lifecycle read failed: %s", exc)
+        return res
+    meta, changed = update_meta(load_meta(), positions, legs, today)
+    if changed:
+        save_meta(meta)
+
+    if STOP_RATCHET:
+        for rp in plan_stop_ratchets(positions, legs, meta, today, done):
+            try:
+                broker.reprice(rp["symbol"], rp["qty"], rp["target"], rp["stop"])
+                done.add(rp["key"])
+                res["ratcheted"] += 1
+                res["added"] = True
+                _audit("order", rp["symbol"], action="ratchet", stop=rp["stop"],
+                       target=rp["target"], hwm=rp.get("hwm"))
+                _log.info("Ratcheted %s stop -> %.2f (hwm %.2f)", rp["symbol"], rp["stop"], rp.get("hwm", 0))
+                try:
+                    from runner.tools.notify import notify_reprice
+                    notify_reprice(rp["symbol"], rp["qty"], rp["target"], rp["stop"])
+                except Exception as nexc:
+                    _log.info("notify ratchet failed: %s", nexc)
+            except Exception as exc:
+                _log.warning("ratchet %s failed: %s", rp.get("symbol"), exc)
+
+    for c in plan_max_hold_closes(positions, meta, today, done):
+        try:
+            broker.close(c["symbol"])
+            done.add(c["key"])
+            res["max_hold_closed"] += 1
+            res["added"] = True
+            _audit("order", c["symbol"], action="maxhold_close",
+                   age_days=c["age_days"], cap_days=c["cap_days"])
+            _log.info("Max-hold close %s: held %dd >= cap %dd", c["symbol"], c["age_days"], c["cap_days"])
+        except Exception as exc:
+            _log.warning("max-hold close %s failed: %s", c.get("symbol"), exc)
+    return res
 
 
 def whole_share_qty(notional: float, price: float | None) -> int:
@@ -888,6 +1062,17 @@ def sync(broker=None) -> dict:
     protect_levels = _merge_levels(_verdict_levels(verdicts), levels)
     protected = _reconcile_protection(broker, protect_levels, fallback_pct=_fallback_pcts())
     _liquidate_unprotectable_slivers(broker)  # close sub-1-share slivers that can never be bracketed (SLB)
+
+    # Per-position lifecycle AFTER protection reconcile (so every position has its legs first):
+    # high-water/age ledger -> profit-ratchet floors -> swing max-hold closes. Fail-soft.
+    lifecycle = {"ratcheted": 0, "max_hold_closed": 0, "added": False}
+    try:
+        lifecycle = _apply_lifecycle(broker, done, today)
+        if lifecycle.get("added"):
+            EXECUTED_LOG.write_text(json.dumps(sorted(done)), encoding="utf-8")
+    except Exception as exc:
+        _log.warning("lifecycle (ratchet/max-hold) failed: %s", exc)
+
     _notify_closed(broker)  # exit alerts for anything closed since last cycle (target/stop/close)
 
     try:  # snapshot the book so briefs can inject it without a network call (fail-soft)
@@ -897,7 +1082,9 @@ def sync(broker=None) -> dict:
         _log.info("book cache update skipped: %s", exc)
 
     return {"status": "ok", "executed": executed, "planned": len(plan),
-            "repriced": repriced, "protected": protected}
+            "repriced": repriced, "protected": protected,
+            "ratcheted": lifecycle.get("ratcheted", 0),
+            "max_hold_closed": lifecycle.get("max_hold_closed", 0)}
 
 
 def _reprice_adjusted(broker, verdicts: list, done: set, opened_now: set) -> int:
@@ -909,8 +1096,16 @@ def _reprice_adjusted(broker, verdicts: list, done: set, opened_now: set) -> int
     except Exception as exc:
         _log.warning("reprice read failed: %s", exc)
         return 0
+    try:
+        live_stops = _sell_legs(broker.open_orders())   # arms the never-loosen clamp
+    except Exception as exc:
+        _log.info("reprice live-stops read failed (clamp disarmed this cycle): %s", exc)
+        live_stops = None
     count = 0
-    for rp in plan_reprices(verdicts, positions, done, opened_now):
+    for rp in plan_reprices(verdicts, positions, done, opened_now, live_stops=live_stops):
+        if rp.get("clamped"):
+            _log.warning("adjust %s tried to LOOSEN the stop — clamped to current %.2f",
+                         rp["symbol"], rp["stop"])
         try:
             broker.reprice(rp["symbol"], rp["qty"], rp["target"], rp["stop"])
             done.add(rp["key"])

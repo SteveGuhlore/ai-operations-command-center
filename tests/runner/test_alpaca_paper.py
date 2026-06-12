@@ -152,6 +152,8 @@ def test_sync_executes_and_is_idempotent(tmp_path, monkeypatch):
     (tmp_path / "v.json").write_text(json.dumps(verdicts))
     monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
     monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    import runner.ledger.position_meta as _pm
+    monkeypatch.setattr(_pm, "META_FILE", tmp_path / "position-meta.json")
     b = FakeBroker()
     r1 = ap.sync(broker=b)
     assert r1["executed"] == 1 and b.buys[0][0] == "AAA"
@@ -181,6 +183,8 @@ def test_paper_book_no_keys(monkeypatch):
 
 def test_flush_session_clears(tmp_path, monkeypatch):
     monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    import runner.ledger.position_meta as _pm
+    monkeypatch.setattr(_pm, "META_FILE", tmp_path / "position-meta.json")
     monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
     (tmp_path / "exec.json").write_text(json.dumps(["2026-06-02:D:open"]))
     (tmp_path / "v.json").write_text(json.dumps([{"date": "2026-06-02", "symbol": "D"}]))
@@ -268,6 +272,8 @@ def test_latest_scanner_levels_uses_newest_including_intraday(tmp_path, monkeypa
 def test_sync_reconciles_unprotected_positions(tmp_path, monkeypatch):
     monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
     monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    import runner.ledger.position_meta as _pm
+    monkeypatch.setattr(_pm, "META_FILE", tmp_path / "position-meta.json")
     (tmp_path / "v.json").write_text("[]")
     bd = tmp_path / "bridge"; bd.mkdir()
     (bd / "2026-06-03T1530.md").write_text("### [[CVS]]\n- Target: $98.06 (+1%) | Stop: $88.73 (-1%)\n")
@@ -284,7 +290,7 @@ def test_plan_reprices_adjusted_held_position():
     positions = [{"symbol": "AAA", "qty": 10.0}]
     plan = ap.plan_reprices(verdicts, positions, {"2026-06-04:AAA:open"})
     assert plan == [{"key": "2026-06-04:AAA:adjust:30.0:25.0", "symbol": "AAA",
-                     "qty": 10, "target": 30.0, "stop": 25.0}]
+                     "qty": 10, "target": 30.0, "stop": 25.0, "clamped": False}]
 
 
 def test_plan_reprices_carried_position_without_open_key():
@@ -293,7 +299,7 @@ def test_plan_reprices_carried_position_without_open_key():
     positions = [{"symbol": "AAA", "qty": 10.0}]
     plan = ap.plan_reprices(verdicts, positions, set())
     assert plan == [{"key": "2026-06-04:AAA:adjust:30.0:25.0", "symbol": "AAA",
-                     "qty": 10, "target": 30.0, "stop": 25.0}]
+                     "qty": 10, "target": 30.0, "stop": 25.0, "clamped": False}]
 
 
 def test_plan_reprices_skips_symbol_opened_this_cycle():
@@ -321,6 +327,8 @@ def test_sync_reprices_on_intraday_adjust(tmp_path, monkeypatch):
     (tmp_path / "exec.json").write_text(json.dumps(["2026-06-04:AAA:open"]))  # entered on an earlier cycle
     monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
     monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    import runner.ledger.position_meta as _pm
+    monkeypatch.setattr(_pm, "META_FILE", tmp_path / "position-meta.json")
     bd = tmp_path / "bridge"; bd.mkdir()
     (bd / "2026-06-04T1030.md").write_text("### [[AAA]]\n- Target: $40.0 (+1%) | Stop: $20.0 (-1%)\n")
     monkeypatch.setattr(ap, "BRIDGE_DIR", bd)
@@ -361,6 +369,8 @@ def test_sync_skips_buy_when_market_closed(tmp_path, monkeypatch):
     (tmp_path / "v.json").write_text(json.dumps(verdicts))
     monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
     monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    import runner.ledger.position_meta as _pm
+    monkeypatch.setattr(_pm, "META_FILE", tmp_path / "position-meta.json")
     alerts = []
     monkeypatch.setattr(ap, "_notify_entry_safe", lambda *a, **k: alerts.append(a))
     b = FakeBroker()
@@ -378,6 +388,8 @@ def test_sync_closed_market_still_protects_and_closes(tmp_path, monkeypatch):
     (tmp_path / "v.json").write_text(json.dumps(verdicts))
     monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
     monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    import runner.ledger.position_meta as _pm
+    monkeypatch.setattr(_pm, "META_FILE", tmp_path / "position-meta.json")
     bd = tmp_path / "bridge"; bd.mkdir()
     (bd / "2026-06-03T1530.md").write_text("### [[CVS]]\n- Target: $98.06 (+1%) | Stop: $88.73 (-1%)\n")
     monkeypatch.setattr(ap, "BRIDGE_DIR", bd)
@@ -393,6 +405,8 @@ def test_sync_buy_executes_when_market_open(tmp_path, monkeypatch):
     (tmp_path / "v.json").write_text(json.dumps(verdicts))
     monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
     monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    import runner.ledger.position_meta as _pm
+    monkeypatch.setattr(_pm, "META_FILE", tmp_path / "position-meta.json")
     b = FakeBroker()
     r = ap.sync(broker=b)
     assert b.buys[0][0] == "AAA" and r["executed"] == 1
@@ -403,6 +417,8 @@ def test_flush_session_no_keys_still_clears(tmp_path, monkeypatch):
     monkeypatch.delenv("ALPACA_API_KEY", raising=False)
     monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
     monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    import runner.ledger.position_meta as _pm
+    monkeypatch.setattr(_pm, "META_FILE", tmp_path / "position-meta.json")
     monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
     (tmp_path / "exec.json").write_text("[]")
     (tmp_path / "v.json").write_text("[]")

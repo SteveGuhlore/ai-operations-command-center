@@ -61,6 +61,8 @@ def _wire_sync(tmp_path, monkeypatch, verdicts):
     monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
     monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
     monkeypatch.setattr(ap, "_latest_scanner_levels", lambda: {})
+    import runner.ledger.position_meta as _pm
+    monkeypatch.setattr(_pm, "META_FILE", tmp_path / "position-meta.json")  # lifecycle ledger isolation
     monkeypatch.setenv("TONY_MARKET_SESSION", "open")
     monkeypatch.setenv("TONY_BOOK_CACHE", str(tmp_path / "book.json"))
 

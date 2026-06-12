@@ -144,7 +144,8 @@ def test_plan_orders_blocks_reentry_after_exit_today():
 def test_sync_skips_symbol_exited_today(tmp_path, monkeypatch):
     _wire(tmp_path, monkeypatch, [{"date": "2026-06-08", "symbol": "KDP", "verdict": "override",
                                    "target": 30, "stop": 25, "confidence": "high"}])
-    today = ap.date.today().isoformat()
+    from runner.ledger.market_clock import trading_day
+    today = trading_day()  # the clock sync uses; a real RTH fill always carries the ET day
     b = FakeBroker(fills=[{"symbol": "KDP", "side": "sell", "date": today}])
     ap.sync(broker=b)
     assert "KDP" not in b.buys
@@ -231,6 +232,8 @@ def _wire(tmp_path, monkeypatch, verdicts):
     monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
     monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
     monkeypatch.setattr(ap, "_latest_scanner_levels", lambda: {})
+    import runner.ledger.position_meta as _pm
+    monkeypatch.setattr(_pm, "META_FILE", tmp_path / "position-meta.json")  # lifecycle ledger isolation
     monkeypatch.setenv("TONY_MARKET_SESSION", "open")  # exercise buy mechanics regardless of wall-clock (weekend-safe)
 
 
