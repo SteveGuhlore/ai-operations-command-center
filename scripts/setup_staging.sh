@@ -157,6 +157,8 @@ TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID TELEGRAM_PUBLIC_CHANNEL_ID
 OUTREACH_AUTOMATION SENDGRID_API_KEY INSTAGRAM_ACCESS_TOKEN
 TONY_ACCOUNT_MODE TONY_LIVE_ENABLED TONY_LIVE_ALPACA_API_KEY TONY_LIVE_ALPACA_SECRET_KEY
 CC_PORT
+CC_LLM_OFFLINE OPENROUTER_API_KEY GOOGLE_AI_API_KEY VERTEX_PROJECT GOOGLE_CLOUD_PROJECT
+ANTHROPIC_API_KEY OPENAI_API_KEY
 "
 for key in $OVERRIDE_KEYS; do
     sed -i "s|^[[:space:]]*${key}=|# [prod, overridden by staging block] ${key}=|" "$STAGING_ENV"
@@ -184,6 +186,24 @@ TONY_IDEAS_FILE=$STAGING_DIR/workspace/trading-reports/tony_stocks_ideas.json
 # --- Bridge: staging's own dir (the bot keeps writing only to production) ---
 # Use --mirror-bridge to copy NEW production bridge files here automatically.
 TONY_BRIDGE_DIR=$STAGING_DIR/bridge/tony-stocks
+
+# --- LLM: OFFLINE, \$0 — two independent guarantees ---------------------------
+# 1) CC_LLM_OFFLINE=1: runner/agents/base.py returns canned, real-shaped
+#    completions (0 tokens -> record_spend books \$0) that still drive the full
+#    pipeline (canned verdicts WITH target/stop -> paper trades -> EOD report).
+# 2) All model keys blanked: even if the flag is ever missed, there is no
+#    credential to bill against. OPENAI_API_KEY also covers the direct clients
+#    in runner/tools/image.py and audio.py.
+# FULL-FIDELITY OPT-IN (rare — only when the change under test IS the LLM
+# path): set CC_LLM_OFFLINE=0 and paste real keys for that one soak, then
+# revert. See docs/DEVELOPMENT.md.
+CC_LLM_OFFLINE=1
+OPENROUTER_API_KEY=
+GOOGLE_AI_API_KEY=
+VERTEX_PROJECT=
+GOOGLE_CLOUD_PROJECT=
+ANTHROPIC_API_KEY=
+OPENAI_API_KEY=
 
 # --- Outbound sends: HARD OFF in staging -------------------------------------
 TONY_NOTIFY=off

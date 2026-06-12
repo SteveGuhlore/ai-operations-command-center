@@ -6,6 +6,7 @@ import time
 import openai
 
 from runner.ledger.budget import record_spend
+from runner.agents.offline import llm_offline, offline_completion
 from runner.agents.tool_runner import dispatch_tool
 
 _log = logging.getLogger(__name__)
@@ -87,7 +88,11 @@ class AgentBase:
         vertex_project = os.environ.get("VERTEX_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
         google_key = os.environ.get("GOOGLE_AI_API_KEY")
         self._use_vertex = False
-        if vertex_project and model.startswith("gemini-"):
+        if llm_offline():
+            # Staging zero-spend mode: no client at all, so blank/missing keys can't
+            # even error — _completion_with_backoff returns canned completions.
+            self.client = None
+        elif vertex_project and model.startswith("gemini-"):
             location = (os.environ.get("VERTEX_LOCATION")
                         or os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1"))
             self._use_vertex = True
@@ -114,6 +119,8 @@ class AgentBase:
         """Gemini/Vertex returns 429 RESOURCE_EXHAUSTED under load (the whole-universe sweep +
         overnight rounds burst past the per-minute quota). Back off and retry instead of letting a
         transient rate-limit hard-fail the whole task. Non-rate-limit errors raise immediately."""
+        if llm_offline():
+            return offline_completion(self.role_id, kwargs)
         tries = int(os.environ.get("TONY_LLM_RETRY_TRIES", "5"))
         last = None
         for attempt in range(max(1, tries)):
