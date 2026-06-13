@@ -3,7 +3,7 @@ from runner.ledger import alpaca_paper as ap
 
 
 class FakeBroker:
-    def __init__(self, positions=None, orders=None):
+    def __init__(self, positions=None, orders=None, equity=100000.0, cash=None):
         self.buys = []
         self.buy_risk_pcts = []
         self.closes = []
@@ -11,6 +11,10 @@ class FakeBroker:
         self.reprices = []
         self._positions = positions or []
         self._orders = orders or []
+        self._equity = equity
+        # default cash == equity so a flat fake book reads as genuinely flat (equity-cash == 0),
+        # not as a bad read; tests that simulate a lying read pass an explicit low cash.
+        self._cash = cash if cash is not None else equity
 
     def buy(self, symbol, notional, target, stop, risk_pct=None):
         self.buys.append((symbol, notional, target, stop))
@@ -26,7 +30,7 @@ class FakeBroker:
         self.reprices.append((symbol, qty, target, stop))
 
     def account(self):
-        return {"equity": 100000.0, "open_positions": self._positions}
+        return {"equity": self._equity, "cash": self._cash, "open_positions": self._positions}
 
     def open_orders(self):
         return self._orders
@@ -411,6 +415,50 @@ def test_sync_buy_executes_when_market_open(tmp_path, monkeypatch):
     r = ap.sync(broker=b)
     assert b.buys[0][0] == "AAA" and r["executed"] == 1
     assert json.load(open(tmp_path / "exec.json")) == ["2026-06-03:AAA:open"]
+
+
+def _failclosed_setup(tmp_path, monkeypatch):
+    """An open verdict that WOULD buy on a normal cycle, market open, isolated state files."""
+    monkeypatch.setenv("TONY_MARKET_SESSION", "open")
+    verdicts = [{"date": "2026-06-12", "symbol": "AMD", "verdict": "override", "target": 130, "stop": 110}]
+    (tmp_path / "v.json").write_text(json.dumps(verdicts))
+    monkeypatch.setattr(ap, "VERDICTS_FILE", tmp_path / "v.json")
+    monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    import runner.ledger.position_meta as _pm
+    monkeypatch.setattr(_pm, "META_FILE", tmp_path / "position-meta.json")
+
+
+def test_sync_failclosed_when_account_read_raises(tmp_path, monkeypatch):
+    # A transient account-read error must NOT empty `held` and re-open the book (the 2026-06-12
+    # mass re-buy). The read raised -> we cannot prove a buy isn't a pyramid -> zero new entries.
+    _failclosed_setup(tmp_path, monkeypatch)
+
+    class RaisingBroker(FakeBroker):
+        def account(self):
+            raise RuntimeError("alpaca 503")
+
+    b = RaisingBroker()
+    r = ap.sync(broker=b)
+    assert b.buys == [] and r["executed"] == 0      # fail-closed: nothing bought
+
+
+def test_sync_failclosed_on_empty_read_while_equity_in_positions(tmp_path, monkeypatch):
+    # The read SUCCEEDED but returned an empty book while equity ($1M) sits far above cash ($100k) —
+    # ~$900k is in positions the read didn't return. A lying/partial read, not a flat account: fail
+    # closed, no new entries. (Without this, the empty `held` re-buys every name with a verdict.)
+    _failclosed_setup(tmp_path, monkeypatch)
+    b = FakeBroker(positions=[], equity=1_000_000.0, cash=100_000.0)
+    r = ap.sync(broker=b)
+    assert b.buys == [] and r["executed"] == 0
+
+
+def test_sync_buys_on_genuinely_flat_book(tmp_path, monkeypatch):
+    # Regression: a real flat account (equity == cash, no positions) is NOT a bad read — entries
+    # must still fire, or the fail-closed guard would freeze a legitimately empty book.
+    _failclosed_setup(tmp_path, monkeypatch)
+    b = FakeBroker(positions=[], equity=100_000.0, cash=100_000.0)
+    r = ap.sync(broker=b)
+    assert b.buys and b.buys[0][0] == "AMD" and r["executed"] == 1
 
 
 def test_flush_session_no_keys_still_clears(tmp_path, monkeypatch):

@@ -31,7 +31,7 @@ class FakeBroker:
         pass
 
     def account(self):
-        return {"equity": 1_000_000.0, "cash": 1.0, "last_equity": 1_000_000.0, "open_positions": []}
+        return {"equity": 1_000_000.0, "cash": 1_000_000.0, "last_equity": 1_000_000.0, "open_positions": []}
 
     def open_orders(self):
         return []
