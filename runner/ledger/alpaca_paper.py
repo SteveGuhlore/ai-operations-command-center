@@ -39,6 +39,10 @@ RISK_PCT = float(os.environ.get("TONY_RISK_PER_TRADE_PCT", "1.0"))          # co
 MAX_NOTIONAL = float(os.environ.get("TONY_MAX_NOTIONAL_PER_POSITION", "10000"))  # legacy cap (risk_based_qty)
 MAX_OPEN_POSITIONS = int(os.environ.get("TONY_MAX_OPEN_POSITIONS", "50"))
 MAX_DAILY_ORDERS = int(os.environ.get("TONY_MAX_DAILY_ORDERS", "200"))
+# Below this $ of equity-over-cash we treat an empty holdings read as a genuinely flat book; above
+# it, an empty read means money is in positions the read didn't return -> fail closed (no entries).
+# Far under one entry ($10k) so a real flat account is never mistaken for a bad read.
+_HELD_READ_MIN_MV = float(os.environ.get("TONY_HELD_READ_MIN_MV", "1000"))
 
 # Profit ratchet (deterministic floor under Tony's discretionary adjusts) + swing max-hold.
 # Units are R = entry - initial stop, the scanner's own per-name volatility-calibrated risk
@@ -1003,12 +1007,27 @@ def sync(broker=None) -> dict:
     verdicts = _load(VERDICTS_FILE)
     done = set(_load(EXECUTED_LOG))
     levels = _latest_scanner_levels()
+    # FAIL-CLOSED holdings read. `held` is the no-pyramiding guard (plan_orders skips any name in
+    # it) AND sizes the new-entry cap (MAX_OPEN_POSITIONS - len(held)). If the read is wrong-empty,
+    # both break at once: the guard waves every held name through and the cap inflates to ~50 — a
+    # single flaky read re-buys the whole book. That is exactly the 2026-06-12 mass re-buy (79 buys,
+    # 45 positions doubled). So when we cannot TRUST the holdings read, we plan zero new entries this
+    # cycle (closes/reprices/protection still run — they only reduce risk). Two untrusted cases:
+    #   1. the call raised, or
+    #   2. it returned an empty book while equity sits well above cash — money is in positions the
+    #      read didn't return (a lying/partial read), not a genuinely flat account.
+    held_ok = True
     try:
-        held = {p.get("symbol") for p in broker.account().get("open_positions", [])
+        acct = broker.account()
+        held = {p.get("symbol") for p in (acct.get("open_positions") or [])
                 if float(p.get("qty", 0) or 0) > 0}
+        in_positions = float(acct.get("equity") or 0) - float(acct.get("cash") or 0)
+        if not held and in_positions > _HELD_READ_MIN_MV:
+            held_ok = False
+            _log.warning("held read empty but ~$%.0f is in positions — fail-closed (no new entries)", in_positions)
     except Exception as exc:
-        _log.warning("held read failed: %s", exc)
-        held = set()
+        _log.warning("held read failed — fail-closed (no new entries this cycle): %s", exc)
+        held, held_ok = set(), False
     # ET trading day — verdict keys are ET-stamped (tony_verdict/research_queue), so counting the
     # daily-order cap by the UTC day undercounts the evening recheck window and effectively disables
     # the cap after 8 PM ET. RTH fills never cross midnight-UTC (=8 PM ET), so the re-entry cooldown
@@ -1022,7 +1041,9 @@ def sync(broker=None) -> dict:
         _log.warning("re-entry cooldown read failed: %s", exc)
         exited_today = set()
     today_opens = sum(1 for k in done if isinstance(k, str) and k.startswith(today) and k.endswith(":open"))
-    max_new = max(0, min(MAX_OPEN_POSITIONS - len(held), MAX_DAILY_ORDERS - today_opens))
+    # held_ok=False -> zero new entries (closes still plan; plan_orders only caps buys). A buy we
+    # can't prove isn't a pyramid must not fire.
+    max_new = 0 if not held_ok else max(0, min(MAX_OPEN_POSITIONS - len(held), MAX_DAILY_ORDERS - today_opens))
     plan = plan_orders(verdicts, done, levels, held, max_new_buys=max_new, exited_today=exited_today)
     plan = _apply_cluster_cap(plan, held)  # T1.9 correlated-cluster cap (OFF by default)
 
