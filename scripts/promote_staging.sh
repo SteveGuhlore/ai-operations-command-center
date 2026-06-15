@@ -28,8 +28,14 @@ echo "Candidate: branch '$BRANCH' @ $COMMIT (soaked in $STAGING_DIR)"
 [ "$BRANCH" != "master" ] && [ "$BRANCH" != "HEAD" ] || \
     fail "staging is on '$BRANCH' — check out the dev branch you soaked before promoting"
 
-if ! git -C "$STAGING_DIR" diff --quiet || ! git -C "$STAGING_DIR" diff --cached --quiet; then
-    fail "staging working tree is dirty — commit or discard local edits so what you promote is what you soaked"
+# "What you promote is what you soaked" applies to CODE, not runtime state: a live staging service
+# constantly writes workspace/ (task files, ledgers) and bridge/ + vault/, so a plain `git diff`
+# is always dirty. Check only for uncommitted CODE changes (everything outside those data dirs).
+CODE_DIRTY="$(git -C "$STAGING_DIR" status --porcelain -- \
+    ':(exclude)workspace' ':(exclude)bridge' ':(exclude)vault' 2>/dev/null)"
+if [ -n "$CODE_DIRTY" ]; then
+    fail "staging has uncommitted CODE changes (outside workspace/bridge/vault) — commit or discard them so what you promote is what you soaked:
+$CODE_DIRTY"
 fi
 
 echo
