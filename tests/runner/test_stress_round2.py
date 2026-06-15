@@ -47,7 +47,7 @@ class _CloseBroker:
         pass
 
     def account(self):
-        return {"equity": 1_000_000.0, "cash": 1.0, "last_equity": 1_000_000.0,
+        return {"equity": 1_000_000.0, "cash": 1_000_000.0, "last_equity": 1_000_000.0,
                 "open_positions": [{"symbol": "XXX", "qty": 10, "avg_entry_price": 100.0,
                                     "current_price": 99.0, "unrealized_pl": -10.0,
                                     "unrealized_plpc": -0.001}]}
@@ -452,9 +452,9 @@ def test_full_pipeline_bot_to_broker_to_feedback(tmp_path, monkeypatch):
 
         def account(self):
             if not self.buys:
-                return {"equity": 1_000_000.0, "cash": 1.0, "last_equity": 1_000_000.0,
+                return {"equity": 1_000_000.0, "cash": 1_000_000.0, "last_equity": 1_000_000.0,
                         "open_positions": []}
-            return {"equity": 1_000_000.0, "cash": 1.0, "last_equity": 1_000_000.0,
+            return {"equity": 1_000_000.0, "cash": 1_000_000.0, "last_equity": 1_000_000.0,
                     "open_positions": [{"symbol": "AAPL", "qty": 50, "avg_entry_price": 200.0,
                                         "current_price": 205.0, "unrealized_pl": 250.0,
                                         "unrealized_plpc": 0.025}]}
