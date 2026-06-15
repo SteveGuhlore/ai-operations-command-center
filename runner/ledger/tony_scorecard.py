@@ -8,6 +8,7 @@ Produces the second track record + agreement matrix (Cockpit) and per-confidence
 calibration. Degrades to status="awaiting_outcomes" when the bot hasn't emitted outcomes
 yet — see docs/handoffs/2026-06-02-tony-loop-and-cockpit.md §4.
 """
+
 import json
 import logging
 import math
@@ -16,19 +17,54 @@ from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
-_reports = Path(__file__).parent.parent.parent.parent / "TradingBotAgentProject" / "reports"
+_reports = (
+    Path(__file__).parent.parent.parent.parent / "TradingBotAgentProject" / "reports"
+)
 _vault = Path(__file__).parent.parent.parent / "vault"
-VERDICTS_FILE = Path(os.environ.get("TONY_VERDICTS_FILE", str(_reports / "tony_stocks_verdicts.json")))
+VERDICTS_FILE = Path(
+    os.environ.get("TONY_VERDICTS_FILE", str(_reports / "tony_stocks_verdicts.json"))
+)
 # Learning archive: the live verdicts file is FLUSHED daily (needed for execution), which otherwise
 # wipes the verdict->outcome history the scorecard learns from. archive_verdicts() appends each day's
 # verdicts here before the flush, and grading reads archive UNION live so learning accumulates.
-VERDICTS_ARCHIVE = Path(os.environ.get(
-    "TONY_VERDICTS_ARCHIVE",
-    str(Path(__file__).parent.parent.parent / "workspace" / "tony-verdicts-archive.json")))
-OUTCOMES_FILE = Path(os.environ.get("TONY_OUTCOMES_FILE", str(_reports / "tony_stocks_outcomes.json")))
-RECORD_FILE = Path(os.environ.get("TONY_RECORD_FILE", str(_reports / "tony_stocks_record.json")))
+VERDICTS_ARCHIVE = Path(
+    os.environ.get(
+        "TONY_VERDICTS_ARCHIVE",
+        str(
+            Path(__file__).parent.parent.parent
+            / "workspace"
+            / "tony-verdicts-archive.json"
+        ),
+    )
+)
+OUTCOMES_FILE = Path(
+    os.environ.get("TONY_OUTCOMES_FILE", str(_reports / "tony_stocks_outcomes.json"))
+)
+RECORD_FILE = Path(
+    os.environ.get("TONY_RECORD_FILE", str(_reports / "tony_stocks_record.json"))
+)
 # Tony's weekly self-review reads the record alongside his other vault files, so mirror it there too.
-VAULT_RECORD_FILE = Path(os.environ.get("TONY_VAULT_RECORD_FILE", str(_vault / "tony-stocks" / "tony_stocks_record.json")))
+VAULT_RECORD_FILE = Path(
+    os.environ.get(
+        "TONY_VAULT_RECORD_FILE",
+        str(_vault / "tony-stocks" / "tony_stocks_record.json"),
+    )
+)
+# Monotonic grade archive: compute_record re-grades from scratch each run, so a pick can DROP out of
+# the "2nd pass" tally if a later recompute fails to re-match it (verdict rotated out of the archive,
+# outcome aged past the emit window, ET/UTC date skew on the join). write_record locks each resolved
+# (symbol, pick_date) grade here permanently so the published record never shrinks — the same
+# terminal-lock the bot's divergence ledger uses. Keyed "SYMBOL|pick_date".
+GRADED_ARCHIVE = Path(
+    os.environ.get(
+        "TONY_GRADED_ARCHIVE",
+        str(
+            Path(__file__).parent.parent.parent
+            / "workspace"
+            / "tony-graded-archive.json"
+        ),
+    )
+)
 
 _BULLISH = {"reaffirm", "adjust"}
 
@@ -48,7 +84,10 @@ def archive_verdicts() -> dict:
     for v in live:
         if v.get("symbol") and v.get("date"):
             by_key[_verdict_key(v)] = v
-    merged = sorted(by_key.values(), key=lambda v: (str(v.get("date", "")), str(v.get("symbol", ""))))
+    merged = sorted(
+        by_key.values(),
+        key=lambda v: (str(v.get("date", "")), str(v.get("symbol", ""))),
+    )
     try:
         VERDICTS_ARCHIVE.parent.mkdir(parents=True, exist_ok=True)
         VERDICTS_ARCHIVE.write_text(json.dumps(merged, indent=2), encoding="utf-8")
@@ -83,21 +122,53 @@ def _is_right(verdict: str, ret: float, source: str = "") -> bool:
     return ret > 0 if bullish else ret <= 0
 
 
-def _matched_verdict(o: dict, verdicts: list) -> dict | None:
-    """Match a resolved pick to Tony's verdict. Prefer a shared pick_id; otherwise range-join
-    on symbol + verdict date within [pick_date, resolved_date], taking his LATEST (final) call.
-    This survives entry_date != bridge_date and the fact that Tony only verdicts on Tier-1 days."""
+def _episode_upper_bounds(outcomes: list) -> dict:
+    """For each resolved pick, the EXCLUSIVE upper bound for attributing verdicts to it = the
+    symbol's NEXT pick_date (or None for its latest episode). A verdict belongs to the episode
+    whose window [pick_date, next_pick_date) it falls in, so a verdict reviewing a re-pick is
+    never stolen by the symbol's earlier, already-resolved episode. Keyed (SYMBOL, pick_date)."""
+    from collections import defaultdict  # noqa: PLC0415
+
+    by_sym: dict[str, set] = defaultdict(set)
+    for o in outcomes or []:
+        sym = str(o.get("symbol") or "").upper()
+        pd = str(o.get("pick_date") or "")
+        if sym and pd:
+            by_sym[sym].add(pd)
+    bounds: dict[tuple[str, str], str | None] = {}
+    for sym, pds in by_sym.items():
+        ordered = sorted(pds)
+        for i, pd in enumerate(ordered):
+            bounds[(sym, pd)] = ordered[i + 1] if i + 1 < len(ordered) else None
+    return bounds
+
+
+def _matched_verdict(
+    o: dict, verdicts: list, next_pick_date: str | None = None
+) -> dict | None:
+    """Match a resolved pick to Tony's verdict. Prefer a shared pick_id; otherwise join on
+    symbol + verdict date >= pick_date, taking his LATEST (final) call. This survives
+    entry_date != bridge_date and the fact that Tony only verdicts on Tier-1 days.
+
+    NB there is intentionally NO ``verdict_date <= resolved_date`` upper bound: a pick that
+    resolved fast (a same-day stop-out, or a Tier-3 name Tony only reaches on a later fan-out)
+    is still graded against the call he made on it, instead of silently dropping out of the
+    "2nd pass" tally. ``next_pick_date`` (the symbol's next episode, exclusive) bounds the
+    window so a verdict reviewing a re-pick is attributed to that re-pick, not this episode."""
     pid = o.get("pick_id")
     if pid:
         cands = [v for v in verdicts if v.get("pick_id") == pid]
     else:
-        sym = o.get("symbol")
+        sym = str(o.get("symbol") or "").upper()
         pd = o.get("pick_date")
-        rd = o.get("resolved_date")
-        cands = [v for v in verdicts
-                 if v.get("symbol") == sym and v.get("date")
-                 and (not pd or v["date"] >= pd)
-                 and (not rd or v["date"] <= rd)]
+        cands = [
+            v
+            for v in verdicts
+            if str(v.get("symbol") or "").upper() == sym
+            and v.get("date")
+            and (not pd or v["date"] >= pd)
+            and (next_pick_date is None or v["date"] < next_pick_date)
+        ]
     return max(cands, key=lambda v: v.get("date", "")) if cands else None
 
 
@@ -105,51 +176,87 @@ def _matched_verdict(o: dict, verdicts: list) -> dict | None:
 # (schemas.py). Do not rename without coordinating: agreed_right, agreed_wrong,
 # cc_overrode_saved, cc_overrode_missed.
 def _empty_agreement() -> dict:
-    return {"agreed_right": 0, "agreed_wrong": 0, "cc_overrode_saved": 0, "cc_overrode_missed": 0}
+    return {
+        "agreed_right": 0,
+        "agreed_wrong": 0,
+        "cc_overrode_saved": 0,
+        "cc_overrode_missed": 0,
+    }
 
 
-def compute_record() -> dict:
-    verdicts = _all_verdicts()
-    outcomes = _load(OUTCOMES_FILE)
-    if not outcomes:
-        return {
-            "status": "awaiting_outcomes",
-            "verdicts": len(verdicts),
-            "graded": 0,
-            "win_rate": 0.0,
-            "tony_win_rate": 0.0,
-            "avg_pl_per_trade": None,
-            "target_hits": 0,
-            "stop_hits": 0,
-            "agreement": _empty_agreement(),
-            "calibration": {"low": None, "medium": None, "high": None},
-        }
+def _awaiting_record(verdict_count: int) -> dict:
+    return {
+        "status": "awaiting_outcomes",
+        "verdicts": verdict_count,
+        "graded": 0,
+        "win_rate": 0.0,
+        "tony_win_rate": 0.0,
+        "avg_pl_per_trade": None,
+        "target_hits": 0,
+        "stop_hits": 0,
+        "agreement": _empty_agreement(),
+        "calibration": {"low": None, "medium": None, "high": None},
+    }
 
+
+def _grade_key(pick: dict) -> str:
+    return f"{pick['symbol']}|{pick['pick_date']}"
+
+
+def _iter_graded(verdicts: list, outcomes: list) -> list[dict]:
+    """One graded record per RESOLVED pick Tony verdicted, using the episode-bounded relaxed
+    join. Each carries everything _aggregate (and the monotonic archive) needs to re-tally
+    without re-reading the source files: symbol, pick_date, quadrant, right, return_pct,
+    result, confidence."""
+    bounds = _episode_upper_bounds(outcomes)
+    picks: list[dict] = []
+    for o in (
+        outcomes or []
+    ):  # one grade per RESOLVED pick (his final call before it closed)
+        sym = str(o.get("symbol") or "").upper()
+        pick_date = str(o.get("pick_date") or "")
+        v = _matched_verdict(o, verdicts, next_pick_date=bounds.get((sym, pick_date)))
+        if not v:
+            continue
+        ret = float(o.get("return_pct", 0) or 0)
+        verdict = v.get("verdict", "")
+        if verdict in _BULLISH:
+            quadrant = "agreed_right" if ret > 0 else "agreed_wrong"
+        else:
+            quadrant = "cc_overrode_saved" if ret <= 0 else "cc_overrode_missed"
+        picks.append(
+            {
+                "symbol": sym,
+                "pick_date": pick_date,
+                "quadrant": quadrant,
+                "right": _is_right(verdict, ret, v.get("source", "")),
+                "return_pct": o.get("return_pct"),
+                "result": o.get("result"),
+                "confidence": v.get("confidence", "medium"),
+            }
+        )
+    return picks
+
+
+def _aggregate(picks: list[dict], verdict_count: int) -> dict:
+    """Build the scored record dict from a list of graded picks (fresh or archive-merged)."""
     graded = tony_right = target_hits = stop_hits = 0
     pl_values: list = []
     agg = _empty_agreement()
     conf_buckets: dict[str, list] = {"low": [], "medium": [], "high": []}
 
-    for o in outcomes:  # one grade per RESOLVED pick (his final call before it closed)
-        v = _matched_verdict(o, verdicts)
-        if not v:
-            continue
+    for p in picks:
         graded += 1
-        ret = float(o.get("return_pct", 0) or 0)
-        if o.get("return_pct") is not None:
-            pl_values.append(ret)
-        result = o.get("result")
-        if result == "target_hit":
+        if p.get("return_pct") is not None:
+            pl_values.append(float(p["return_pct"]))
+        if p.get("result") == "target_hit":
             target_hits += 1
-        elif result == "stop_hit":
+        elif p.get("result") == "stop_hit":
             stop_hits += 1
-        right = _is_right(v.get("verdict", ""), ret, v.get("source", ""))
+        right = bool(p.get("right"))
         tony_right += int(right)
-        if v.get("verdict") in _BULLISH:
-            agg["agreed_right" if ret > 0 else "agreed_wrong"] += 1
-        else:
-            agg["cc_overrode_saved" if ret <= 0 else "cc_overrode_missed"] += 1
-        bucket = conf_buckets.get(v.get("confidence", "medium"))
+        agg[p["quadrant"]] += 1
+        bucket = conf_buckets.get(p.get("confidence", "medium"))
         if bucket is not None:
             bucket.append(int(right))
 
@@ -162,16 +269,56 @@ def compute_record() -> dict:
 
     return {
         "status": "scored",
-        "verdicts": len(verdicts),
+        "verdicts": verdict_count,
         "graded": graded,
         "win_rate": win_rate,
-        "tony_win_rate": win_rate,          # back-compat alias (tony_live_guard reads this)
+        "tony_win_rate": win_rate,  # back-compat alias (tony_live_guard reads this)
         "avg_pl_per_trade": avg_pl,
         "target_hits": target_hits,
         "stop_hits": stop_hits,
         "agreement": agg,
         "calibration": calibration,
     }
+
+
+def compute_record() -> dict:
+    """Fresh scorecard from the current verdicts (archive ∪ live) and outcomes. Non-monotonic
+    by design — callers that need the live win-rate (tony_live_guard, daily audit) read this.
+    The PUBLISHED record (write_record) overlays the monotonic grade archive on top."""
+    verdicts = _all_verdicts()
+    outcomes = _load(OUTCOMES_FILE)
+    if not outcomes:
+        return _awaiting_record(len(verdicts))
+    return _aggregate(_iter_graded(verdicts, outcomes), len(verdicts))
+
+
+def _load_graded_archive() -> dict:
+    try:
+        data = json.loads(GRADED_ARCHIVE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, FileNotFoundError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _merge_graded_archive(fresh: list[dict]) -> list[dict]:
+    """Lock each resolved (symbol, pick_date) grade permanently and return the merged set.
+    The FIRST terminal grade for a pick wins and is never overwritten/flipped, so the 2nd-pass
+    tally only grows — even when a later recompute can't re-match the pick. Outcomes only ever
+    carry resolved picks, so every graded record here is terminal (no pending to accumulate)."""
+    archive = _load_graded_archive()
+    changed = False
+    for p in fresh:
+        key = _grade_key(p)
+        if key not in archive:
+            archive[key] = p
+            changed = True
+    if changed:
+        try:
+            GRADED_ARCHIVE.parent.mkdir(parents=True, exist_ok=True)
+            GRADED_ARCHIVE.write_text(json.dumps(archive, indent=2), encoding="utf-8")
+        except OSError as exc:
+            _log.warning("graded archive write failed: %s", exc)
+    return list(archive.values())
 
 
 def discover_edges(min_n: int = 5) -> dict:
@@ -185,18 +332,29 @@ def discover_edges(min_n: int = 5) -> dict:
         v = _matched_verdict(o, verdicts)
         if not v:
             continue
-        right = int(_is_right(v.get("verdict", ""), float(o.get("return_pct", 0) or 0), v.get("source", "")))
+        right = int(
+            _is_right(
+                v.get("verdict", ""),
+                float(o.get("return_pct", 0) or 0),
+                v.get("source", ""),
+            )
+        )
         for tag in v.get("evidence", []) or []:
             tally.setdefault(tag, []).append(right)
     edges = [
         {"tag": tag, "n": len(rs), "win_rate": round(sum(rs) / len(rs) * 100, 1)}
-        for tag, rs in tally.items() if len(rs) >= min_n
+        for tag, rs in tally.items()
+        if len(rs) >= min_n
     ]
     edges.sort(key=lambda e: -e["win_rate"])
     return {"status": "scored" if edges else "insufficient_history", "edges": edges}
 
 
-_OPEN_VERDICTS = {"reaffirm", "adjust", "override"}  # the verdicts that become sized positions
+_OPEN_VERDICTS = {
+    "reaffirm",
+    "adjust",
+    "override",
+}  # the verdicts that become sized positions
 
 
 def sizing_attribution() -> dict:
@@ -207,13 +365,23 @@ def sizing_attribution() -> dict:
     verdicts = _all_verdicts()
     outcomes = _load(OUTCOMES_FILE)
     if not outcomes:
-        return {"status": "awaiting_outcomes", "graded": 0, "picking_alpha_pct": None,
-                "flat_return_pct": None, "conviction_return_pct": None, "sizing_alpha_pct": None}
+        return {
+            "status": "awaiting_outcomes",
+            "graded": 0,
+            "picking_alpha_pct": None,
+            "flat_return_pct": None,
+            "conviction_return_pct": None,
+            "sizing_alpha_pct": None,
+        }
     try:
         from runner.ledger.alpaca_paper import conviction_multiplier
     except Exception:
-        def conviction_multiplier(_c):  # degrade to flat weighting if sizing module unavailable
+
+        def conviction_multiplier(
+            _c,
+        ):  # degrade to flat weighting if sizing module unavailable
             return 1.0
+
     rets, w_sum, w_ret, graded = [], 0.0, 0.0, 0
     for o in outcomes:
         v = _matched_verdict(o, verdicts)
@@ -226,17 +394,26 @@ def sizing_attribution() -> dict:
         w_ret += w * ret
         graded += 1
     if not rets:
-        return {"status": "awaiting_outcomes", "graded": 0, "picking_alpha_pct": None,
-                "flat_return_pct": None, "conviction_return_pct": None, "sizing_alpha_pct": None}
+        return {
+            "status": "awaiting_outcomes",
+            "graded": 0,
+            "picking_alpha_pct": None,
+            "flat_return_pct": None,
+            "conviction_return_pct": None,
+            "sizing_alpha_pct": None,
+        }
     flat = sum(rets) / len(rets)
     conv = w_ret / w_sum if w_sum else flat
     # picking_alpha = selection quality at equal (flat) sizing; sizing_alpha = the extra from
     # conviction weighting. The execution-parity v1.1 §B.1 contract names these two explicitly.
-    return {"status": "scored", "graded": graded,
-            "picking_alpha_pct": round(flat, 3),
-            "flat_return_pct": round(flat, 3),          # alias kept for the brief's wording
-            "conviction_return_pct": round(conv, 3),
-            "sizing_alpha_pct": round(conv - flat, 3)}
+    return {
+        "status": "scored",
+        "graded": graded,
+        "picking_alpha_pct": round(flat, 3),
+        "flat_return_pct": round(flat, 3),  # alias kept for the brief's wording
+        "conviction_return_pct": round(conv, 3),
+        "sizing_alpha_pct": round(conv - flat, 3),
+    }
 
 
 def _tony_equity_curve() -> list:
@@ -244,6 +421,7 @@ def _tony_equity_curve() -> list:
     from equity_history. Best-effort: returns [] if the history isn't available yet."""
     try:
         from runner.ledger import equity_history
+
         pts = equity_history.curve().get("points", [])
         return [p["tony"] for p in pts if p.get("tony") is not None]
     except Exception as exc:
@@ -263,9 +441,21 @@ def _sanitize(obj):
 
 
 def write_record() -> dict:
-    rec = compute_record()
-    rec["equity_curve"] = _tony_equity_curve()  # list[float], indexed to 100, live-marked
-    rec["sizing_attribution"] = sizing_attribution()  # B1: picking vs sizing alpha (optional field)
+    # Publish the MONOTONIC record: grade fresh, then merge into the locked grade archive so the
+    # "2nd pass" tally only ever grows (a recompute that loses a match can't shrink the panel).
+    verdicts = _all_verdicts()
+    outcomes = _load(OUTCOMES_FILE)
+    if not outcomes:
+        rec = _awaiting_record(len(verdicts))
+    else:
+        merged = _merge_graded_archive(_iter_graded(verdicts, outcomes))
+        rec = _aggregate(merged, len(verdicts))
+    rec["equity_curve"] = (
+        _tony_equity_curve()
+    )  # list[float], indexed to 100, live-marked
+    rec["sizing_attribution"] = (
+        sizing_attribution()
+    )  # B1: picking vs sizing alpha (optional field)
     rec = _sanitize(rec)
     payload = json.dumps(rec, indent=2, allow_nan=False)
     for target in (RECORD_FILE, VAULT_RECORD_FILE):
