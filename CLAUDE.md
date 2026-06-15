@@ -20,13 +20,28 @@ This applies to all code changes. Simple one-liners are exempt.
 
 ## Branch Discipline (ENFORCED — production runs 24/7)
 The VM (`/opt/command-center`, systemd `cc-runner`) deploys from `master`. Broken code on
-master = broken live service and live paper-trading.
+master = broken live service and live paper-trading. **No change ever touches prod directly** —
+not a hot edit, not a direct commit, not a restart-with-uncommitted-code.
 1. ALL development happens on a dev branch — never commit straight to master
-2. Soak the branch in the staging environment (`/opt/command-center-staging`, port 8766 —
-   `scripts/setup_staging.sh`) for at least one evening of live market data
+2. Soak the branch in the staging twin (`/opt/command-center-staging`, port 8766,
+   service `cc-runner-staging`) for at least one evening of live market data
 3. Promote only via `scripts/promote_staging.sh` (full test suite + readiness check must pass),
-   and only OUTSIDE market hours (after 4 PM ET)
+   and only OUTSIDE market hours (after 4 PM ET) — master advances ff-only to the soaked commit
 4. Production deploy = fast-forward pull on the VM + `cc-runner` restart + readiness sweep
+
+## Staging Twin Rules (ENFORCED — see docs/STAGING_WORKFLOW.md for the full runbook)
+Staging is a tester/debugger ONLY — never a second producer:
+- **$0 spend:** staging runs `CC_LLM_OFFLINE=1` with ALL model keys blank (canned verdicts drive
+  the real pipeline). Its `daily-spend.json` must read exactly 0.0. Never put real LLM keys in
+  staging except the documented full-fidelity opt-in, reverted after one soak.
+- **Own paper account:** staging trades its OWN throwaway Alpaca paper account — never prod's
+  keys. Verify before every start: `grep -nE '^ALPACA_(API_KEY|SECRET_KEY)=' <staging>/.env`.
+- **On-demand:** start for a soak, stop after promotion (`systemctl start/stop`, never `enable`
+  — staging units must not survive a reboot).
+- **Claude sessions never run VM commands against the prod checkout.** Staging shell commands are
+  given to the operator to run; prod deploys happen only via the promote-gate output.
+- The scanner repo (`/opt/trading-bot`, twin `/opt/trading-bot-staging`, flag `TONY_LLM_OFFLINE`)
+  follows the identical rules — its own CLAUDE.md carries them.
 
 ## Code Standards
 - Python 3.x — follow existing patterns in `runner/` and `agents/`
