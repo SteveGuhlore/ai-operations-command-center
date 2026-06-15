@@ -1,5 +1,10 @@
+import shutil
+
 import pytest
 from runner.tools.code import run_powershell, TOOL_SPEC
+
+# run_powershell shells out to the PowerShell binary; skip where it's absent (Linux CI / staging VM).
+pytestmark = pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not installed")
 
 
 def test_run_powershell_returns_stdout():

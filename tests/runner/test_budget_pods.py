@@ -39,6 +39,14 @@ def test_agentbase_passes_pod(monkeypatch):
     monkeypatch.setattr(base, "record_spend", lambda role, cost, pod=None: calls.append((role, pod)))
     monkeypatch.setattr(base, "dispatch_tool", lambda *a, **k: {})
 
+    # Force the OpenRouter client path with a dummy key so construction succeeds with no real
+    # credentials and offline mode off; the actual completion call is monkeypatched below.
+    monkeypatch.delenv("CC_LLM_OFFLINE", raising=False)
+    monkeypatch.delenv("GOOGLE_AI_API_KEY", raising=False)
+    monkeypatch.delenv("VERTEX_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-dummy-key")
+
     agent = base.AgentBase("opportunity_worker", "gemini-2.5-flash", "sys", tools=[])
 
     class _Msg:

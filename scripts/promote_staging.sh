@@ -33,8 +33,18 @@ if ! git -C "$STAGING_DIR" diff --quiet || ! git -C "$STAGING_DIR" diff --cached
 fi
 
 echo
-echo "=== GATE 1/3: full pytest suite (staging venv) ==="
-( cd "$STAGING_DIR" && "$PY" -m pytest -q ) || fail "pytest failed"
+echo "=== GATE 1/3: full pytest suite (clean worktree of the soaked commit) ==="
+# Run the suite in a TEMPORARY CLEAN worktree of the exact soaked commit — never the live staging
+# checkout. The running service's .env (CC_LLM_OFFLINE + the TONY_* path overrides, pulled in by
+# runner/main.py's import-time load_dotenv) and its live workspace/ task files would otherwise leak
+# into pytest and fail tests that assert the real LLM path / default paths / empty queues. A clean
+# worktree tests the same code with none of that runtime contamination.
+GATE_WT="$(mktemp -d)/gate"
+git -C "$STAGING_DIR" worktree add --detach "$GATE_WT" HEAD >/dev/null 2>&1 || fail "could not create gate worktree"
+_gate_cleanup() { git -C "$STAGING_DIR" worktree remove --force "$GATE_WT" >/dev/null 2>&1 || true; rmdir "$(dirname "$GATE_WT")" 2>/dev/null || true; }
+trap _gate_cleanup EXIT
+( cd "$GATE_WT" && "$PY" -m pytest -q ) || fail "pytest failed"   # fail() exits -> trap cleans the worktree
+_gate_cleanup; trap - EXIT
 echo "pytest: PASS"
 
 echo

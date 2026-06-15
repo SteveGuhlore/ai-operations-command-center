@@ -1,7 +1,12 @@
 # tests/runner/test_poc_sandbox.py
 import importlib
+import shutil
 
 import pytest
+
+# The PoC sandbox executes PowerShell; skip cleanly where the binary is absent (Linux CI / the
+# staging VM) rather than failing — these only run on a Windows dev box.
+pytestmark = pytest.mark.skipif(shutil.which("powershell") is None, reason="powershell not installed")
 
 
 def _fresh(tmp_path, monkeypatch):
