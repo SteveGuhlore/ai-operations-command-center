@@ -60,6 +60,60 @@ If requirements.txt changed on the branch, re-run `setup_staging.sh <branch>`
 | **Outbound sends** | Same Telegram/SendGrid/Instagram creds in the copied `.env` — a soak could DM real leads or post publicly. | Hard-off in staging: `TONY_NOTIFY/TONY_TELEGRAM_CHAT/TONY_PUBLIC=off`, tokens blanked, `OUTREACH_AUTOMATION=false`. |
 | **workspace/ + vault/** | — not shared: all other state paths resolve relative to the checkout, so staging gets fresh copies automatically (verified per env var in `setup_staging.sh` comments). | Nothing to do. |
 
+## Staging spends $0 — offline by default
+
+Staging is a **functional tester only, never a second producer**. Prod LLM spend is
+~$50/day and a rehearsal with no audience must not double it. Two independent
+guarantees, both installed by `setup_staging.sh`:
+
+1. **`CC_LLM_OFFLINE=1`** — `runner/agents/base.py` skips client construction and
+   `_completion_with_backoff` returns canned, real-shaped completions
+   (`runner/agents/offline.py`, 0 tokens → `record_spend` books exactly $0). The
+   canned market-research completion emits `write_tony_verdict` tool calls **with
+   plausible target/stop**, so the real pipeline still runs end to end: verdicts →
+   `plan_orders` buys (they survive the never-open-naked guard) → paper brackets →
+   reconcile → EOD report. Functional coverage, zero spend.
+2. **All model keys blanked** in the staging `.env` (`OPENROUTER_API_KEY`,
+   `GOOGLE_AI_API_KEY`, `VERTEX_PROJECT`, `GOOGLE_CLOUD_PROJECT`,
+   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) — even if the flag is ever missed, there
+   is no credential to bill against.
+
+After a soak, verify: `workspace/ledger/daily-spend.json` in the staging checkout
+must read **total_usd: 0.0 exactly**, while verdicts/trades/EOD all exist.
+
+**Full-fidelity opt-in (rare):** only when the change under test *is* the
+LLM/reasoning path — set `CC_LLM_OFFLINE=0` and paste real keys for that one soak,
+accept the few dollars, revert to offline after. Never the default. Offline staging
+validates the **code**, not Tony's reasoning quality — that isn't staging's job.
+
+**The two knobs, side by side** (don't mix them up):
+
+| Twin | Flag | Where it lives |
+|---|---|---|
+| CC staging | `CC_LLM_OFFLINE=1` | `/opt/command-center-staging/.env` |
+| Scanner staging | `TONY_LLM_OFFLINE=1` | `/opt/trading-bot-staging/.env` |
+
+**On-demand rule:** start the twins for a soak, stop them after promotion
+(`sudo systemctl stop cc-runner-staging` / `tradingbot-watch-staging`). Never 24/7.
+
+## The scanner staging twin (the other half of the tandem)
+
+The bot repo now has the matching kit: `scripts/setup_staging.sh` there builds
+`/opt/trading-bot-staging`, with every exchange path (bridge briefs, outcomes,
+insights, verdict/record reads) repointed at **this** staging checkout
+(`/opt/command-center-staging`). See the bot repo's `docs/DEVELOPMENT.md`.
+
+Two rules that involve this side:
+
+- **Mirror-bridge either/or:** while the scanner twin is running, the
+  `--mirror-bridge` cron must be OFF — otherwise production scan output and the
+  twin's output both land in staging's bridge and the soak grades garbage.
+- **Schema-change trigger:** staging-CC's verdict write-back is severed from the
+  live bot on purpose, so a CC change to the format of the five exchange files
+  (`tony_stocks_verdicts/outcomes/record/ideas.json`, `agent_insights.json`) or
+  to the bridge/tier report format is **invisible to CC staging alone**. Any such
+  change → spin up the scanner twin and soak the full round trip before promoting.
+
 Other notes:
 
 - Staging is a **git worktree** of the production clone (shared object store,
