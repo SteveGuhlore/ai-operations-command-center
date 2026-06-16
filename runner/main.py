@@ -1006,23 +1006,29 @@ def _is_market_closed() -> bool:
 
 
 def _maybe_push_digests() -> None:
-    """Proactive pushes — daily digest, weekly synthesis, equity-high + EOD sign-off. All are
-    internally deduped (once/day or once/week) and fail-soft, so this MUST run every cycle in
-    BOTH the idle and busy branches. Previously these lived only in the busy branch, so the EOD
-    sign-off silently never fired on days the task queue was empty at the close — the bug behind
-    'Telegram stopped doing EOD'."""
+    """Proactive pushes, every cycle (both idle + busy branches), all internally deduped + fail-soft.
+
+    A new-equity-high can be set intraday, so that nudge fires anytime. The END-OF-DAY content
+    (daily digest, weekly review, EOD sign-off) fires ONLY after the close via is_after_close() —
+    NOT on `market_session()=="closed"`, which is also true pre-open and fired the whole EOD bundle
+    in the morning (the 2026-06-16 8:43am misfire)."""
+    from runner.ledger.market_clock import is_after_close, trading_day
+    from runner.tools import tony_nudges
+
+    try:
+        tony_nudges.maybe_equity_high()  # a record can be set intraday — fire anytime
+    except Exception as exc:
+        log.info("equity-high nudge failed: %s", exc)
+
+    if not is_after_close():
+        return  # end-of-day content only after the close, never in the pre-open 'closed' window
+
     _maybe_send_daily_summary()
     _maybe_send_weekly_synthesis()
     try:
-        from runner.tools import tony_nudges
-
-        tony_nudges.maybe_equity_high()
-        if _is_market_closed():
-            from runner.ledger.market_clock import trading_day
-
-            tony_nudges.maybe_eod_signoff(trading_day())
+        tony_nudges.maybe_eod_signoff(trading_day())
     except Exception as exc:
-        log.info("nudges failed: %s", exc)
+        log.info("eod signoff failed: %s", exc)
 
 
 def _maybe_stage_research_wave() -> None:

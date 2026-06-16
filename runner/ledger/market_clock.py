@@ -7,6 +7,7 @@ API is unavailable. Result is cached briefly so each cycle doesn't hammer the cl
 
 Env override `TONY_MARKET_SESSION` ("open"/"closed") wins first — for tests and manual control.
 """
+
 import logging
 import os
 import time
@@ -27,6 +28,7 @@ def trading_day(now: datetime | None = None) -> str:
     the evening research window to the next day and false-fires daily gates. Duration-based gates
     (elapsed >= N hours) are tz-agnostic and should keep using datetime.now()."""
     return str((now or datetime.now(_ET)).astimezone(_ET).date())
+
 
 _OPEN = _time(9, 30)
 _CLOSE = _time(16, 0)
@@ -80,6 +82,7 @@ def _alpaca_clock_open() -> bool | None:
         return None
     try:
         from alpaca.trading.client import TradingClient
+
         clock = TradingClient(key, secret, paper=True).get_clock()
         return bool(clock.is_open)
     except Exception as exc:
@@ -104,3 +107,20 @@ def market_session(now: datetime | None = None) -> str:
     _cache["value"] = value
     _cache["ts"] = nowts
     return value
+
+
+def is_after_close(now: datetime | None = None) -> bool:
+    """True only in the POST-close window of a trading day: a weekday (non-holiday) at or after
+    16:00 ET. Use this — not `market_session() == "closed"` — to gate end-of-day messages, so the
+    daily wrap / EOD sign-off fire AFTER the close and never in the pre-open 'closed' window
+    (the 2026-06-16 misfire where the whole EOD bundle went out at 8:43am)."""
+    if now is None:
+        now = datetime.now(_ET)
+    elif now.tzinfo is None:
+        now = now.replace(tzinfo=_ET)
+    now = now.astimezone(_ET)
+    if now.weekday() >= 5:
+        return False
+    if now.strftime("%Y-%m-%d") in _HOLIDAYS_2026:
+        return False
+    return now.timetz().replace(tzinfo=None) >= _CLOSE

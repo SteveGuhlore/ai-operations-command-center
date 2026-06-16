@@ -90,6 +90,7 @@ def test_trading_day_is_eastern_not_utc(monkeypatch):
     from datetime import datetime
     from zoneinfo import ZoneInfo
     from runner.ledger import market_clock as mc
+
     # 2026-06-11 21:00 ET (= 2026-06-12 01:00 UTC) -> ET day is still the 11th
     et = datetime(2026, 6, 11, 21, 0, tzinfo=ZoneInfo("America/New_York"))
     assert mc.trading_day(et) == "2026-06-11"
@@ -100,9 +101,39 @@ def test_trading_day_is_eastern_not_utc(monkeypatch):
 def test_daily_gates_stable_across_utc_evening(monkeypatch, tmp_path):
     """preopen_done_today must not flip to False at 8 PM ET just because UTC rolled over."""
     from runner.scheduler import daily_jobs as dj
+
     monkeypatch.setattr(dj, "STATE_FILE", tmp_path / "sched.json")
     monkeypatch.setattr(dj, "trading_day", lambda: "2026-06-11")
     dj.mark_preopen_ran()
-    assert dj.preopen_done_today() is True   # same ET day -> still done
+    assert dj.preopen_done_today() is True  # same ET day -> still done
     monkeypatch.setattr(dj, "trading_day", lambda: "2026-06-12")
     assert dj.preopen_done_today() is False  # next ET day -> due again
+
+
+# --- is_after_close: end-of-day messages fire AFTER the close, never pre-open (2026-06-16 fix) ---
+# 2026-06-15 is a Monday; 2026-06-13 a Saturday; 2026-06-19 is Juneteenth (a Friday holiday).
+
+
+def test_is_after_close_pre_open_morning_is_false():
+    assert mc.is_after_close(dt.datetime(2026, 6, 15, 8, 43, tzinfo=mc._ET)) is False
+
+
+def test_is_after_close_during_rth_is_false():
+    assert mc.is_after_close(dt.datetime(2026, 6, 15, 12, 0, tzinfo=mc._ET)) is False
+
+
+def test_is_after_close_at_and_after_close_is_true():
+    assert mc.is_after_close(dt.datetime(2026, 6, 15, 16, 0, tzinfo=mc._ET)) is True
+    assert mc.is_after_close(dt.datetime(2026, 6, 15, 16, 5, tzinfo=mc._ET)) is True
+
+
+def test_is_after_close_naive_is_treated_as_et():
+    assert mc.is_after_close(dt.datetime(2026, 6, 15, 17, 0)) is True
+
+
+def test_is_after_close_weekend_is_false():
+    assert mc.is_after_close(dt.datetime(2026, 6, 13, 18, 0, tzinfo=mc._ET)) is False
+
+
+def test_is_after_close_holiday_is_false():
+    assert mc.is_after_close(dt.datetime(2026, 6, 19, 18, 0, tzinfo=mc._ET)) is False
