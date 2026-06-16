@@ -14,6 +14,7 @@ Decision rule per verdict:
   close                         -> close any open position in that symbol
 Idempotent: each (date, symbol) verdict is executed at most once (workspace/alpaca-executed.json).
 """
+
 import json
 import logging
 import os
@@ -24,19 +25,36 @@ from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
-_reports = Path(__file__).parent.parent.parent.parent / "TradingBotAgentProject" / "reports"
-VERDICTS_FILE = Path(os.environ.get("TONY_VERDICTS_FILE", str(_reports / "tony_stocks_verdicts.json")))
-EXECUTED_LOG = Path(__file__).parent.parent.parent / "workspace" / "alpaca-executed.json"
-BRIDGE_DIR = Path(os.environ.get("TONY_BRIDGE_DIR", str(Path(__file__).parent.parent.parent / "bridge" / "tony-stocks")))
+_reports = (
+    Path(__file__).parent.parent.parent.parent / "TradingBotAgentProject" / "reports"
+)
+VERDICTS_FILE = Path(
+    os.environ.get("TONY_VERDICTS_FILE", str(_reports / "tony_stocks_verdicts.json"))
+)
+EXECUTED_LOG = (
+    Path(__file__).parent.parent.parent / "workspace" / "alpaca-executed.json"
+)
+BRIDGE_DIR = Path(
+    os.environ.get(
+        "TONY_BRIDGE_DIR",
+        str(Path(__file__).parent.parent.parent / "bridge" / "tony-stocks"),
+    )
+)
 NOTIONAL = float(os.environ.get("TONY_PAPER_NOTIONAL", "1000"))
 # Fixed-notional entry sizing: every entry deploys ENTRY_NOTIONAL (~$10k = 1% of Tony's $1M book),
 # in whole shares, regardless of stop width — an equal-weight book by entry size. This departs from
 # the old risk-per-trade parity with the bot (which fixed RISK at 1%); now SIZE is fixed and per-trade
 # risk varies with the stop distance. RISK_PCT is retained only as the conviction-scaling base
 # (B1, default off). See docs/CONTRACTS/execution-parity.md.
-ENTRY_NOTIONAL = float(os.environ.get("TONY_ENTRY_NOTIONAL", "10000"))      # $/entry (1% of $1M)
-RISK_PCT = float(os.environ.get("TONY_RISK_PER_TRADE_PCT", "1.0"))          # conviction-scaling base (B1)
-MAX_NOTIONAL = float(os.environ.get("TONY_MAX_NOTIONAL_PER_POSITION", "10000"))  # legacy cap (risk_based_qty)
+ENTRY_NOTIONAL = float(
+    os.environ.get("TONY_ENTRY_NOTIONAL", "10000")
+)  # $/entry (1% of $1M)
+RISK_PCT = float(
+    os.environ.get("TONY_RISK_PER_TRADE_PCT", "1.0")
+)  # conviction-scaling base (B1)
+MAX_NOTIONAL = float(
+    os.environ.get("TONY_MAX_NOTIONAL_PER_POSITION", "10000")
+)  # legacy cap (risk_based_qty)
 MAX_OPEN_POSITIONS = int(os.environ.get("TONY_MAX_OPEN_POSITIONS", "50"))
 MAX_DAILY_ORDERS = int(os.environ.get("TONY_MAX_DAILY_ORDERS", "200"))
 # Below this $ of equity-over-cash we treat an empty holdings read as a genuinely flat book; above
@@ -48,12 +66,27 @@ _HELD_READ_MIN_MV = float(os.environ.get("TONY_HELD_READ_MIN_MV", "1000"))
 # Units are R = entry - initial stop, the scanner's own per-name volatility-calibrated risk
 # distance (scanner stops sit ~2 ATR below entry, so BE_R 0.75 ~ a 1.5-ATR cushion and TRAIL_R
 # 1.25 ~ a 2.5-ATR chandelier — the "tighter" frontier point from the Monte-Carlo stress test).
-STOP_RATCHET = os.environ.get("TONY_STOP_RATCHET", "on").lower() in ("1", "true", "on", "yes")
-RATCHET_BE_R = float(os.environ.get("TONY_RATCHET_BE_R", "0.75"))       # cushion (in R) before the floor arms
-RATCHET_TRAIL_R = float(os.environ.get("TONY_RATCHET_TRAIL_R", "1.25"))  # trail distance (in R) below the high-water
-RATCHET_MIN_STEP_PCT = float(os.environ.get("TONY_RATCHET_MIN_STEP_PCT", "0.5"))  # churn guard: min stop raise
-RATCHET_MAX_PER_CYCLE = int(os.environ.get("TONY_RATCHET_MAX_PER_CYCLE", "8"))    # deploy-day churn guard
-MAX_HOLD_DAYS = int(os.environ.get("TONY_MAX_HOLD_DAYS", "30"))         # swing mandate; 0 disables
+STOP_RATCHET = os.environ.get("TONY_STOP_RATCHET", "on").lower() in (
+    "1",
+    "true",
+    "on",
+    "yes",
+)
+RATCHET_BE_R = float(
+    os.environ.get("TONY_RATCHET_BE_R", "0.75")
+)  # cushion (in R) before the floor arms
+RATCHET_TRAIL_R = float(
+    os.environ.get("TONY_RATCHET_TRAIL_R", "1.25")
+)  # trail distance (in R) below the high-water
+RATCHET_MIN_STEP_PCT = float(
+    os.environ.get("TONY_RATCHET_MIN_STEP_PCT", "0.5")
+)  # churn guard: min stop raise
+RATCHET_MAX_PER_CYCLE = int(
+    os.environ.get("TONY_RATCHET_MAX_PER_CYCLE", "8")
+)  # deploy-day churn guard
+MAX_HOLD_DAYS = int(
+    os.environ.get("TONY_MAX_HOLD_DAYS", "30")
+)  # swing mandate; 0 disables
 
 _OPEN = {"reaffirm", "adjust", "override"}
 _LEVELS_RE = re.compile(r"Target:\s*\$([\d.]+).*?Stop:\s*\$([\d.]+)", re.S)
@@ -82,17 +115,22 @@ def conviction_enabled() -> bool:
         return False
     try:
         from runner.ledger.tony_scorecard import compute_record
+
         rec = compute_record()
     except Exception as exc:
         _log.info("conviction gate: record unavailable: %s", exc)
         return False
-    if int(rec.get("graded", 0) or 0) < int(os.environ.get("TONY_CONV_MIN_GRADED", "20")):
+    if int(rec.get("graded", 0) or 0) < int(
+        os.environ.get("TONY_CONV_MIN_GRADED", "20")
+    ):
         return False
     cal = rec.get("calibration") or {}
     hi, lo = cal.get("high"), cal.get("low")
     if hi is None or lo is None:
         return False
-    return (float(hi) - float(lo)) >= float(os.environ.get("TONY_CONV_MIN_CAL_GAP", "10.0"))
+    return (float(hi) - float(lo)) >= float(
+        os.environ.get("TONY_CONV_MIN_CAL_GAP", "10.0")
+    )
 
 
 def parse_scanner_levels(md: str) -> dict:
@@ -107,7 +145,10 @@ def parse_scanner_levels(md: str) -> dict:
             try:
                 # [\d.]+ can capture a malformed "1.2.3" -> float() raises; skip that one block
                 # rather than crash the whole sync cycle on a single bad bridge line.
-                levels[m_sym.group(1)] = {"target": float(m_lv.group(1)), "stop": float(m_lv.group(2))}
+                levels[m_sym.group(1)] = {
+                    "target": float(m_lv.group(1)),
+                    "stop": float(m_lv.group(2)),
+                }
             except ValueError:
                 continue
     return levels
@@ -119,7 +160,9 @@ def _latest_scanner_levels() -> dict:
     daily file left those as naked notional longs, so prefer whichever bridge is newest."""
     if not BRIDGE_DIR.exists():
         return {}
-    files = sorted(f for f in BRIDGE_DIR.glob("*.md") if re.match(r"\d{4}-\d{2}-\d{2}", f.stem))
+    files = sorted(
+        f for f in BRIDGE_DIR.glob("*.md") if re.match(r"\d{4}-\d{2}-\d{2}", f.stem)
+    )
     if not files:
         return {}
     try:
@@ -161,8 +204,9 @@ def _merge_levels(*sources: dict) -> dict:
     return merged
 
 
-def positions_needing_protection(positions: list, open_orders: list, levels: dict,
-                                 fallback_pct: tuple | None = None) -> list:
+def positions_needing_protection(
+    positions: list, open_orders: list, levels: dict, fallback_pct: tuple | None = None
+) -> list:
     """Pure: which open positions are carrying no stop/target and should get a GTC OCO.
     A day-bracket's exit legs expire at the 16:00 close, leaving the position naked overnight;
     this finds those so sync() can re-attach protection. Protects the whole-share floor (Alpaca
@@ -194,11 +238,15 @@ def positions_needing_protection(positions: list, open_orders: list, levels: dic
             q = o.get("qty")
             if q is None:
                 stop_unknown.add(sym)
-            stop_qty[sym] = stop_qty.get(sym, 0.0) + (float(q) if q is not None else 0.0)
+            stop_qty[sym] = stop_qty.get(sym, 0.0) + (
+                float(q) if q is not None else 0.0
+            )
     out = []
     for p in positions:
         sym = p.get("symbol")
-        whole = int(float(p.get("qty", 0) or 0))  # floor — legs can only cover whole shares
+        whole = int(
+            float(p.get("qty", 0) or 0)
+        )  # floor — legs can only cover whole shares
         if whole < 1:
             continue
         if sym in stop_qty and (sym in stop_unknown or stop_qty[sym] >= whole):
@@ -218,12 +266,23 @@ def positions_needing_protection(positions: list, open_orders: list, levels: dic
                     entry = 0.0
                 if entry > 0:
                     stop_pct, target_pct = fallback_pct
-                    out.append({"symbol": sym, "qty": whole,
-                                "target": round(entry * (1 + target_pct), 2),
-                                "stop": round(entry * (1 - stop_pct), 2)})
+                    out.append(
+                        {
+                            "symbol": sym,
+                            "qty": whole,
+                            "target": round(entry * (1 + target_pct), 2),
+                            "stop": round(entry * (1 - stop_pct), 2),
+                        }
+                    )
             continue
-        out.append({"symbol": sym, "qty": whole,
-                    "target": round(float(target), 2), "stop": round(float(stop), 2)})
+        out.append(
+            {
+                "symbol": sym,
+                "qty": whole,
+                "target": round(float(target), 2),
+                "stop": round(float(stop), 2),
+            }
+        )
     return out
 
 
@@ -233,8 +292,13 @@ def entry_orders_to_cancel(open_orders: list) -> list:
     return [o for o in open_orders if o.get("side") == "buy"]
 
 
-def plan_reprices(verdicts: list, positions: list, already_done: set, skip_symbols=(),
-                  live_stops: dict | None = None) -> list:
+def plan_reprices(
+    verdicts: list,
+    positions: list,
+    already_done: set,
+    skip_symbols=(),
+    live_stops: dict | None = None,
+) -> list:
     """Pure: an intraday `adjust` on a position already entered earlier should MOVE its live
     stop/target, not open more shares. Emits a re-price per held symbol whose latest verdict is
     `adjust` with new levels. Being in `positions` already proves it's an existing holding;
@@ -264,17 +328,25 @@ def plan_reprices(verdicts: list, positions: list, already_done: set, skip_symbo
             legs = live_stops.get(sym) or {}
             cur_stop = legs.get("stop")
             if cur_stop is not None and sl < float(cur_stop):
-                sl, clamped = round(float(cur_stop), 2), True   # never loosen the stop
+                sl, clamped = round(float(cur_stop), 2), True  # never loosen the stop
                 if tp <= sl:
-                    continue                                     # degenerate after clamp
+                    continue  # degenerate after clamp
                 cur_tp = legs.get("target")
                 if cur_tp is not None and round(float(cur_tp), 2) == tp:
-                    continue                                     # pure no-op after clamp
+                    continue  # pure no-op after clamp
         key = f"{v.get('date')}:{sym}:adjust:{tp}:{sl}"
         if key in already_done:
             continue
-        out.append({"key": key, "symbol": sym, "qty": held[sym], "target": tp, "stop": sl,
-                    "clamped": clamped})
+        out.append(
+            {
+                "key": key,
+                "symbol": sym,
+                "qty": held[sym],
+                "target": tp,
+                "stop": sl,
+                "clamped": clamped,
+            }
+        )
     return out
 
 
@@ -293,10 +365,17 @@ def _sell_legs(orders: list) -> dict:
     return legs
 
 
-def plan_stop_ratchets(positions: list, live_legs: dict, meta: dict, today: str,
-                       already_done: set, be_r: float | None = None,
-                       trail_r: float | None = None, min_step_pct: float | None = None,
-                       max_per_cycle: int | None = None) -> list:
+def plan_stop_ratchets(
+    positions: list,
+    live_legs: dict,
+    meta: dict,
+    today: str,
+    already_done: set,
+    be_r: float | None = None,
+    trail_r: float | None = None,
+    min_step_pct: float | None = None,
+    max_per_cycle: int | None = None,
+) -> list:
     """Pure: the deterministic profit-floor under Tony's discretionary adjusts. Once a position's
     high-water mark clears entry + BE_R*R, its stop gets a floor of max(entry, hwm - TRAIL_R*R) —
     raised ONLY (never loosened), in whole steps >= min_step_pct above the live stop (churn guard),
@@ -308,6 +387,7 @@ def plan_stop_ratchets(positions: list, live_legs: dict, meta: dict, today: str,
     Capped at max_per_cycle reprices (biggest protection gain first) so adopting a large live book
     on deploy day can't fire a burst of cancel/replaces — the rest follow over the next cycles."""
     from runner.ledger.position_meta import risk_unit
+
     be_r = RATCHET_BE_R if be_r is None else be_r
     trail_r = RATCHET_TRAIL_R if trail_r is None else trail_r
     min_step = (RATCHET_MIN_STEP_PCT if min_step_pct is None else min_step_pct) / 100.0
@@ -321,7 +401,13 @@ def plan_stop_ratchets(positions: list, live_legs: dict, meta: dict, today: str,
             continue
         m = meta.get(sym)
         legs = live_legs.get(sym) or {}
-        if qty < 1 or px <= 0 or not m or legs.get("stop") is None or legs.get("target") is None:
+        if (
+            qty < 1
+            or px <= 0
+            or not m
+            or legs.get("stop") is None
+            or legs.get("target") is None
+        ):
             continue
         r = risk_unit(m)
         try:
@@ -330,25 +416,41 @@ def plan_stop_ratchets(positions: list, live_legs: dict, meta: dict, today: str,
         except (TypeError, ValueError):
             continue
         if not r or entry <= 0 or hwm < entry + be_r * r:
-            continue                                   # cushion not earned yet
+            continue  # cushion not earned yet
         floor = max(entry, hwm - trail_r * r)
-        floor = min(floor, px * 0.99)                  # a stop must sit below the market
+        floor = min(floor, px * 0.99)  # a stop must sit below the market
         cur_stop = float(legs["stop"])
         if floor <= cur_stop * (1 + min_step):
-            continue                                   # already at/above the floor (Tony or a prior ratchet)
+            continue  # already at/above the floor (Tony or a prior ratchet)
         floor = round(floor, 2)
         key = f"ratchet:{today}:{sym}:{floor}"
         if key in already_done:
             continue
-        out.append({"key": key, "symbol": sym, "qty": qty, "target": float(legs["target"]),
-                    "stop": floor, "hwm": hwm, "gain": floor - cur_stop})
-    out.sort(key=lambda r: r["gain"], reverse=True)        # protect the most-exposed winners first
+        out.append(
+            {
+                "key": key,
+                "symbol": sym,
+                "qty": qty,
+                "target": float(legs["target"]),
+                "stop": floor,
+                "hwm": hwm,
+                "gain": floor - cur_stop,
+            }
+        )
+    out.sort(
+        key=lambda r: r["gain"], reverse=True
+    )  # protect the most-exposed winners first
     cap = RATCHET_MAX_PER_CYCLE if max_per_cycle is None else max_per_cycle
     return out[:cap] if cap and cap > 0 else out
 
 
-def plan_max_hold_closes(positions: list, meta: dict, today: str, already_done: set,
-                         default_days: int | None = None) -> list:
+def plan_max_hold_closes(
+    positions: list,
+    meta: dict,
+    today: str,
+    already_done: set,
+    default_days: int | None = None,
+) -> list:
     """Pure: the swing-mandate time stop. A position held >= its horizon's max days (default
     TONY_MAX_HOLD_DAYS=30; horizon 'day'=1, 'long'=exempt) is closed — capital stops camping in
     a stale thesis. Keyed once per day per symbol so a failed close retries next cycle/day."""
@@ -356,6 +458,7 @@ def plan_max_hold_closes(positions: list, meta: dict, today: str, already_done: 
     if cap_default <= 0:
         return []
     from runner.ledger.position_meta import horizon_max_days
+
     out = []
     for p in positions:
         sym = (p.get("symbol") or "").upper()
@@ -368,7 +471,7 @@ def plan_max_hold_closes(positions: list, meta: dict, today: str, already_done: 
             continue
         cap = horizon_max_days(m, cap_default)
         if cap is None:
-            continue                                   # true long — exempt
+            continue  # true long — exempt
         try:
             age = (date.fromisoformat(today) - date.fromisoformat(m["first_seen"])).days
         except (ValueError, TypeError):
@@ -382,12 +485,22 @@ def plan_max_hold_closes(positions: list, meta: dict, today: str, already_done: 
     return out
 
 
+def _entry_of(positions, symbol):
+    """Avg entry price for `symbol` from a positions list, or None — feeds the breakeven-lock note."""
+    s = str(symbol or "").upper()
+    for p in positions or []:
+        if str(p.get("symbol") or "").upper() == s:
+            return p.get("avg_entry_price")
+    return None
+
+
 def _apply_lifecycle(broker, done: set, today: str) -> dict:
     """Executor for the per-position lifecycle: refresh the position-meta ledger (first-seen /
     high-water / initial R), raise ratchet floors via the existing reprice machinery, and close
     max-hold breaches. Fail-soft per item; returns counts + whether `done` gained keys (so sync
     re-persists the executed-log)."""
     from runner.ledger.position_meta import load_meta, save_meta, update_meta
+
     res = {"ratcheted": 0, "max_hold_closed": 0, "added": False}
     try:
         positions = broker.account().get("open_positions", [])
@@ -406,12 +519,30 @@ def _apply_lifecycle(broker, done: set, today: str) -> dict:
                 done.add(rp["key"])
                 res["ratcheted"] += 1
                 res["added"] = True
-                _audit("order", rp["symbol"], action="ratchet", stop=rp["stop"],
-                       target=rp["target"], hwm=rp.get("hwm"))
-                _log.info("Ratcheted %s stop -> %.2f (hwm %.2f)", rp["symbol"], rp["stop"], rp.get("hwm", 0))
+                _audit(
+                    "order",
+                    rp["symbol"],
+                    action="ratchet",
+                    stop=rp["stop"],
+                    target=rp["target"],
+                    hwm=rp.get("hwm"),
+                )
+                _log.info(
+                    "Ratcheted %s stop -> %.2f (hwm %.2f)",
+                    rp["symbol"],
+                    rp["stop"],
+                    rp.get("hwm", 0),
+                )
                 try:
                     from runner.tools.notify import notify_reprice
-                    notify_reprice(rp["symbol"], rp["qty"], rp["target"], rp["stop"])
+
+                    notify_reprice(
+                        rp["symbol"],
+                        rp["qty"],
+                        rp["target"],
+                        rp["stop"],
+                        entry=_entry_of(positions, rp["symbol"]),
+                    )
                 except Exception as nexc:
                     _log.info("notify ratchet failed: %s", nexc)
             except Exception as exc:
@@ -423,9 +554,19 @@ def _apply_lifecycle(broker, done: set, today: str) -> dict:
             done.add(c["key"])
             res["max_hold_closed"] += 1
             res["added"] = True
-            _audit("order", c["symbol"], action="maxhold_close",
-                   age_days=c["age_days"], cap_days=c["cap_days"])
-            _log.info("Max-hold close %s: held %dd >= cap %dd", c["symbol"], c["age_days"], c["cap_days"])
+            _audit(
+                "order",
+                c["symbol"],
+                action="maxhold_close",
+                age_days=c["age_days"],
+                cap_days=c["cap_days"],
+            )
+            _log.info(
+                "Max-hold close %s: held %dd >= cap %dd",
+                c["symbol"],
+                c["age_days"],
+                c["cap_days"],
+            )
         except Exception as exc:
             _log.warning("max-hold close %s failed: %s", c.get("symbol"), exc)
     return res
@@ -439,7 +580,9 @@ def whole_share_qty(notional: float, price: float | None) -> int:
     return max(1, int(notional // price))
 
 
-def risk_based_qty(equity: float, price: float | None, stop, risk_pct: float, max_notional: float) -> int:
+def risk_based_qty(
+    equity: float, price: float | None, stop, risk_pct: float, max_notional: float
+) -> int:
     """Bot-parity sizing: risk a fixed % of equity from entry to stop, capped by a max notional.
     shares = floor(min(risk$ / (price-stop), max_notional / price)); always >= 1. This is what
     keeps the head-to-head fair — Tony's stop/target levels are his reasoning, but every trade
@@ -481,6 +624,7 @@ def _audit(kind, symbol=None, **fields) -> None:
         return
     try:
         from runner.ledger.decision_audit import record_decision
+
         record_decision(kind, symbol, **fields)
     except Exception as exc:
         _log.info("decision audit skipped: %s", exc)
@@ -492,6 +636,7 @@ def _breaker_state_safe():
         return None
     try:
         from runner.ledger.drawdown_breaker import current_breaker
+
         return current_breaker()
     except Exception as exc:
         _log.info("breaker unavailable: %s", exc)
@@ -505,11 +650,14 @@ def _apply_cluster_cap(plan: list, held_symbols) -> list:
         return plan
     try:
         from runner.ledger import cluster_risk
+
         held = [{"symbol": s, "qty": 1} for s in held_symbols]
         allowed, blocked = cluster_risk.filter_new_buys(plan, held)
         for b in blocked:
             _audit("cluster_block", b.get("symbol"), reason=b.get("blocked_reason"))
-            _log.info("cluster cap blocked %s (%s)", b.get("symbol"), b.get("blocked_reason"))
+            _log.info(
+                "cluster cap blocked %s (%s)", b.get("symbol"), b.get("blocked_reason")
+            )
         return allowed
     except Exception as exc:
         _log.warning("cluster cap failed: %s", exc)
@@ -522,12 +670,23 @@ def symbols_exited_today(fills: list, today: str | None = None) -> set:
     same-session re-entry block: once Tony is out of a name he doesn't buy it back the same day
     (he exited for a reason). Cross-day re-entry is unaffected — tomorrow is a fresh look."""
     t = today or str(date.today())
-    return {f.get("symbol") for f in fills
-            if (f.get("side") or "").lower() == "sell" and f.get("date") == t and f.get("symbol")}
+    return {
+        f.get("symbol")
+        for f in fills
+        if (f.get("side") or "").lower() == "sell"
+        and f.get("date") == t
+        and f.get("symbol")
+    }
 
 
-def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None = None,
-                held_symbols=(), max_new_buys=None, exited_today=()) -> list:
+def plan_orders(
+    verdicts: list,
+    already_done: set,
+    scanner_levels: dict | None = None,
+    held_symbols=(),
+    max_new_buys=None,
+    exited_today=(),
+) -> list:
     """Pure: turn fresh verdicts into intended paper actions (skips ones already executed).
     An open verdict with no levels of its own (a reaffirm) inherits the scanner's target/stop
     so it's still a protected bracket — never a naked long. A buy on a name already held is
@@ -537,7 +696,9 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
     scanner_levels = scanner_levels or {}
     plan = []
     buys = 0
-    planned_buys: set[str] = set()  # at most ONE entry per symbol per run. A missed daily flush can
+    planned_buys: set[str] = (
+        set()
+    )  # at most ONE entry per symbol per run. A missed daily flush can
     # leave multiple dated buy verdicts for the same name stacked in the file; without this they all
     # fire in one sync and pyramid the position to 2-4x size (the June 2026 over-sizing). The held /
     # exited-today guards only catch names already in the book, not repeats within this same run.
@@ -555,7 +716,10 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
             if sym in exited_today:
                 # Exited this session (stop / target / close) — don't buy it right back. He stepped
                 # aside for a reason; re-evaluate tomorrow, not four minutes later.
-                _log.info("skip open %s: exited earlier today — same-session re-entry blocked", sym)
+                _log.info(
+                    "skip open %s: exited earlier today — same-session re-entry blocked",
+                    sym,
+                )
                 continue
             target, stop = v.get("target"), v.get("stop")
             if not (target and stop):
@@ -572,8 +736,17 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
                 continue  # degenerate bracket (Alpaca rejects target<=stop) — skip, don't retry-fail
             if max_new_buys is not None and buys >= max_new_buys:
                 continue  # at the portfolio / daily-order cap — leave for a later run
-            plan.append({"key": key, "symbol": sym, "action": "buy", "notional": NOTIONAL,
-                         "target": target, "stop": stop, "confidence": v.get("confidence", "medium")})
+            plan.append(
+                {
+                    "key": key,
+                    "symbol": sym,
+                    "action": "buy",
+                    "notional": NOTIONAL,
+                    "target": target,
+                    "stop": stop,
+                    "confidence": v.get("confidence", "medium"),
+                }
+            )
             buys += 1
             planned_buys.add(sym)
         elif verdict == "close":
@@ -585,7 +758,15 @@ def plan_orders(verdicts: list, already_done: set, scanner_levels: dict | None =
     return plan
 
 
-_ORDER_TERMINAL = {"filled", "canceled", "cancelled", "expired", "rejected", "done_for_day", "replaced"}
+_ORDER_TERMINAL = {
+    "filled",
+    "canceled",
+    "cancelled",
+    "expired",
+    "rejected",
+    "done_for_day",
+    "replaced",
+}
 
 
 def _flatten_orders(raw_orders) -> list:
@@ -600,22 +781,34 @@ def _flatten_orders(raw_orders) -> list:
     def _emit(o, parent_id):
         status = str(getattr(o, "status", "")).rsplit(".", 1)[-1].lower()
         if status not in _ORDER_TERMINAL:
-            out.append({
-                "id": str(getattr(o, "id", "")),
-                "symbol": getattr(o, "symbol", None),
-                "side": str(getattr(o, "side", "")).rsplit(".", 1)[-1].lower(),
-                "qty": float(o.qty) if getattr(o, "qty", None) else None,
-                "notional": float(o.notional) if getattr(o, "notional", None) else None,
-                "order_class": str(getattr(o, "order_class", "")).rsplit(".", 1)[-1].lower(),
-                "type": str(getattr(o, "order_type", "")).rsplit(".", 1)[-1].lower(),
-                "limit_price": float(o.limit_price) if getattr(o, "limit_price", None) else None,
-                "stop_price": float(o.stop_price) if getattr(o, "stop_price", None) else None,
-                "status": status,
-                "parent_id": parent_id,
-            })
+            out.append(
+                {
+                    "id": str(getattr(o, "id", "")),
+                    "symbol": getattr(o, "symbol", None),
+                    "side": str(getattr(o, "side", "")).rsplit(".", 1)[-1].lower(),
+                    "qty": float(o.qty) if getattr(o, "qty", None) else None,
+                    "notional": float(o.notional)
+                    if getattr(o, "notional", None)
+                    else None,
+                    "order_class": str(getattr(o, "order_class", ""))
+                    .rsplit(".", 1)[-1]
+                    .lower(),
+                    "type": str(getattr(o, "order_type", ""))
+                    .rsplit(".", 1)[-1]
+                    .lower(),
+                    "limit_price": float(o.limit_price)
+                    if getattr(o, "limit_price", None)
+                    else None,
+                    "stop_price": float(o.stop_price)
+                    if getattr(o, "stop_price", None)
+                    else None,
+                    "status": status,
+                    "parent_id": parent_id,
+                }
+            )
         # Always recurse, even past a TERMINAL parent: a filled bracket entry is terminal but still
         # carries LIVE take-profit/stop legs — dropping them would hide the protection (look naked).
-        for leg in (getattr(o, "legs", None) or []):
+        for leg in getattr(o, "legs", None) or []:
             _emit(leg, str(getattr(o, "id", "")))
 
     for o in raw_orders:
@@ -631,8 +824,12 @@ def _alpaca_broker():
         return None
     try:
         from alpaca.trading.client import TradingClient
-        from alpaca.trading.requests import (MarketOrderRequest, LimitOrderRequest,
-                                             TakeProfitRequest, StopLossRequest)
+        from alpaca.trading.requests import (
+            MarketOrderRequest,
+            LimitOrderRequest,
+            TakeProfitRequest,
+            StopLossRequest,
+        )
         from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
         from alpaca.data.historical import StockHistoricalDataClient
         from alpaca.data.requests import StockLatestTradeRequest
@@ -646,7 +843,9 @@ def _alpaca_broker():
     class _Broker:
         def _latest_price(self, symbol):
             try:
-                t = data.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=symbol))
+                t = data.get_stock_latest_trade(
+                    StockLatestTradeRequest(symbol_or_symbols=symbol)
+                )
                 return float(t[symbol].price)
             except Exception as exc:
                 _log.info("latest_price(%s) failed: %s", symbol, exc)
@@ -661,31 +860,45 @@ def _alpaca_broker():
                 # entry (whole_share_qty floors to 1). Raising leaves the key unmarked in sync()
                 # so it retries next cycle once a price is available.
                 if not price or price <= 0:
-                    raise ValueError(f"no live price for {symbol}; deferring bracket entry")
+                    raise ValueError(
+                        f"no live price for {symbol}; deferring bracket entry"
+                    )
                 # Fixed-notional sizing: every entry ~ENTRY_NOTIONAL ($10k = 1% of the $1M book),
                 # in whole shares, regardless of stop width. Bracket must be whole-share; GTC so the
                 # tp/stop legs survive the 16:00 close. rp (conviction-scaled in sync) is a notional
                 # multiplier, so B1 still sizes up/down by conviction when enabled (flat 1x default).
                 qty = entry_qty(price, (rp / RISK_PCT) if RISK_PCT else 1.0)
                 req = MarketOrderRequest(
-                    symbol=symbol, qty=qty, side=OrderSide.BUY,
-                    time_in_force=TimeInForce.GTC, order_class=OrderClass.BRACKET,
+                    symbol=symbol,
+                    qty=qty,
+                    side=OrderSide.BUY,
+                    time_in_force=TimeInForce.GTC,
+                    order_class=OrderClass.BRACKET,
                     take_profit=TakeProfitRequest(limit_price=round(float(target), 2)),
-                    stop_loss=StopLossRequest(stop_price=round(float(stop), 2)))
+                    stop_loss=StopLossRequest(stop_price=round(float(stop), 2)),
+                )
             else:
-                req = MarketOrderRequest(symbol=symbol, notional=round(notional, 2),
-                                         side=OrderSide.BUY, time_in_force=TimeInForce.DAY)
+                req = MarketOrderRequest(
+                    symbol=symbol,
+                    notional=round(notional, 2),
+                    side=OrderSide.BUY,
+                    time_in_force=TimeInForce.DAY,
+                )
             client.submit_order(req)
             return {"qty": qty, "entry": price}
 
         def _place_oco(self, symbol, qty, target, stop):
             tp = round(float(target), 2)
             req = LimitOrderRequest(
-                symbol=symbol, qty=int(qty), side=OrderSide.SELL,
-                time_in_force=TimeInForce.GTC, order_class=OrderClass.OCO,
+                symbol=symbol,
+                qty=int(qty),
+                side=OrderSide.SELL,
+                time_in_force=TimeInForce.GTC,
+                order_class=OrderClass.OCO,
                 limit_price=tp,
                 take_profit=TakeProfitRequest(limit_price=tp),
-                stop_loss=StopLossRequest(stop_price=round(float(stop), 2)))
+                stop_loss=StopLossRequest(stop_price=round(float(stop), 2)),
+            )
             client.submit_order(req)
 
         def protect(self, symbol, qty, target, stop):
@@ -766,8 +979,14 @@ def _alpaca_broker():
             last = None
             for _ in range(12):
                 try:
-                    client.submit_order(MarketOrderRequest(
-                        symbol=symbol, qty=q, side=OrderSide.SELL, time_in_force=TimeInForce.DAY))
+                    client.submit_order(
+                        MarketOrderRequest(
+                            symbol=symbol,
+                            qty=q,
+                            side=OrderSide.SELL,
+                            time_in_force=TimeInForce.DAY,
+                        )
+                    )
                     return
                 except Exception as exc:
                     last = exc
@@ -786,11 +1005,20 @@ def _alpaca_broker():
                 "last_equity": float(a.last_equity),
                 "cash": float(a.cash),
                 "open_positions": [
-                    {"symbol": p.symbol, "qty": float(p.qty),
-                     "unrealized_pl": float(p.unrealized_pl),
-                     "avg_entry_price": float(p.avg_entry_price) if p.avg_entry_price else None,
-                     "current_price": float(p.current_price) if p.current_price else None,
-                     "unrealized_plpc": float(p.unrealized_plpc) if p.unrealized_plpc else None}
+                    {
+                        "symbol": p.symbol,
+                        "qty": float(p.qty),
+                        "unrealized_pl": float(p.unrealized_pl),
+                        "avg_entry_price": float(p.avg_entry_price)
+                        if p.avg_entry_price
+                        else None,
+                        "current_price": float(p.current_price)
+                        if p.current_price
+                        else None,
+                        "unrealized_plpc": float(p.unrealized_plpc)
+                        if p.unrealized_plpc
+                        else None,
+                    }
                     for p in positions
                 ],
             }
@@ -798,12 +1026,15 @@ def _alpaca_broker():
         def open_orders(self):
             from alpaca.trading.requests import GetOrdersRequest
             from alpaca.trading.enums import QueryOrderStatus
+
             # status=OPEN (NOT ALL): ALL+limit=500 returns the 500 most-recent orders across all
             # history, so after churn the actual live OCOs (days old) get truncated out of the
             # window — open_orders() then can't see a position's stop (looks naked) OR the order to
             # cancel (cancel/replace fails 40310000). OPEN returns only live orders; nested=True
             # surfaces each OCO's HELD stop-loss leg, which _flatten_orders lifts to its own row.
-            ords = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500, nested=True))
+            ords = client.get_orders(
+                GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500, nested=True)
+            )
             return _flatten_orders(ords)
 
         def cancel_entry_orders(self):
@@ -825,28 +1056,41 @@ def _alpaca_broker():
             older holds — their exits then match no entry and silently vanish from the ledger."""
             from alpaca.trading.requests import GetOrdersRequest
             from alpaca.trading.enums import QueryOrderStatus
+
             out = []
             until = None
             for _ in range(max(1, pages)):
-                req = (GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=limit, until=until)
-                       if until else GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=limit))
+                req = (
+                    GetOrdersRequest(
+                        status=QueryOrderStatus.CLOSED, limit=limit, until=until
+                    )
+                    if until
+                    else GetOrdersRequest(status=QueryOrderStatus.CLOSED, limit=limit)
+                )
                 ords = client.get_orders(req)
                 if not ords:
                     break
                 for o in ords:
-                    if str(o.status).rsplit(".", 1)[-1].lower() != "filled" or not o.filled_avg_price:
+                    if (
+                        str(o.status).rsplit(".", 1)[-1].lower() != "filled"
+                        or not o.filled_avg_price
+                    ):
                         continue
-                    out.append({
-                        "symbol": o.symbol,
-                        "side": str(o.side).rsplit(".", 1)[-1].lower(),
-                        "qty": float(o.filled_qty) if o.filled_qty else 0.0,
-                        "price": float(o.filled_avg_price),
-                        "order_id": str(o.id),
-                        "order_type": str(o.order_type).rsplit(".", 1)[-1].lower(),
-                        "time": str(o.filled_at),
-                        "date": str(o.filled_at)[:10],
-                    })
-                oldest = min((o.submitted_at for o in ords if o.submitted_at), default=None)
+                    out.append(
+                        {
+                            "symbol": o.symbol,
+                            "side": str(o.side).rsplit(".", 1)[-1].lower(),
+                            "qty": float(o.filled_qty) if o.filled_qty else 0.0,
+                            "price": float(o.filled_avg_price),
+                            "order_id": str(o.id),
+                            "order_type": str(o.order_type).rsplit(".", 1)[-1].lower(),
+                            "time": str(o.filled_at),
+                            "date": str(o.filled_at)[:10],
+                        }
+                    )
+                oldest = min(
+                    (o.submitted_at for o in ords if o.submitted_at), default=None
+                )
                 if oldest is None or len(ords) < limit:
                     break  # reached the start of history
                 until = oldest
@@ -864,6 +1108,7 @@ def reconcile_realized(broker=None) -> dict:
         if broker is None:
             return {"status": "no_keys"}
         from runner.ledger.tony_realized import rebuild_from_fills
+
         # Paginate well past the canceled-OCO churn so older holds' BUY entries are in the window
         # and their exits FIFO-match (a sell with no matched entry is silently dropped).
         res = rebuild_from_fills(broker.filled_orders(limit=500, pages=6))
@@ -880,8 +1125,11 @@ NOTIFY_STATE = Path(__file__).parent.parent.parent / "workspace" / "notify-state
 def closed_positions(prior: list, current: list) -> list:
     """Pure: positions held last cycle but gone (or zeroed) now = closed since then."""
     cur = {p.get("symbol"): float(p.get("qty") or 0) for p in current}
-    return [p for p in prior
-            if float(p.get("qty") or 0) > 0 and cur.get(p.get("symbol"), 0) <= 0]
+    return [
+        p
+        for p in prior
+        if float(p.get("qty") or 0) > 0 and cur.get(p.get("symbol"), 0) <= 0
+    ]
 
 
 _UNRESOLVED_MAX_TRIES = int(os.environ.get("TONY_UNRESOLVED_MAX_TRIES", "100"))
@@ -895,8 +1143,11 @@ def bump_unresolved(p: dict, max_tries: int = None) -> dict | None:
     n = int(p.get("_unresolved_tries", 0) or 0) + 1
     cap = _UNRESOLVED_MAX_TRIES if max_tries is None else max_tries
     if n > cap:
-        _log.warning("dropping unresolved ghost from notify snapshot: %s (no price after %d tries)",
-                     p.get("symbol"), n - 1)
+        _log.warning(
+            "dropping unresolved ghost from notify snapshot: %s (no price after %d tries)",
+            p.get("symbol"),
+            n - 1,
+        )
         return None
     q = dict(p)
     q["_unresolved_tries"] = n
@@ -912,18 +1163,23 @@ def _verdict_thesis(verdicts, symbol) -> str:
     cap is roomy — and the cut lands on a sentence/word boundary, never mid-word ('Whi…').
     Obsidian [[wikilinks]] are unwrapped — Telegram readers saw raw '[[Breakout Watch]]'."""
     sym = (symbol or "").upper()
-    cands = [v for v in verdicts
-             if (v.get("symbol") or "").upper() == sym and v.get("thesis")]
+    cands = [
+        v
+        for v in verdicts
+        if (v.get("symbol") or "").upper() == sym and v.get("thesis")
+    ]
     if not cands:
         return ""
-    thesis = " ".join(str(max(cands, key=lambda v: v.get("date", "")).get("thesis", "")).split())
+    thesis = " ".join(
+        str(max(cands, key=lambda v: v.get("date", "")).get("thesis", "")).split()
+    )
     thesis = re.sub(r"\[\[([^\]]+)\]\]", r"\1", thesis)
     if len(thesis) <= _THESIS_MAX:
         return thesis
     cut = thesis[:_THESIS_MAX]
     dot = cut.rfind(". ")
     if dot > _THESIS_MAX * 0.6:
-        return cut[:dot + 1]                       # end on the last whole sentence
+        return cut[: dot + 1]  # end on the last whole sentence
     space = cut.rfind(" ")
     return (cut[:space] if space > 0 else cut) + "…"  # else last whole word
 
@@ -941,12 +1197,23 @@ def _r_multiple(entry, exit_price, stop):
     return round((ex - en) / risk, 2)
 
 
-def _notify_entry_safe(symbol, qty, entry, stop, target, risk_pct=RISK_PCT, reason="") -> None:
+def _notify_entry_safe(
+    symbol, qty, entry, stop, target, risk_pct=RISK_PCT, reason=""
+) -> None:
     """Fire a cosmetic entry alert. Fail-soft: a notify error never touches the trading path.
     risk_pct is the EFFECTIVE (conviction-scaled) risk so the alert reflects B1 sizing."""
     try:
         from runner.tools.notify import notify_entry
-        notify_entry(symbol, qty if qty is not None else "?", entry, stop, target, risk_pct, reason)
+
+        notify_entry(
+            symbol,
+            qty if qty is not None else "?",
+            entry,
+            stop,
+            target,
+            risk_pct,
+            reason,
+        )
     except Exception as exc:
         _log.info("notify entry failed: %s", exc)
 
@@ -959,9 +1226,13 @@ def _notify_closed(broker) -> None:
     except Exception as exc:
         _log.info("notify closed read failed: %s", exc)
         return
-    levels = _latest_scanner_levels()  # best-effort prior protective levels for exit-reason inference
+    levels = (
+        _latest_scanner_levels()
+    )  # best-effort prior protective levels for exit-reason inference
     unresolved = []  # closed but un-priceable this cycle: keep in the snapshot so we retry, never
-    for p in closed_positions(_load(NOTIFY_STATE), current):  # losing the stop-out from the ledger
+    for p in closed_positions(
+        _load(NOTIFY_STATE), current
+    ):  # losing the stop-out from the ledger
         sym, qty, entry = p.get("symbol"), p.get("qty"), p.get("avg_entry_price")
         try:
             last = broker._latest_price(sym)
@@ -979,6 +1250,7 @@ def _notify_closed(broker) -> None:
         try:
             from runner.tools.notify import notify_exit
             from runner.ledger.tony_realized import infer_reason
+
             pnl = (float(last) - float(entry)) * float(qty) if (entry and qty) else 0.0
             reason = infer_reason(last, lv.get("target"), lv.get("stop"))
             r_mult = _r_multiple(entry, last, lv.get("stop"))
@@ -988,8 +1260,14 @@ def _notify_closed(broker) -> None:
         # The realized LEDGER is now rebuilt authoritatively from Alpaca fills (reconcile_realized),
         # which captures stop-outs the live diff misses and dedups by order id — so we no longer
         # write un-id'd rows here (that path produced the bogus 'HELD' record). Alerts stay above.
-    snap = [{"symbol": p.get("symbol"), "qty": p.get("qty"),
-             "avg_entry_price": p.get("avg_entry_price")} for p in current + unresolved]
+    snap = [
+        {
+            "symbol": p.get("symbol"),
+            "qty": p.get("qty"),
+            "avg_entry_price": p.get("avg_entry_price"),
+        }
+        for p in current + unresolved
+    ]
     try:
         NOTIFY_STATE.parent.mkdir(parents=True, exist_ok=True)
         NOTIFY_STATE.write_text(json.dumps(snap), encoding="utf-8")
@@ -1019,20 +1297,29 @@ def sync(broker=None) -> dict:
     held_ok = True
     try:
         acct = broker.account()
-        held = {p.get("symbol") for p in (acct.get("open_positions") or [])
-                if float(p.get("qty", 0) or 0) > 0}
+        held = {
+            p.get("symbol")
+            for p in (acct.get("open_positions") or [])
+            if float(p.get("qty", 0) or 0) > 0
+        }
         in_positions = float(acct.get("equity") or 0) - float(acct.get("cash") or 0)
         if not held and in_positions > _HELD_READ_MIN_MV:
             held_ok = False
-            _log.warning("held read empty but ~$%.0f is in positions — fail-closed (no new entries)", in_positions)
+            _log.warning(
+                "held read empty but ~$%.0f is in positions — fail-closed (no new entries)",
+                in_positions,
+            )
     except Exception as exc:
-        _log.warning("held read failed — fail-closed (no new entries this cycle): %s", exc)
+        _log.warning(
+            "held read failed — fail-closed (no new entries this cycle): %s", exc
+        )
         held, held_ok = set(), False
     # ET trading day — verdict keys are ET-stamped (tony_verdict/research_queue), so counting the
     # daily-order cap by the UTC day undercounts the evening recheck window and effectively disables
     # the cap after 8 PM ET. RTH fills never cross midnight-UTC (=8 PM ET), so the re-entry cooldown
     # is correct in ET too.
     from runner.ledger.market_clock import trading_day
+
     today = trading_day()
     try:
         # Wide window so a busy day's exits aren't pushed out of the fetch by other closed orders.
@@ -1040,22 +1327,37 @@ def sync(broker=None) -> dict:
     except Exception as exc:
         _log.warning("re-entry cooldown read failed: %s", exc)
         exited_today = set()
-    today_opens = sum(1 for k in done if isinstance(k, str) and k.startswith(today) and k.endswith(":open"))
+    today_opens = sum(
+        1
+        for k in done
+        if isinstance(k, str) and k.startswith(today) and k.endswith(":open")
+    )
     # held_ok=False -> zero new entries (closes still plan; plan_orders only caps buys). A buy we
     # can't prove isn't a pyramid must not fire.
-    max_new = 0 if not held_ok else max(0, min(MAX_OPEN_POSITIONS - len(held), MAX_DAILY_ORDERS - today_opens))
-    plan = plan_orders(verdicts, done, levels, held, max_new_buys=max_new, exited_today=exited_today)
-    plan = _apply_cluster_cap(plan, held)  # T1.9 correlated-cluster cap (OFF by default)
+    max_new = (
+        0
+        if not held_ok
+        else max(0, min(MAX_OPEN_POSITIONS - len(held), MAX_DAILY_ORDERS - today_opens))
+    )
+    plan = plan_orders(
+        verdicts, done, levels, held, max_new_buys=max_new, exited_today=exited_today
+    )
+    plan = _apply_cluster_cap(
+        plan, held
+    )  # T1.9 correlated-cluster cap (OFF by default)
 
     breaker = _breaker_state_safe()  # T1.3 drawdown circuit breaker (OFF by default)
     if breaker and breaker.get("halted"):
         _log.warning("drawdown breaker HALTED new entries: %s", breaker.get("reasons"))
         _audit("breaker", reasons=breaker.get("reasons"), state=breaker)
-    conv_on = conviction_enabled()  # B1: scale risk by confidence only when the gate proves out
+    conv_on = (
+        conviction_enabled()
+    )  # B1: scale risk by confidence only when the gate proves out
     # Market-hours gate (Component A): a closed-market `buy` would open on stale closed prices and
     # gap over the weekend — block entries when closed. close/reprice/protect/reconcile still run
     # (they only reduce risk and the GTC OCO legs must keep reconciling overnight).
     from runner.ledger.market_clock import market_session
+
     session = market_session()
     executed = 0
     opened_now = set()
@@ -1070,17 +1372,40 @@ def sync(broker=None) -> dict:
                     _audit("skip", action["symbol"], reason="breaker_halt")
                     continue
                 throttle = breaker.get("throttle_mult", 1.0) if breaker else 1.0
-                mult = (conviction_multiplier(action.get("confidence")) if conv_on else 1.0) * throttle
+                mult = (
+                    conviction_multiplier(action.get("confidence")) if conv_on else 1.0
+                ) * throttle
                 rp = RISK_PCT * mult
-                info = broker.buy(action["symbol"], action["notional"],
-                                  action.get("target"), action.get("stop"), risk_pct=rp) or {}
+                info = (
+                    broker.buy(
+                        action["symbol"],
+                        action["notional"],
+                        action.get("target"),
+                        action.get("stop"),
+                        risk_pct=rp,
+                    )
+                    or {}
+                )
                 opened_now.add(action["symbol"])
-                _audit("order", action["symbol"], action="buy", risk_pct=round(rp, 4),
-                       qty=info.get("qty"), entry=info.get("entry"),
-                       target=action.get("target"), stop=action.get("stop"))
-                _notify_entry_safe(action["symbol"], info.get("qty"), info.get("entry"),
-                                   action.get("stop"), action.get("target"), risk_pct=rp,
-                                   reason=_verdict_thesis(verdicts, action["symbol"]))
+                _audit(
+                    "order",
+                    action["symbol"],
+                    action="buy",
+                    risk_pct=round(rp, 4),
+                    qty=info.get("qty"),
+                    entry=info.get("entry"),
+                    target=action.get("target"),
+                    stop=action.get("stop"),
+                )
+                _notify_entry_safe(
+                    action["symbol"],
+                    info.get("qty"),
+                    info.get("entry"),
+                    action.get("stop"),
+                    action.get("target"),
+                    risk_pct=rp,
+                    reason=_verdict_thesis(verdicts, action["symbol"]),
+                )
             elif action["action"] == "close":
                 broker.close(action["symbol"])
                 _audit("order", action["symbol"], action="close")
@@ -1101,8 +1426,12 @@ def sync(broker=None) -> dict:
     # name the scanner no longer surfaces (the SLB naked-overnight bug), scanner levels override
     # where present, and an entry-derived catastrophic bracket is the last-resort net.
     protect_levels = _merge_levels(_verdict_levels(verdicts), levels)
-    protected = _reconcile_protection(broker, protect_levels, fallback_pct=_fallback_pcts())
-    _liquidate_unprotectable_slivers(broker)  # close sub-1-share slivers that can never be bracketed (SLB)
+    protected = _reconcile_protection(
+        broker, protect_levels, fallback_pct=_fallback_pcts()
+    )
+    _liquidate_unprotectable_slivers(
+        broker
+    )  # close sub-1-share slivers that can never be bracketed (SLB)
 
     # Per-position lifecycle AFTER protection reconcile (so every position has its legs first):
     # high-water/age ledger -> profit-ratchet floors -> swing max-hold closes. Fail-soft.
@@ -1114,18 +1443,26 @@ def sync(broker=None) -> dict:
     except Exception as exc:
         _log.warning("lifecycle (ratchet/max-hold) failed: %s", exc)
 
-    _notify_closed(broker)  # exit alerts for anything closed since last cycle (target/stop/close)
+    _notify_closed(
+        broker
+    )  # exit alerts for anything closed since last cycle (target/stop/close)
 
     try:  # snapshot the book so briefs can inject it without a network call (fail-soft)
         from runner.tools.tony_book import write_book_cache
+
         write_book_cache(broker)
     except Exception as exc:
         _log.info("book cache update skipped: %s", exc)
 
-    return {"status": "ok", "executed": executed, "planned": len(plan),
-            "repriced": repriced, "protected": protected,
-            "ratcheted": lifecycle.get("ratcheted", 0),
-            "max_hold_closed": lifecycle.get("max_hold_closed", 0)}
+    return {
+        "status": "ok",
+        "executed": executed,
+        "planned": len(plan),
+        "repriced": repriced,
+        "protected": protected,
+        "ratcheted": lifecycle.get("ratcheted", 0),
+        "max_hold_closed": lifecycle.get("max_hold_closed", 0),
+    }
 
 
 def _reprice_adjusted(broker, verdicts: list, done: set, opened_now: set) -> int:
@@ -1138,24 +1475,41 @@ def _reprice_adjusted(broker, verdicts: list, done: set, opened_now: set) -> int
         _log.warning("reprice read failed: %s", exc)
         return 0
     try:
-        live_stops = _sell_legs(broker.open_orders())   # arms the never-loosen clamp
+        live_stops = _sell_legs(broker.open_orders())  # arms the never-loosen clamp
     except Exception as exc:
         _log.info("reprice live-stops read failed (clamp disarmed this cycle): %s", exc)
         live_stops = None
     count = 0
-    for rp in plan_reprices(verdicts, positions, done, opened_now, live_stops=live_stops):
+    for rp in plan_reprices(
+        verdicts, positions, done, opened_now, live_stops=live_stops
+    ):
         if rp.get("clamped"):
-            _log.warning("adjust %s tried to LOOSEN the stop — clamped to current %.2f",
-                         rp["symbol"], rp["stop"])
+            _log.warning(
+                "adjust %s tried to LOOSEN the stop — clamped to current %.2f",
+                rp["symbol"],
+                rp["stop"],
+            )
         try:
             broker.reprice(rp["symbol"], rp["qty"], rp["target"], rp["stop"])
             done.add(rp["key"])
             count += 1
-            _log.info("Re-priced %s x%d to target %.2f / stop %.2f",
-                      rp["symbol"], rp["qty"], rp["target"], rp["stop"])
+            _log.info(
+                "Re-priced %s x%d to target %.2f / stop %.2f",
+                rp["symbol"],
+                rp["qty"],
+                rp["target"],
+                rp["stop"],
+            )
             try:
                 from runner.tools.notify import notify_reprice
-                notify_reprice(rp["symbol"], rp["qty"], rp["target"], rp["stop"])
+
+                notify_reprice(
+                    rp["symbol"],
+                    rp["qty"],
+                    rp["target"],
+                    rp["stop"],
+                    entry=_entry_of(positions, rp["symbol"]),
+                )
             except Exception as nexc:
                 _log.info("notify reprice failed: %s", nexc)
         except Exception as exc:
@@ -1167,16 +1521,25 @@ def _fallback_pcts() -> tuple | None:
     """Catastrophic-stop fallback (stop_pct, target_pct) for naked positions with no scanner OR
     verdict levels — a wide net so nothing is ever naked overnight. Env-tunable; set
     TONY_FALLBACK_PROTECTION=off to disable. Defaults: 12% stop / 20% target."""
-    if os.environ.get("TONY_FALLBACK_PROTECTION", "on").strip().lower() in ("0", "false", "off", "no"):
+    if os.environ.get("TONY_FALLBACK_PROTECTION", "on").strip().lower() in (
+        "0",
+        "false",
+        "off",
+        "no",
+    ):
         return None
     try:
-        return (float(os.environ.get("TONY_FALLBACK_STOP_PCT", "0.12")),
-                float(os.environ.get("TONY_FALLBACK_TARGET_PCT", "0.20")))
+        return (
+            float(os.environ.get("TONY_FALLBACK_STOP_PCT", "0.12")),
+            float(os.environ.get("TONY_FALLBACK_TARGET_PCT", "0.20")),
+        )
     except ValueError:
         return (0.12, 0.20)
 
 
-def _reconcile_protection(broker, levels: dict, fallback_pct: tuple | None = None) -> int:
+def _reconcile_protection(
+    broker, levels: dict, fallback_pct: tuple | None = None
+) -> int:
     """Re-attach a GTC OCO exit to any whole-share position that's carrying no protective order
     (its day-bracket legs expired at the close, OR it aged out of the scanner). Best-effort: a
     per-symbol failure is logged and retried next cycle. Never touches positions that already have
@@ -1188,13 +1551,23 @@ def _reconcile_protection(broker, levels: dict, fallback_pct: tuple | None = Non
     except Exception as exc:
         _log.warning("protection reconcile read failed: %s", exc)
         return 0
-    for need in positions_needing_protection(positions, orders, levels, fallback_pct=fallback_pct):
+    for need in positions_needing_protection(
+        positions, orders, levels, fallback_pct=fallback_pct
+    ):
         try:
             broker.protect(need["symbol"], need["qty"], need["target"], need["stop"])
             protected += 1
-            src = "scanner/verdict" if need["symbol"] in levels else "FALLBACK no-levels"
-            _log.info("Re-protected %s x%d (target %.2f / stop %.2f) [%s]",
-                      need["symbol"], need["qty"], need["target"], need["stop"], src)
+            src = (
+                "scanner/verdict" if need["symbol"] in levels else "FALLBACK no-levels"
+            )
+            _log.info(
+                "Re-protected %s x%d (target %.2f / stop %.2f) [%s]",
+                need["symbol"],
+                need["qty"],
+                need["target"],
+                need["stop"],
+                src,
+            )
         except Exception as exc:
             _log.warning("protect %s failed: %s", need["symbol"], exc)
     return protected
@@ -1204,7 +1577,12 @@ def _liquidate_unprotectable_slivers(broker) -> int:
     """A fractional position (<1 share) CANNOT carry an Alpaca stop/OCO — it can only ever be
     naked. So auto-close any sub-1-share sliver, leaving no position unprotected (the SLB case).
     Whole-share positions are never touched. Fail-soft; set TONY_LIQUIDATE_FRACTIONAL=off to disable."""
-    if os.environ.get("TONY_LIQUIDATE_FRACTIONAL", "on").strip().lower() in ("0", "false", "off", "no"):
+    if os.environ.get("TONY_LIQUIDATE_FRACTIONAL", "on").strip().lower() in (
+        "0",
+        "false",
+        "off",
+        "no",
+    ):
         return 0
     try:
         positions = broker.account().get("open_positions", [])
@@ -1221,7 +1599,11 @@ def _liquidate_unprotectable_slivers(broker) -> int:
             try:
                 broker.close(p.get("symbol"))
                 closed += 1
-                _log.info("Liquidated unprotectable fractional sliver %s (%.4f sh)", p.get("symbol"), qty)
+                _log.info(
+                    "Liquidated unprotectable fractional sliver %s (%.4f sh)",
+                    p.get("symbol"),
+                    qty,
+                )
             except Exception as exc:
                 _log.warning("sliver liquidation %s failed: %s", p.get("symbol"), exc)
     return closed
@@ -1253,7 +1635,12 @@ def paper_book() -> dict:
         acct["status"] = "ok"
         return acct
     except Exception as exc:
-        return {"status": "error", "error": str(exc), "open_positions": [], "orders": []}
+        return {
+            "status": "error",
+            "error": str(exc),
+            "open_positions": [],
+            "orders": [],
+        }
 
 
 def flush_session(broker=None) -> dict:

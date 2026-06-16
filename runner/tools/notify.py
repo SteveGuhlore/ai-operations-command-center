@@ -8,6 +8,7 @@ a silent no-op so a notification can NEVER block or break a trade.
 Env: TONY_NOTIFY=telegram|off (default off) · TELEGRAM_BOT_TOKEN · TELEGRAM_CHAT_ID
 (a private chat id, or a group/supergroup id — usually negative — to post to a group).
 """
+
 import logging
 import os
 
@@ -26,11 +27,20 @@ def _channel() -> str:
 
 def inline_keyboard(rows: list) -> dict:
     """Build a Telegram inline keyboard. rows = [[(label, callback_data), ...], ...]."""
-    return {"inline_keyboard": [[{"text": t, "callback_data": d} for (t, d) in row] for row in rows]}
+    return {
+        "inline_keyboard": [
+            [{"text": t, "callback_data": d} for (t, d) in row] for row in rows
+        ]
+    }
 
 
-def notify(text: str, *, parse_mode: str = "HTML", chat_id: str | None = None,
-           reply_markup: dict | None = None) -> dict:
+def notify(
+    text: str,
+    *,
+    parse_mode: str = "HTML",
+    chat_id: str | None = None,
+    reply_markup: dict | None = None,
+) -> dict:
     """Send a message on the configured channel. chat_id overrides TELEGRAM_CHAT_ID (reply to a
     specific sender). Returns {sent: bool, ...}; never raises."""
     ch = _channel()
@@ -64,8 +74,12 @@ def _split_message(text: str, limit: int = 4000) -> list:
     return chunks
 
 
-def _telegram(text: str, parse_mode: str, chat_id: str | None = None,
-              reply_markup: dict | None = None) -> dict:
+def _telegram(
+    text: str,
+    parse_mode: str,
+    chat_id: str | None = None,
+    reply_markup: dict | None = None,
+) -> dict:
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat = chat_id or os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat:
@@ -74,9 +88,13 @@ def _telegram(text: str, parse_mode: str, chat_id: str | None = None,
     last = len(chunks) - 1
     try:
         for i, chunk in enumerate(chunks):
-            payload = {"chat_id": chat, "text": chunk, "parse_mode": parse_mode,
-                       "disable_web_page_preview": True}
-            if reply_markup and i == last:        # the keyboard rides only the final piece
+            payload = {
+                "chat_id": chat,
+                "text": chunk,
+                "parse_mode": parse_mode,
+                "disable_web_page_preview": True,
+            }
+            if reply_markup and i == last:  # the keyboard rides only the final piece
                 payload["reply_markup"] = reply_markup
             r = httpx.post(_TG_URL.format(token=token), json=payload, timeout=_TIMEOUT)
             r.raise_for_status()
@@ -86,7 +104,9 @@ def _telegram(text: str, parse_mode: str, chat_id: str | None = None,
         return {"sent": False, "reason": str(exc)}
 
 
-def broadcast(text: str, *, parse_mode: str = "HTML", reply_markup: dict | None = None) -> dict:
+def broadcast(
+    text: str, *, parse_mode: str = "HTML", reply_markup: dict | None = None
+) -> dict:
     """Post to the PUBLIC channel (TELEGRAM_PUBLIC_CHANNEL_ID). No-op if unset. Fail-soft."""
     if _channel() in _OFF:
         return {"sent": False, "reason": "disabled"}
@@ -102,27 +122,44 @@ def answer_callback_query(callback_id: str) -> dict:
     if not token or not callback_id:
         return {"sent": False}
     try:
-        httpx.post("https://api.telegram.org/bot{}/answerCallbackQuery".format(token),
-                   json={"callback_query_id": callback_id}, timeout=_TIMEOUT)
+        httpx.post(
+            "https://api.telegram.org/bot{}/answerCallbackQuery".format(token),
+            json={"callback_query_id": callback_id},
+            timeout=_TIMEOUT,
+        )
         return {"sent": True}
     except (httpx.HTTPError, ValueError) as exc:
         _log.info("answerCallbackQuery failed: %s", exc)
         return {"sent": False}
 
 
-def edit_message_text(chat_id: str, message_id: int, text: str, *, parse_mode: str = "HTML",
-                      reply_markup: dict | None = None) -> dict:
+def edit_message_text(
+    chat_id: str,
+    message_id: int,
+    text: str,
+    *,
+    parse_mode: str = "HTML",
+    reply_markup: dict | None = None,
+) -> dict:
     """Edit an existing message in place (for paging). Fail-soft."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token:
         return {"sent": False}
-    payload = {"chat_id": chat_id, "message_id": message_id, "text": text,
-               "parse_mode": parse_mode, "disable_web_page_preview": True}
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text,
+        "parse_mode": parse_mode,
+        "disable_web_page_preview": True,
+    }
     if reply_markup:
         payload["reply_markup"] = reply_markup
     try:
-        r = httpx.post("https://api.telegram.org/bot{}/editMessageText".format(token),
-                       json=payload, timeout=_TIMEOUT)
+        r = httpx.post(
+            "https://api.telegram.org/bot{}/editMessageText".format(token),
+            json=payload,
+            timeout=_TIMEOUT,
+        )
         r.raise_for_status()
         return {"sent": True}
     except (httpx.HTTPError, ValueError) as exc:
@@ -130,27 +167,51 @@ def edit_message_text(chat_id: str, message_id: int, text: str, *, parse_mode: s
         return {"sent": False}
 
 
-def notify_entry(symbol: str, qty, entry, stop, target, risk_pct: float = 1.0, reason: str = "") -> dict:
+def notify_entry(
+    symbol: str, qty, entry, stop, target, risk_pct: float = 1.0, reason: str = ""
+) -> dict:
     """🟢 Tony placed a new entry bracket — spoken in his own voice, with the thesis.
     Posts to the operator AND the public channel (broadcast is a no-op if unconfigured)."""
     from runner.tools.tony_voice import say_entry
+
     msg = say_entry(symbol, qty, entry, stop, target, risk_pct, reason)
     broadcast(msg)
     return notify(msg)
 
 
-def notify_exit(symbol: str, qty, exit_price, pnl, r_mult=None, reason: str = "") -> dict:
+def notify_exit(
+    symbol: str, qty, exit_price, pnl, r_mult=None, reason: str = ""
+) -> dict:
     """🟩/🟥 Tony closed a position (target/stop/his own close) — first person, with the why + R.
     Posts to the operator AND the public channel (broadcast is a no-op if unconfigured)."""
     from runner.tools.tony_voice import say_exit
+
     msg = say_exit(symbol, qty, exit_price, pnl, reason, r_mult)
     broadcast(msg)
     return notify(msg)
 
 
-def notify_reprice(symbol: str, qty, target, stop) -> dict:
-    """🔧 Tony moved a held position's protective stop/target (an intraday `adjust`)."""
-    from runner.tools.tony_voice import say_reprice
+def notify_reprice(symbol: str, qty, target, stop, entry=None) -> dict:
+    """🔧 Tony moved a held position's protective stop/target (an intraday `adjust`/ratchet).
+
+    Routed through notify_policy (dedup + materiality + per-symbol cooldown) so the operator feed
+    stays INSTANT but quiet — no more a-ping-per-tick. The first move that makes a position
+    risk-free (stop crosses entry) is escalated to a one-time 🔒 lock note instead of suppressed.
+    Set TONY_NOTIFY_POLICY=off to restore the legacy ping-on-every-move behavior.
+    """
+    from runner.tools.tony_voice import say_reprice, say_reprice_lock
+
+    if _channel() in _OFF:
+        return {"sent": False, "reason": "disabled"}
+    if os.environ.get("TONY_NOTIFY_POLICY", "on").strip().lower() in _OFF:
+        return notify(say_reprice(symbol, qty, target, stop))
+    from runner.tools import notify_policy
+
+    decision = notify_policy.gate_reprice(symbol, stop, target, entry=entry)
+    if not decision["send"]:
+        return {"sent": False, "reason": decision["reason"]}
+    if decision.get("lock"):
+        return notify(say_reprice_lock(symbol, qty, stop, entry))
     return notify(say_reprice(symbol, qty, target, stop))
 
 
