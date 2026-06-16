@@ -73,12 +73,67 @@ def _verdict_key(v) -> tuple:
     return (str(v.get("date", "")), str(v.get("symbol", "")).upper())
 
 
+def _archive_sibling(ext: str) -> Path:
+    return VERDICTS_ARCHIVE.with_suffix(VERDICTS_ARCHIVE.suffix + ext)
+
+
+def _read_archive_list() -> tuple[list, bool]:
+    """(verdicts, ok). ok=False means the archive file EXISTS but failed to parse (corrupt) — the
+    caller must NOT treat that as 'empty', or the next write would wipe the accumulated history."""
+    try:
+        data = json.loads(VERDICTS_ARCHIVE.read_text(encoding="utf-8"))
+        return (data if isinstance(data, list) else [], True)
+    except FileNotFoundError:
+        return ([], True)  # genuinely no archive yet — safe to build fresh
+    except (json.JSONDecodeError, OSError) as exc:
+        _log.error("verdict archive unreadable (%s) — recovering from backup", exc)
+        return ([], False)
+
+
+def _atomic_write_archive(merged: list) -> bool:
+    """Write the archive atomically (tmp + os.replace, no truncation window) and keep a rolling
+    .bak as last-known-good for corruption recovery. Returns True on success."""
+    try:
+        VERDICTS_ARCHIVE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _archive_sibling(".tmp")
+        tmp.write_text(json.dumps(merged, indent=2), encoding="utf-8")
+        os.replace(tmp, VERDICTS_ARCHIVE)
+        try:
+            _archive_sibling(".bak").write_text(
+                json.dumps(merged, indent=2), encoding="utf-8"
+            )
+        except OSError:
+            pass  # backup is best-effort; the primary write already succeeded
+        return True
+    except OSError as exc:
+        _log.error("verdict archive write failed: %s", exc)
+        return False
+
+
 def archive_verdicts() -> dict:
     """Append the current (about-to-be-flushed) verdicts to the persistent learning archive so the
     scorecard can grade verdict->outcome over time. Called from the pre-open reset BEFORE the flush
-    empties the live file. Dedup by (date, symbol), latest wins. Fail-soft."""
+    empties the live file. Dedup by (date, symbol), latest wins.
+
+    Hardened so the daily flush can never silently lose Tony's memory: atomic write + rolling
+    backup; on a corrupt archive, recover from the backup (and quarantine the bad file) instead of
+    rebuilding from today's live file only; and a monotonic guard that refuses to shrink. Returns an
+    ``ok`` flag — run_preopen_reset gates the flush on it, so verdicts are never deleted unsaved."""
     live = _load(VERDICTS_FILE)
-    arch = _load(VERDICTS_ARCHIVE)
+    arch, ok = _read_archive_list()
+    if not ok:
+        try:
+            bak = json.loads(_archive_sibling(".bak").read_text(encoding="utf-8"))
+            arch = bak if isinstance(bak, list) else []
+            _log.warning(
+                "verdict archive recovered %d verdict(s) from backup", len(arch)
+            )
+        except (json.JSONDecodeError, OSError, FileNotFoundError):
+            arch = []
+        try:  # quarantine the corrupt file for inspection rather than overwrite it blindly
+            VERDICTS_ARCHIVE.replace(_archive_sibling(".corrupt"))
+        except OSError:
+            pass
     by_key = {_verdict_key(v): v for v in arch if v.get("symbol") and v.get("date")}
     before = len(by_key)
     for v in live:
@@ -88,12 +143,16 @@ def archive_verdicts() -> dict:
         by_key.values(),
         key=lambda v: (str(v.get("date", "")), str(v.get("symbol", ""))),
     )
-    try:
-        VERDICTS_ARCHIVE.parent.mkdir(parents=True, exist_ok=True)
-        VERDICTS_ARCHIVE.write_text(json.dumps(merged, indent=2), encoding="utf-8")
-    except OSError as exc:
-        _log.warning("verdict archive write failed: %s", exc)
-    return {"archived": len(merged) - before, "total": len(merged)}
+    # Monotonic guard: a healthy read must never shrink (a union can't, but a bug/bad input could).
+    if ok and len(merged) < before:
+        _log.error(
+            "verdict archive would shrink %d->%d — refusing to overwrite",
+            before,
+            len(merged),
+        )
+        return {"archived": 0, "total": before, "ok": False}
+    written = _atomic_write_archive(merged)
+    return {"archived": len(merged) - before, "total": len(merged), "ok": written}
 
 
 def _all_verdicts() -> list:
