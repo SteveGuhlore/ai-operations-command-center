@@ -58,3 +58,6 @@ workspace/scheduler-state.json
 workspace/position-meta.json
 workspace/deepdive-ledger.json
 workspace/tony-verdicts-archive.json
+workspace/tony-verdicts-archive.json.*
+workspace/tony-graded-archive.json
+workspace/notify-reprice-state.json
