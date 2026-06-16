@@ -2133,5 +2133,66 @@ connect();
 // Tony Stocks is the only active pipeline — open straight to his tab.
 switchTab("tony");
 </script>
+<!-- In-app error console (gated, opt-in): surfaces JS errors that would otherwise blank a panel
+     silently. Enable with ?debug=1 (persists) or localStorage.ccDebug="1"; ?debug=0 to disable. -->
+<script>
+(() => {
+  try {
+    const u = new URL(location.href);
+    if (u.searchParams.get("debug") === "1") localStorage.setItem("ccDebug", "1");
+    if (u.searchParams.get("debug") === "0") localStorage.removeItem("ccDebug");
+  } catch (e) {}
+  if (localStorage.getItem("ccDebug") !== "1") return;   // OFF by default — opt-in only
+
+  const errors = [];
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]));
+
+  function panel() {
+    let p = document.getElementById("cc-error-console");
+    if (p) return p;
+    p = document.createElement("div");
+    p.id = "cc-error-console";
+    p.style.cssText = "position:fixed;right:14px;bottom:14px;width:min(680px,calc(100vw - 28px));max-height:60vh;background:#0b0d12;color:#e8eaf0;border:1px solid #ff6f7d;border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.7);z-index:2147483647;overflow:hidden;font:13px/1.4 system-ui,sans-serif;display:none";
+    p.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#2a1118;border-bottom:1px solid #444">'
+      + '<b style="color:#ffd8de">⚠ Error console</b><span>'
+      + '<button data-a="copy">Copy</button> <button data-a="clear">Clear</button> <button data-a="close">Close</button>'
+      + '</span></div><div id="cc-err-list" style="padding:10px;overflow:auto;max-height:calc(60vh - 44px)"></div>';
+    document.body.appendChild(p);
+    p.querySelectorAll("button").forEach(b => { b.style.cssText = "margin-left:4px;border:1px solid #555;background:#1d1f2a;color:#e8eaf0;border-radius:6px;padding:4px 8px;cursor:pointer"; });
+    p.querySelector('[data-a="close"]').onclick = () => { p.style.display = "none"; };
+    p.querySelector('[data-a="clear"]').onclick = () => { errors.length = 0; p.querySelector("#cc-err-list").innerHTML = ""; };
+    p.querySelector('[data-a="copy"]').onclick = async () => {
+      const t = errors.map((e, i) => `#${i + 1} ${e.time}\n${e.message}\n${e.source}:${e.line}:${e.col}\n${e.stack}`).join("\n\n") || "No errors.";
+      try { await navigator.clipboard.writeText(t); }
+      catch (_) { const ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+    };
+    return p;
+  }
+
+  function capture(o) {
+    const item = {
+      time: new Date().toLocaleTimeString(),
+      message: o.message || String((o.error && o.error.message) || o.reason || "Unknown error"),
+      source: o.source || "", line: o.lineno || "", col: o.colno || "",
+      stack: (o.error && o.error.stack) || (o.reason && o.reason.stack) || o.stack || ""
+    };
+    errors.push(item);
+    const p = panel();
+    const d = document.createElement("div");
+    d.style.cssText = "border:1px solid #444;background:#111;border-radius:8px;padding:8px;margin-bottom:8px";
+    d.innerHTML = '<b style="color:#ffd8de">' + esc(item.message) + '</b>'
+      + '<div style="color:#9aa;font-size:12px;margin-top:3px">' + esc(item.source || "runtime")
+      + (item.line ? ":" + esc(item.line) : "") + (item.col ? ":" + esc(item.col) : "") + " · " + esc(item.time) + '</div>'
+      + '<pre style="white-space:pre-wrap;word-break:break-word;max-height:160px;overflow:auto;margin:6px 0 0">' + esc(item.stack || item.message) + '</pre>';
+    p.querySelector("#cc-err-list").prepend(d);
+    p.style.display = "block";
+  }
+
+  window.addEventListener("error", capture);
+  window.addEventListener("unhandledrejection", e => capture({ message: (e.reason && e.reason.message) || String(e.reason), reason: e.reason }));
+  console.info("[cc] in-app error console active — append ?debug=0 to disable");
+})();
+</script>
 </body>
 </html>
