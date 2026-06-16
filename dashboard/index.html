@@ -2189,9 +2189,18 @@ switchTab("tony");
     p.style.display = "block";
   }
 
+  // Always-visible toggle (only when debug is armed) — open the console on demand, not just on error.
+  const toggle = document.createElement("button");
+  toggle.id = "cc-error-toggle";
+  toggle.textContent = "🐞";
+  toggle.title = "Open/close debug console";
+  toggle.style.cssText = "position:fixed;left:14px;bottom:14px;z-index:2147483646;width:42px;height:42px;border-radius:50%;border:1px solid #ff6f7d;background:#0b0d12;color:#fff;font-size:20px;line-height:1;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.5)";
+  toggle.onclick = () => { const p = panel(); p.style.display = (p.style.display === "block" ? "none" : "block"); };
+  document.body.appendChild(toggle);
+
   window.addEventListener("error", capture);
   window.addEventListener("unhandledrejection", e => capture({ message: (e.reason && e.reason.message) || String(e.reason), reason: e.reason }));
-  console.info("[cc] in-app error console active — append ?debug=0 to disable");
+  console.info("[cc] in-app error console active — tap 🐞 (bottom-left) to open; ?debug=0 to disable");
 })();
 </script>
 </body>
