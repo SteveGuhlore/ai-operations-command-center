@@ -338,6 +338,12 @@ async def update_outreach_status(request: Request):
     new_notes  = (data.get("notes")  or "").strip()
     if not business:
         return {"error": "business required"}
+    if new_status and new_status not in CALL_OUTCOMES:
+        return {"error": f"invalid status (allowed: {', '.join(sorted(CALL_OUTCOMES))})"}
+    if "|" in new_notes or "\n" in new_notes or "\r" in new_notes:
+        # CRM rows are a markdown table; a pipe/newline in free-text notes would break
+        # the row structure (or inject extra rows).
+        return {"error": "notes may not contain '|' or newlines"}
     crm_file = VAULT_DIR / "outreach" / "crm.md"
     if not crm_file.exists():
         return {"error": "CRM not found"}

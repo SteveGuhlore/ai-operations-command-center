@@ -42,9 +42,10 @@ class _ChangeHandler(FileSystemEventHandler):
 
     def on_modified(self, event):
         if Path(event.src_path).resolve() == self._file.resolve():
-            data = {}
             try:
                 data = json.loads(self._file.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
-                pass
+                # A partial/mid-write read parse-fails; skip this event and keep the
+                # last good broadcast rather than wiping the dashboard to {}.
+                return
             asyncio.run_coroutine_threadsafe(self._callback(data), self._loop)
