@@ -1,3 +1,4 @@
+# fmt: off
 import json
 import logging
 import re
@@ -1067,3 +1068,8 @@ async def api_tony_equity_curve():
         return curve()
     except Exception as exc:
         return {"points": [], "tony_return_pct": None, "bot_return_pct": None, "error": str(exc)}
+# fmt: on
+
+from dashboard.tony_routes import router as _tony_router  # noqa: E402
+
+app.include_router(_tony_router)

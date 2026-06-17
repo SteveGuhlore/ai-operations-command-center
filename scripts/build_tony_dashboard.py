@@ -1,0 +1,275 @@
+#!/usr/bin/env python3
+"""
+build_tony_dashboard.py
+Regenerates dashboard/tony.html from the Tony-standalone.html design artifact.
+Run: python3 scripts/build_tony_dashboard.py [--source /path/to/Tony-standalone.html]
+"""
+
+import re
+import html
+import sys
+import pathlib
+import argparse
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
+DEFAULT_SOURCE = pathlib.Path("/tmp/tony_design_unzip/handoff/Tony-standalone.html")
+OUTPUT = REPO_ROOT / "dashboard" / "tony.html"
+
+
+def patch_report(name: str, count: int, required: bool = True):
+    status = "OK" if count > 0 else ("ERROR" if required else "WARN/SIM")
+    print(f"  [{status}] {name}: {count} replacement(s)")
+    if required and count == 0:
+        raise RuntimeError(f"PRIORITY anchor missing: {name}")
+
+
+def fmt_horizon(horizon_days) -> str:
+    """Format horizonDays [lo, hi] as '8–12d', or '—' if null."""
+    if not horizon_days or len(horizon_days) < 2:
+        return "—"
+    lo, hi = horizon_days[0], horizon_days[1]
+    if lo is None or hi is None:
+        return "—"
+    return f"{lo}–{hi}d"
+
+
+def build(source_path: pathlib.Path, output_path: pathlib.Path):
+    print(f"Source : {source_path}")
+    print(f"Output : {output_path}")
+
+    src = source_path.read_text(encoding="utf-8")
+
+    # ---- extract bundler template block ----
+    tpl_match = re.search(
+        r'(<script\b[^>]*type="__bundler/template"[^>]*>)(.*?)(</script>)',
+        src,
+        re.S,
+    )
+    if not tpl_match:
+        raise RuntimeError(
+            "Could not find <script type='__bundler/template'> in source"
+        )
+
+    tag_open = tpl_match.group(1)
+    tpl_raw = tpl_match.group(2)
+    tag_close = tpl_match.group(3)
+
+    tpl = html.unescape(tpl_raw)
+    print(f"\nTemplate extracted: {len(tpl)} chars (after unescape)")
+    print("\n=== Applying patches ===")
+
+    # ================================================================
+    # PRIORITY A1: TONY_FEED script injection in outer <head>
+    # ================================================================
+    tony_feed_script = (
+        "<script>window.TONY_FEED={"
+        "proxyUrl:'/api/spx',"
+        "marksUrl:'/api/marks',"
+        "proxyName:'cc-vm'"
+        "};</script>"
+    )
+    # Inject right after the first <head...> tag in the OUTER document
+    outer_head_match = re.search(r"<head[^>]*>", src)
+    if not outer_head_match:
+        raise RuntimeError("PRIORITY-A1: <head> not found in outer document")
+    inject_pos = outer_head_match.end()
+    src = src[:inject_pos] + "\n  " + tony_feed_script + src[inject_pos:]
+    # Recalculate tpl_match positions in the modified src (do template work on tpl separately)
+    a1_count = src.count("window.TONY_FEED")
+    patch_report("A1 TONY_FEED inject", a1_count, required=True)
+
+    # ================================================================
+    # PRIORITY A2a: updateMarks — guard with marksUrl proxy
+    # ================================================================
+    OLD_A2A = "if (!cfg.alpacaKey || !cfg.alpacaSecret) return;"
+    NEW_A2A = "if (!cfg.marksUrl && (!cfg.alpacaKey || !cfg.alpacaSecret)) return;"
+    count_a2a = tpl.count(OLD_A2A)
+    tpl = tpl.replace(OLD_A2A, NEW_A2A)
+    patch_report("A2a marksUrl guard", count_a2a, required=True)
+
+    # ================================================================
+    # PRIORITY A2b: updateMarks — proxy-aware fetch
+    # ================================================================
+    # The JS is minified with literal \n (backslash-n, 2 chars) between statements,
+    # not real newlines, so we must use \\n in the Python string.
+    OLD_A2B = (
+        "const url = 'https://data.alpaca.markets/v2/stocks/trades/latest?symbols=' + syms + '&feed=iex';\\n"
+        "      const r = await fetch(url, { headers:{ 'APCA-API-KEY-ID':cfg.alpacaKey, 'APCA-API-SECRET-KEY':cfg.alpacaSecret } });"
+    )
+    NEW_A2B = (
+        "const url = cfg.marksUrl ? (cfg.marksUrl + '?syms=' + encodeURIComponent(syms)) : ('https://data.alpaca.markets/v2/stocks/trades/latest?symbols=' + syms + '&feed=iex');\\n"
+        "      const r = await fetch(url, cfg.marksUrl ? {} : { headers:{ 'APCA-API-KEY-ID':cfg.alpacaKey, 'APCA-API-SECRET-KEY':cfg.alpacaSecret } });"
+    )
+    count_a2b = tpl.count(OLD_A2B)
+    tpl = tpl.replace(OLD_A2B, NEW_A2B)
+    patch_report("A2b proxy-aware fetch", count_a2b, required=True)
+
+    # ================================================================
+    # PRIORITY B1: _hydrateLive method (insert before async initFeed)
+    # ================================================================
+    # buildChart signature: buildChart(dates, tony, bot, index, label)
+    # The '2wk' chart call: buildChart([labels], [tony], [bot], [index], '2 wks')
+    # We match that: buildChart(labels, tony_arr, bot_arr, index_arr, label)
+    # For hydration we use the same 4-array + label form:
+    #   buildChart(labels, tony, bot, bot (as index proxy), '2 wks')
+    # NOTE: the live feed returns equity.labels, equity.tony, equity.bot
+    # We pass bot as the 4th (index) arg since we lack a real SPY series there.
+
+    HYDRATE_METHOD = r"""
+  async _hydrateLive(){
+    try {
+      const res = await fetch('/api/tony/live');
+      if (!res.ok) return;
+      const json = await res.json();
+      if (!json || json.status === 'error' || json.sim === true) return;
+
+      // book
+      if (json.book && json.book.length) {
+        this.book = json.book.map(function(b){
+          return { sym:b.sym, qty:String(b.qty), entry:String(b.entry), last:String(b.last), unreal:String(b.unreal), up:!!b.up };
+        });
+      }
+
+      // calls
+      if (json.calls && json.calls.length) {
+        this.calls = json.calls.map(function(c){
+          return { sym:c.sym, verb:c.verb, note:c.note, time:c.time, day:c.day, grade:c.grade };
+        });
+      }
+
+      // stash full live payload for Priority C reads
+      this.live = json;
+
+      // projections
+      if (json.projections) {
+        const self = this;
+        Object.keys(json.projections).forEach(function(sym){
+          if (!self.tickers[sym]) return;
+          const proj = json.projections[sym];
+          self.tickers[sym].projection = proj;
+          if (proj.target != null) self.tickers[sym].targetLvl = proj.target;
+          self.tickers[sym].horizon = (function(hd){
+            if (!hd || hd.length < 2 || hd[0] == null || hd[1] == null) return '—';
+            return hd[0] + '–' + hd[1] + 'd';
+          })(proj.horizonDays);
+          self.enrich(self.tickers[sym]);
+        });
+      }
+
+      // equity chart — rebuild 2wk range when live data is present
+      if (json.equity && json.equity.labels && json.equity.labels.length &&
+          json.equity.tony && json.equity.tony.length &&
+          json.equity.bot && json.equity.bot.length) {
+        this.charts['2wk'] = this.buildChart(
+          json.equity.labels,
+          json.equity.tony,
+          json.equity.bot,
+          json.equity.bot,
+          '2 wks'
+        );
+      }
+
+      this.forceUpdate();
+    } catch(e) {
+      // swallow — SIM data stays intact
+    }
+  }
+
+"""
+
+    INITFEED_ANCHOR = "async initFeed(){"
+    count_b1 = tpl.count(INITFEED_ANCHOR)
+    tpl = tpl.replace(INITFEED_ANCHOR, HYDRATE_METHOD + "  " + INITFEED_ANCHOR, 1)
+    patch_report("B1 _hydrateLive method insert", count_b1, required=True)
+
+    # ================================================================
+    # PRIORITY B2a: call _hydrateLive at end of constructor
+    # ================================================================
+    # Constructor ends just before verbColor — use sectors array close as anchor
+    # JS is minified with literal \n (backslash-n) between statements — use \\n in Python
+    CONS_END_ANCHOR = (
+        "{ name:'Cons. disc.', pct:1, col:'#7e8a82' }\\n    ];\\n  }\\n\\n  verbColor"
+    )
+    CONS_END_REPLACE = "{ name:'Cons. disc.', pct:1, col:'#7e8a82' }\\n    ];\\n    this._hydrateLive();\\n  }\\n\\n  verbColor"
+    count_b2a = tpl.count(CONS_END_ANCHOR)
+    tpl = tpl.replace(CONS_END_ANCHOR, CONS_END_REPLACE)
+    patch_report("B2a _hydrateLive() at end of constructor", count_b2a, required=True)
+
+    # ================================================================
+    # PRIORITY B2b: setInterval for _hydrateLive in componentDidMount
+    # ================================================================
+    MOUNT_ANCHOR = "this.initFeed();\\n    this._feed = setInterval(()=>this.initFeed(), 60000);\\n  }"
+    MOUNT_REPLACE = "this.initFeed();\\n    this._feed = setInterval(()=>this.initFeed(), 60000);\\n    this._liveFeed = setInterval(()=>this._hydrateLive(), 60000);\\n  }"
+    count_b2b = tpl.count(MOUNT_ANCHOR)
+    tpl = tpl.replace(MOUNT_ANCHOR, MOUNT_REPLACE)
+    patch_report(
+        "B2b setInterval _hydrateLive in componentDidMount", count_b2b, required=True
+    )
+
+    # ================================================================
+    # PRIORITY C: masthead aggregates — NO template literals found (0 backticks)
+    # The HTML is static markup in the template, not a JS template-literal render.
+    # Priority C panels are LEFT AS SIM — reporting below.
+    # ================================================================
+    print("\n=== Priority C (best-effort) ===")
+    print(
+        "  [SIM] Render method uses static HTML strings (0 backtick template literals found)."
+    )
+    print(
+        "  [SIM] quadrant (agreed·right, agreed·wrong, tony saved, tony missed) — SIM baked values kept."
+    )
+    print("  [SIM] Call accuracy / stats / calibration — SIM baked values kept.")
+    print(
+        "  NOTE: this.live is stashed so a future JS patch to the HTML fragment can wire these up."
+    )
+
+    # ================================================================
+    # Re-escape tpl and splice back into the template block in the source
+    # ================================================================
+    tpl_escaped = html.escape(tpl, quote=False)
+
+    # Build the replacement bundler script block (tag_open and tag_close from original)
+    new_block = tag_open + tpl_escaped + tag_close
+
+    # Replace the original bundler block in the (already A1-patched) src.
+    # Use a split/join approach instead of re.sub so the replacement string is
+    # treated literally (new_block may contain \u sequences that re.sub would
+    # misinterpret as regex escapes).
+    m2 = re.search(
+        r'<script\b[^>]*type="__bundler/template"[^>]*>.*?</script>',
+        src,
+        re.S,
+    )
+    if not m2:
+        raise RuntimeError("Could not re-locate bundler script block for splice-back")
+    new_src = src[: m2.start()] + new_block + src[m2.end() :]
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(new_src, encoding="utf-8")
+
+    size = output_path.stat().st_size
+    print(f"\n=== Output ===")
+    print(f"  Written: {output_path}")
+    print(f"  Size   : {size:,} bytes")
+
+    # Quick assertions
+    content = output_path.read_text(encoding="utf-8")
+    assert "window.TONY_FEED" in content, "ASSERT FAIL: window.TONY_FEED missing"
+    assert "marksUrl" in content, "ASSERT FAIL: marksUrl missing"
+    assert "_hydrateLive" in content, "ASSERT FAIL: _hydrateLive missing"
+    assert content.lower().count("research simulation") >= 1, (
+        "ASSERT FAIL: disclaimer missing"
+    )
+    print(
+        "  Assertions: window.TONY_FEED OK | marksUrl OK | _hydrateLive OK | disclaimer OK"
+    )
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Build dashboard/tony.html from design artifact"
+    )
+    parser.add_argument("--source", type=pathlib.Path, default=DEFAULT_SOURCE)
+    parser.add_argument("--output", type=pathlib.Path, default=OUTPUT)
+    args = parser.parse_args()
+    build(args.source, args.output)

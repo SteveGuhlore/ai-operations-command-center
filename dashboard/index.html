@@ -1809,6 +1809,10 @@ async function renderTonyStocks() {
       `<div class="pod-row"><span class="pr-label" style="color:var(--cyan)">${s.Sector || ""}</span><span class="pr-when">${s.Tickers || ""}</span></div>`
     ).join("") : `<div class="pod-muted">No sector clusters.</div>`;
     el.innerHTML = `
+      <div style="margin-bottom:14px;padding:10px 14px;border:1px solid rgba(0,245,160,.35);border-radius:6px;background:rgba(0,245,160,.06)">
+        <a href="/tony" target="_blank" rel="noopener" style="font-size:13px;font-weight:700;color:var(--green);text-decoration:none;letter-spacing:.3px">Open Tony&#8217;s standalone dashboard &#8594;</a>
+        <div style="font-size:9px;color:var(--muted);margin-top:4px">The full 2nd-pass analyst now lives on its own page.</div>
+      </div>
       <div class="section-title" style="margin-bottom:4px">
         <span style="color:var(--green)">●</span> Tony Stocks — Signal Ledger
         <span style="font-size:8px;color:var(--muted);letter-spacing:0;text-transform:none"> · market_research_pod${(function(){

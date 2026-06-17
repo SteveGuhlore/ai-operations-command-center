@@ -1666,3 +1666,104 @@ def flush_session(broker=None) -> dict:
         except OSError as exc:
             _log.warning("flush_session: clearing %s failed: %s", f, exc)
     return {"cancelled": cancelled, "cleared": cleared}
+
+
+# ---------------------------------------------------------------------------
+# Market-DATA proxies for the standalone Tony dashboard. Keys stay server-side here
+# (the dashboard only ever sees /api/spx and /api/marks), so secrets never reach the
+# browser. Both degrade to an empty/honest payload so the dashboard's SIM/awaiting-feed
+# states render rather than a fake move.
+# ---------------------------------------------------------------------------
+def _data_client():
+    key = os.environ.get("ALPACA_API_KEY")
+    secret = os.environ.get("ALPACA_SECRET_KEY")
+    if not (key and secret):
+        return None
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient
+    except ImportError:
+        return None
+    try:
+        return StockHistoricalDataClient(key, secret)
+    except Exception as exc:
+        _log.info("data client init failed: %s", exc)
+        return None
+
+
+def _stooq_closes(sym: str, limit: int) -> list:
+    """Keyless daily-close fallback so the benchmark line still renders without entitlement."""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(
+            f"https://stooq.com/q/d/l/?s={sym}&i=d", timeout=6
+        ) as r:
+            text = r.read().decode("utf-8", "ignore")
+    except Exception as exc:
+        _log.info("stooq fetch failed: %s", exc)
+        return []
+    out = []
+    for line in text.strip().splitlines()[1:]:  # skip CSV header
+        parts = line.split(",")
+        if len(parts) >= 5:
+            try:
+                out.append(float(parts[4]))  # Close column
+            except ValueError:
+                continue
+    return out[-limit:]
+
+
+def spy_closes(limit: int = 15) -> dict:
+    """~`limit` daily SPY closes for the benchmark. Alpaca -> Stooq -> empty.
+
+    Returns {"closes": [...], "src": "alpaca"|"stooq"|"none"}. The last value is the most
+    recent available bar (today's forming daily bar when the market is open, otherwise the
+    last close), satisfying "last close when the market is closed".
+    """
+    client = _data_client()
+    if client is not None:
+        try:
+            from alpaca.data.requests import StockBarsRequest
+            from alpaca.data.timeframe import TimeFrame
+
+            req = StockBarsRequest(
+                symbol_or_symbols="SPY", timeframe=TimeFrame.Day, limit=limit
+            )
+            bars = client.get_stock_bars(req)
+            rows = (getattr(bars, "data", {}) or {}).get("SPY") or []
+            closes = [float(b.close) for b in rows][-limit:]
+            if len(closes) >= 3:
+                return {"closes": closes, "src": "alpaca"}
+        except Exception as exc:
+            _log.info("spy_closes alpaca failed: %s", exc)
+    closes = _stooq_closes("spy.us", limit)
+    if len(closes) >= 3:
+        return {"closes": closes, "src": "stooq"}
+    return {"closes": [], "src": "none"}
+
+
+def latest_trade_prices(syms) -> dict:
+    """Latest trade price per symbol, mirroring Alpaca's latest-trades response shape:
+    {"trades": {SYM: {"p": price}}, "src": "alpaca"|"none"}."""
+    arr = [s.strip().upper() for s in (syms or []) if s and s.strip()]
+    if not arr:
+        return {"trades": {}, "src": "none"}
+    client = _data_client()
+    if client is None:
+        return {"trades": {}, "src": "none"}
+    try:
+        from alpaca.data.requests import StockLatestTradeRequest
+
+        res = client.get_stock_latest_trade(
+            StockLatestTradeRequest(symbol_or_symbols=arr)
+        )
+        trades = {}
+        for sym in arr:
+            t = res.get(sym)
+            price = getattr(t, "price", None) if t is not None else None
+            if price is not None:
+                trades[sym] = {"p": float(price)}
+        return {"trades": trades, "src": "alpaca" if trades else "none"}
+    except Exception as exc:
+        _log.info("latest_trade_prices failed: %s", exc)
+        return {"trades": {}, "src": "none"}

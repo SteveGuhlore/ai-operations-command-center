@@ -40,6 +40,12 @@ http() { c="$(curl -s -o /dev/null -m 8 -w '%{http_code}' "$2" 2>/dev/null)"; [ 
 http "CC command-center :8765" http://127.0.0.1:8765/ 200
 http "bot scanner :3000"       http://127.0.0.1:3000/ 200
 http "bot api :8001 /api/command-center" http://127.0.0.1:8001/api/command-center 200
+http "Tony standalone dashboard /tony :8765" http://127.0.0.1:8765/tony 200
+jget() { r="$(curl -s -m 8 "$2" 2>/dev/null)"; echo "$r" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(0 if '$3' in d else 1)" 2>/dev/null && ok "$1 has '$3'" || bad "$1 missing '$3' (response: ${r:0:80})"; }
+jget "GET /api/tony/live"             http://127.0.0.1:8765/api/tony/live   status
+jget "GET /api/spx"                   http://127.0.0.1:8765/api/spx         closes
+jget "GET /api/marks?syms=SPY"        "http://127.0.0.1:8765/api/marks?syms=SPY" trades
+jget "GET /api/tony/record"           http://127.0.0.1:8765/api/tony/record status
 
 line "SCORECARD / MEMORY (live)"
 ( cd "$CC_DIR" && .venv/bin/python - <<'PY'
