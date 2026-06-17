@@ -1,15 +1,32 @@
 # fmt: off
+import hmac
 import json
 import logging
+import os
 import re
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Set
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse
 from dashboard.watcher import StateFileWatcher
+
+
+def _require_operator(x_operator_token: str | None = Header(default=None)) -> None:
+    """Opt-in operator auth for STATE-CHANGING endpoints. When DASHBOARD_OPERATOR_TOKEN
+    is set, a matching X-Operator-Token header is required; when unset, requests are
+    allowed (the Tailscale-fronted single-operator default — flipping this on without
+    the dashboard sending the token would 401 the UI). To fully close the surface: set
+    DASHBOARD_OPERATOR_TOKEN, have the dashboard send it, and keep the server bound to
+    Tailscale/localhost. Read endpoints are unaffected.
+    """
+    expected = os.environ.get("DASHBOARD_OPERATOR_TOKEN")
+    if not expected:
+        return
+    if not x_operator_token or not hmac.compare_digest(str(x_operator_token), str(expected)):
+        raise HTTPException(status_code=401, detail="operator token required")
 
 # Load .env so the dashboard has Alpaca keys (for the live Paper Book) regardless of
 # how uvicorn is launched. Previously keys were only inherited from launch.py's env,
@@ -154,7 +171,7 @@ async def api_status():
     return {"execution_loop_active": exec_active, "improvement_next_run": improve_next}
 
 
-@app.post("/api/trigger")
+@app.post("/api/trigger", dependencies=[Depends(_require_operator)])
 async def api_trigger(request: Request):
     body = await request.json()
     pod = body.get("pod", "")
@@ -330,7 +347,7 @@ async def api_outreach_stats():
 
 CALL_OUTCOMES = {"answered", "no_answer", "interested", "not_interested", "callback", "emailed", "dm_sent", "call_queued", "followed_up", "replied", "closed", "no_interest"}
 
-@app.post("/api/outreach/update-status")
+@app.post("/api/outreach/update-status", dependencies=[Depends(_require_operator)])
 async def update_outreach_status(request: Request):
     data = await request.json()
     business = (data.get("business") or "").strip()
@@ -370,7 +387,7 @@ async def update_outreach_status(request: Request):
     return {"error": f"'{business}' not found in CRM"}
 
 
-@app.post("/api/outreach/followup-sweep")
+@app.post("/api/outreach/followup-sweep", dependencies=[Depends(_require_operator)])
 async def outreach_followup_sweep():
     """Queue one outreach_worker task to follow up every replied/interested lead
     that is not yet closed. Backs the CRM 'Queue Follow-up Sweep' button."""
@@ -419,7 +436,7 @@ async def api_landing_pending():
     return {"pending": pending}
 
 
-@app.post("/api/landing/deploy")
+@app.post("/api/landing/deploy", dependencies=[Depends(_require_operator)])
 async def api_landing_deploy(request: Request):
     """Inject the operator's LIVE Stripe Payment Link into a draft landing page
     and mark it deployed. This is the single human money-gate: the live link
@@ -474,14 +491,14 @@ async def api_runway():
     return compute_runway()
 
 
-@app.post("/api/runway/revive")
+@app.post("/api/runway/revive", dependencies=[Depends(_require_operator)])
 async def api_runway_revive():
     """Operator action: revive a paused/expired Prospector pod (resets the clock)."""
     from runner.ledger.runway import revive
     return revive()
 
 
-@app.post("/api/opportunity/grade")
+@app.post("/api/opportunity/grade", dependencies=[Depends(_require_operator)])
 async def api_opportunity_grade(request: Request):
     """Operator grades a PoC from the board (promising/weak/dead). Backs the manual
     Grade buttons. A 'promising' grade flips the ledger row; the runner's pipeline
@@ -497,7 +514,7 @@ async def api_opportunity_grade(request: Request):
     return grade_poc(slug, verdict, reason)
 
 
-@app.post("/api/revenue/log")
+@app.post("/api/revenue/log", dependencies=[Depends(_require_operator)])
 async def api_revenue_log(request: Request):
     """Operator-only manual revenue entry, backing the dashboard 'Log Revenue' button."""
     from runner.tools.revenue_tool import log_revenue
@@ -661,7 +678,7 @@ def _set_yaml_knob(lines: list[str], section_re: str, key: str, value: int) -> b
     return False
 
 
-@app.post("/api/spawn-schedules")
+@app.post("/api/spawn-schedules", dependencies=[Depends(_require_operator)])
 async def api_set_spawn_schedules(request: Request):
     body = await request.json()
     if not _SCHEDULE_FILE.exists():

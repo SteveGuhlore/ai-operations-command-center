@@ -26,3 +26,17 @@ def test_revive_endpoint(client):
     r = client.post("/api/runway/revive")
     assert r.json()["status"] == "alive"
     assert client.get("/api/runway").json()["status"] == "alive"
+
+
+def test_operator_token_enforced_when_set(client, monkeypatch):
+    # Opt-in auth: with DASHBOARD_OPERATOR_TOKEN set, a state-changing POST needs the header.
+    monkeypatch.setenv("DASHBOARD_OPERATOR_TOKEN", "s3cret")
+    assert client.post("/api/runway/revive").status_code == 401
+    assert client.post("/api/runway/revive", headers={"X-Operator-Token": "wrong"}).status_code == 401
+    ok = client.post("/api/runway/revive", headers={"X-Operator-Token": "s3cret"})
+    assert ok.status_code == 200 and ok.json()["status"] == "alive"
+
+
+def test_reads_are_not_gated_by_token(client, monkeypatch):
+    monkeypatch.setenv("DASHBOARD_OPERATOR_TOKEN", "s3cret")
+    assert client.get("/api/runway").status_code == 200  # GET stays open
