@@ -7,6 +7,7 @@ no agent can write). When the runway expires the pipeline auto-pauses; an
 operator revives it. Parallel to budget.py — never merged, never touches it.
 """
 import json
+import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -41,8 +42,13 @@ def _load() -> dict:
 
 
 def _save(state: dict) -> None:
+    # Atomic write so a concurrent reader / crash can't observe a torn JSON file.
+    # (Prevents corruption; full lost-update protection under concurrent writers
+    # still needs a cross-process lock — tracked as a follow-up.)
     LEDGER_DIR.mkdir(parents=True, exist_ok=True)
-    RUNWAY_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    tmp = RUNWAY_FILE.with_name(RUNWAY_FILE.name + f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    os.replace(tmp, RUNWAY_FILE)
 
 
 def _real_revenue() -> float:

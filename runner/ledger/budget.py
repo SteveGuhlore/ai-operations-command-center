@@ -1,6 +1,7 @@
 # runner/ledger/budget.py
 import json
 import math
+import os
 from datetime import date
 from pathlib import Path
 
@@ -32,7 +33,14 @@ def _load_spend() -> dict:
 
 
 def _save_spend(data: dict) -> None:
-    SPEND_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    # Atomic write: a concurrent reader (or a crash mid-write) must never see a
+    # half-written/torn JSON file. Write to a temp sibling then os.replace (atomic
+    # on the same filesystem, incl. Windows). NOTE: this prevents corruption but not
+    # lost updates under concurrent writers — a cross-process lock is a follow-up.
+    LEDGER_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = SPEND_FILE.with_name(SPEND_FILE.name + f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp, SPEND_FILE)
 
 
 def record_spend(role_id: str, cost_usd: float, pod: str | None = None) -> None:
