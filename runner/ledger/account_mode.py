@@ -55,7 +55,9 @@ def live_preconditions(record: dict) -> dict:
     live_key, live_secret = live_credentials()
     if not (live_key and live_secret):
         reasons.append("live Alpaca credentials not provided (TONY_LIVE_ALPACA_API_KEY/SECRET)")
-    elif live_key == os.environ.get("ALPACA_API_KEY"):
+    elif live_key == os.environ.get("ALPACA_API_KEY") or live_secret == os.environ.get("ALPACA_SECRET_KEY"):
+        # Both the key AND the secret must differ from the bot account — a reused secret
+        # is just as much a cross-account leak as a reused key (§5.3).
         reasons.append("live account not isolated from the bot account (§5.3) — keys must differ")
 
     return {"ready": not reasons, "reasons": reasons}

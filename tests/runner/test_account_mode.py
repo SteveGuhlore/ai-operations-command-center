@@ -38,6 +38,19 @@ def test_live_preconditions_requires_isolated_keys(monkeypatch):
     assert g["ready"] is False and any("not isolated" in r for r in g["reasons"])
 
 
+def test_live_preconditions_requires_isolated_secret(monkeypatch):
+    # Regression: a reused SECRET (even with a distinct key) is a cross-account leak.
+    monkeypatch.setenv("TONY_ACCOUNT_MODE", "live")
+    monkeypatch.setenv("TONY_LIVE_ENABLED", "1")
+    monkeypatch.delenv("TONY_KILL_SWITCH", raising=False)
+    monkeypatch.setenv("ALPACA_API_KEY", "BOTKEY")
+    monkeypatch.setenv("ALPACA_SECRET_KEY", "SAMESECRET")
+    monkeypatch.setenv("TONY_LIVE_ALPACA_API_KEY", "LIVEKEY")
+    monkeypatch.setenv("TONY_LIVE_ALPACA_SECRET_KEY", "SAMESECRET")
+    g = am.live_preconditions(_passing_record())
+    assert g["ready"] is False and any("not isolated" in r for r in g["reasons"])
+
+
 def test_live_preconditions_blocks_when_credentials_missing(monkeypatch):
     monkeypatch.setenv("TONY_ACCOUNT_MODE", "live")
     monkeypatch.setenv("TONY_LIVE_ENABLED", "1")
