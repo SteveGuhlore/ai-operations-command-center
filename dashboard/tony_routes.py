@@ -147,6 +147,12 @@ async def api_tony_live():
         stats["open_positions"] = len(positions)
         if book.get("equity") is not None:
             stats["equity"] = float(book.get("equity"))
+            le = book.get("last_equity")
+            if le:
+                stats["today_pnl"] = round(float(book["equity"]) - float(le), 2)
+                stats["today_pnl_pct"] = round(
+                    (float(book["equity"]) / float(le) - 1) * 100, 2
+                )
         for p in positions:
             sym = p.get("symbol") or ""
             upl = p.get("unrealized_pl")
@@ -197,6 +203,11 @@ async def api_tony_live():
         equity_out["labels"] = [p.get("ts") or p.get("label") or "" for p in pts]
         equity_out["tony_return_pct"] = eq.get("tony_return_pct")
         equity_out["bot_return_pct"] = eq.get("bot_return_pct")
+        if (
+            eq.get("tony_return_pct") is not None
+            and eq.get("bot_return_pct") is not None
+        ):
+            stats["vs_bot_pct"] = round(eq["tony_return_pct"] - eq["bot_return_pct"], 2)
     except Exception:
         sim = True
 
@@ -266,6 +277,35 @@ async def api_tony_live():
     except Exception:
         sim = True
 
+    # --- realized / closed trades ---
+    closed_out = []
+    try:
+        from runner.ledger import tony_realized
+
+        for r in tony_realized.records(newest_first=True)[:8]:
+            pl = r.get("realized_pl")
+            plf = float(pl) if pl is not None else 0.0
+            reason = r.get("reason") or r.get("exit_reason") or "close"
+            pct = r.get("pct")
+            closed_out.append(
+                {
+                    "sym": (r.get("symbol") or "").upper(),
+                    "side": str(reason).title(),
+                    "pl": ("+" if plf >= 0 else "−") + format(abs(round(plf)), ","),
+                    "up": plf >= 0,
+                    "r": (
+                        (("+" if pct >= 0 else "") + str(round(pct, 1)) + "%")
+                        if pct is not None
+                        else ""
+                    ),
+                    "note": str(reason),
+                    "when": r.get("date") or "",
+                    "agree": "",
+                }
+            )
+    except Exception:
+        pass
+
     return {
         "status": rec_status or "awaiting",
         "asof": asof,
@@ -281,4 +321,5 @@ async def api_tony_live():
         "book": book_rows,
         "calls": calls_out,
         "projections": projections_out,
+        "closed": closed_out,
     }

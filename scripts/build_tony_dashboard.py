@@ -150,6 +150,17 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
       }
     } catch(e) {}
     try {
+      this.closed = (json.closed && json.closed.length) ? json.closed.map(function(c){
+        return { sym:c.sym, side:c.side, pl:c.pl, up:!!c.up, r:c.r||'', note:c.note||'', when:c.when||'', agree:c.agree||'' };
+      }) : [];
+    } catch(e) {}
+    try {
+      var pu = function(u){ var n=parseFloat(String(u).replace(/[$,]/g,'')); return isNaN(n)?0:n; };
+      this.attrib = (this.book||[]).map(function(b){ return { sym:b.sym, _v:pu(b.unreal) }; }).sort(function(a,b){ return Math.abs(b._v)-Math.abs(a._v); }).slice(0,6).map(function(x){ return { sym:x.sym, pl:(x._v>=0?'+':'−')+Math.abs(Math.round(x._v)).toLocaleString(), up:x._v>=0 }; });
+    } catch(e) {}
+    // No live source yet for sector exposure / bot queue — empty rather than show SIM rows.
+    try { this.sectors = []; this.pending = []; } catch(e) {}
+    try {
       if (json.projections) {
         const self = this;
         Object.keys(json.projections).forEach(function(sym){
@@ -196,6 +207,7 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
         this.charts['inception'] = mk('since inception');
       }
     } catch(e) {}
+    try { this.buildTape(); } catch(e) {}
     try { this.forceUpdate(); } catch(e) {}
     setTimeout(()=>{ try{ this._patchStatics(); }catch(e){} }, 60);
   }
@@ -238,6 +250,13 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
       setByLabel('low conf', cal.low, pctFmt);
       setByLabel('med conf', cal.medium, pctFmt);
       setByLabel('high conf', cal.high, pctFmt);
+      if (s.vs_bot_pct != null) setByLabel('vs bot · 2 wks', s.vs_bot_pct, function(v){ return (v>=0?'+':'')+v.toFixed(1)+'%'; });
+      if (s.avg_pl_per_trade != null) setByLabel('Avg outcome', s.avg_pl_per_trade, function(v){ return (v>=0?'+':'')+(+v).toFixed(2)+'R'; });
+      if (s.today_pnl != null) {
+        var eq2 = document.querySelector('[data-count][data-prefix="$"]');
+        var sib = eq2 && eq2.nextElementSibling;
+        if (sib) { var pp = s.today_pnl_pct; sib.textContent = (s.today_pnl>=0?'▲ +$':'▼ −$') + Math.abs(Math.round(s.today_pnl)).toLocaleString() + ' · ' + (pp!=null?((pp>=0?'+':'')+pp.toFixed(2)):'0') + '% today'; }
+      }
     } catch(e) {
       // swallow — leave SIM values in place
     }
@@ -304,6 +323,20 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
     count_b4 = tpl.count(OLD_B4)
     tpl = tpl.replace(OLD_B4, NEW_B4)
     patch_report("B4 updateMarks strips $ from entry", count_b4, required=True)
+
+    # ================================================================
+    # B5: ticker tape is a hardcoded SIM list — rebuild it from the live book (top movers by
+    # unrealized %), keeping the SIM list only as a fallback when the book hasn't loaded.
+    # Single line (no real newlines) since it splices into the JSON-string template directly.
+    # ================================================================
+    OLD_B5 = r"""const T = [[\"AXON\",\"+4.97\",\"up\"],[\"DHR\",\"+5.75\",\"up\"],[\"GM\",\"+6.53\",\"up\"],[\"RF\",\"+2.94\",\"up\"],[\"APH\",\"-2.12\",\"dn\"],[\"NVDA\",\"-1.43\",\"dn\"],[\"CRWD\",\"-0.88\",\"dn\"],[\"MNDY\",\"-3.10\",\"dn\"],[\"SPY\",\"+0.21\",\"up\"],[\"QQQ\",\"+0.34\",\"up\"]];"""
+    NEW_B5 = (
+        r"""const _bk = this.book || []; const T = _bk.length ? _bk.map(function(b){ var e=parseFloat(String(b.entry).replace(/[$,]/g,'')), l=parseFloat(String(b.last).replace(/[$,]/g,'')); var p=(e&&l)?((l-e)/e*100):0; return [b.sym,(p>=0?'+':'')+p.toFixed(2),p>=0?'up':'dn']; }).sort(function(a,b){return Math.abs(parseFloat(b[1]))-Math.abs(parseFloat(a[1]));}).slice(0,14) : """
+        r"""[[\"AXON\",\"+4.97\",\"up\"],[\"DHR\",\"+5.75\",\"up\"],[\"GM\",\"+6.53\",\"up\"],[\"RF\",\"+2.94\",\"up\"],[\"APH\",\"-2.12\",\"dn\"],[\"NVDA\",\"-1.43\",\"dn\"],[\"CRWD\",\"-0.88\",\"dn\"],[\"MNDY\",\"-3.10\",\"dn\"],[\"SPY\",\"+0.21\",\"up\"],[\"QQQ\",\"+0.34\",\"up\"]];"""
+    )
+    count_b5 = tpl.count(OLD_B5)
+    tpl = tpl.replace(OLD_B5, NEW_B5)
+    patch_report("B5 tape from live book", count_b5, required=True)
 
     # ================================================================
     # PRIORITY C: masthead aggregates — NO template literals found (0 backticks)
