@@ -168,11 +168,18 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
     try {
       const eq = json.equity;
       if (eq && eq.tony && eq.tony.length && eq.bot && eq.bot.length) {
-        // The live curve can be thousands of points — downsample to ~60 (index-based so every
-        // series keeps the same length) before handing it to buildChart.
+        // Live curve is normalized-to-100; buildChart wants percent-from-base, so subtract 100.
+        // Downsample (index-based, equal length) and feed ALL ranges (only ~10 days exist).
         const N = eq.tony.length, step = Math.max(1, Math.floor(N/60));
         const ds = function(a){ if(!a||!a.length) return []; const o=[]; for(let i=0;i<a.length;i+=step) o.push(a[i]); if((a.length-1)%step!==0) o.push(a[a.length-1]); return o; };
-        this.charts['2wk'] = this.buildChart(ds(eq.labels), ds(eq.tony), ds(eq.bot), ds(eq.bot), '2 wks');
+        const pct = function(a){ return ds(a).map(function(v){ return +(v-100).toFixed(2); }); };
+        const labs = ds(eq.labels).map(function(t){ try{ const d=new Date(t); return (d.getMonth()+1)+'/'+d.getDate(); }catch(e){ return ''; } });
+        const tonyP = pct(eq.tony), botP = pct(eq.bot);
+        const self2 = this;
+        const mk = function(lbl){ return self2.buildChart(labs, tonyP, botP, botP, lbl); };
+        this.charts['2wk'] = mk('2 wks');
+        this.charts['1mo'] = mk('1 mo');
+        this.charts['inception'] = mk('since inception');
       }
     } catch(e) {}
     try { this.forceUpdate(); } catch(e) {}
@@ -208,6 +215,10 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
       setByLabel('Call accuracy', s.call_accuracy_pct, v => Math.round(v<=1 ? v*100 : v) + '%');
       setByLabel('Graded calls', s.graded);
       setByLabel('Open positions', s.open_positions);
+      if (s.equity != null) {
+        const eqNode = document.querySelector('[data-count][data-prefix="$"]');
+        if (eqNode) eqNode.textContent = '$' + Math.round(s.equity).toLocaleString();
+      }
     } catch(e) {
       // swallow — leave SIM values in place
     }

@@ -122,6 +122,7 @@ async def api_tony_live():
         "avg_pl_per_trade": rec.get("avg_pl_per_trade"),
         "graded": rec.get("graded") or 0,
         "open_positions": 0,
+        "equity": None,
     }
     quadrant = {
         "agreed_right": agreement.get("agreed_right") or 0,
@@ -144,6 +145,8 @@ async def api_tony_live():
             sim = True
         positions = book.get("open_positions") or []
         stats["open_positions"] = len(positions)
+        if book.get("equity") is not None:
+            stats["equity"] = float(book.get("equity"))
         for p in positions:
             sym = p.get("symbol") or ""
             upl = p.get("unrealized_pl")

@@ -1727,10 +1727,14 @@ def spy_closes(limit: int = 15) -> dict:
             from alpaca.data.requests import StockBarsRequest
             from alpaca.data.timeframe import TimeFrame
 
+            from datetime import datetime, timedelta, timezone
+
+            # Alpaca's bars endpoint returns nothing without an explicit start window — pull
+            # ~40 calendar days and keep the most recent `limit` closes (sliced below).
             kw = {
                 "symbol_or_symbols": "SPY",
                 "timeframe": TimeFrame.Day,
-                "limit": limit,
+                "start": datetime.now(timezone.utc) - timedelta(days=40),
             }
             # Paper accounts are entitled to IEX (free), not SIP — without this the bars call 403s.
             try:
