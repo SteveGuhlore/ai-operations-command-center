@@ -125,32 +125,31 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
 
     HYDRATE_METHOD = r"""
   async _hydrateLive(){
+    let json;
     try {
       const res = await fetch('/api/tony/live');
       if (!res.ok) return;
-      const json = await res.json();
-      if (!json || json.status === 'error') return;
-      // Per-section hydration: each block below gates on its OWN data, so record-derived
-      // numbers can go live even if (say) the Alpaca marks feed is momentarily down.
-
-      // book
+      json = await res.json();
+    } catch(e) { return; }
+    if (!json || json.status === 'error') return;
+    this.live = json;  // for _patchStatics (masthead + 2nd-pass quadrant)
+    // Per-section hydration — EACH block guarded so one failure can't abort the others, and
+    // crucially can't skip the forceUpdate() that paints the live data onto the page.
+    try {
       if (json.book && json.book.length) {
         this.book = json.book.map(function(b){
           return { sym:b.sym, qty:String(b.qty), entry:String(b.entry), last:String(b.last), unreal:String(b.unreal), up:!!b.up };
         });
       }
-
-      // calls
+    } catch(e) {}
+    try {
       if (json.calls && json.calls.length) {
         this.calls = json.calls.map(function(c){
           return { sym:c.sym, verb:c.verb, note:c.note, time:c.time, day:c.day, grade:c.grade };
         });
       }
-
-      // stash full live payload for Priority C reads
-      this.live = json;
-
-      // projections
+    } catch(e) {}
+    try {
       if (json.projections) {
         const self = this;
         Object.keys(json.projections).forEach(function(sym){
@@ -165,25 +164,19 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
           self.enrich(self.tickers[sym]);
         });
       }
-
-      // equity chart — rebuild 2wk range when live data is present
-      if (json.equity && json.equity.labels && json.equity.labels.length &&
-          json.equity.tony && json.equity.tony.length &&
-          json.equity.bot && json.equity.bot.length) {
-        this.charts['2wk'] = this.buildChart(
-          json.equity.labels,
-          json.equity.tony,
-          json.equity.bot,
-          json.equity.bot,
-          '2 wks'
-        );
+    } catch(e) {}
+    try {
+      const eq = json.equity;
+      if (eq && eq.tony && eq.tony.length && eq.bot && eq.bot.length) {
+        // The live curve can be thousands of points — downsample to ~60 (index-based so every
+        // series keeps the same length) before handing it to buildChart.
+        const N = eq.tony.length, step = Math.max(1, Math.floor(N/60));
+        const ds = function(a){ if(!a||!a.length) return []; const o=[]; for(let i=0;i<a.length;i+=step) o.push(a[i]); if((a.length-1)%step!==0) o.push(a[a.length-1]); return o; };
+        this.charts['2wk'] = this.buildChart(ds(eq.labels), ds(eq.tony), ds(eq.bot), ds(eq.bot), '2 wks');
       }
-
-      this.forceUpdate();
-      setTimeout(()=>{ try{ this._patchStatics(); }catch(e){} }, 50);
-    } catch(e) {
-      // swallow — SIM data stays intact
-    }
+    } catch(e) {}
+    try { this.forceUpdate(); } catch(e) {}
+    setTimeout(()=>{ try{ this._patchStatics(); }catch(e){} }, 60);
   }
 
   _patchStatics(){

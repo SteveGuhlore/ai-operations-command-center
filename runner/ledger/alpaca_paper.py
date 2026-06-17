@@ -1721,25 +1721,49 @@ def spy_closes(limit: int = 15) -> dict:
     last close), satisfying "last close when the market is closed".
     """
     client = _data_client()
+    err = None
     if client is not None:
         try:
             from alpaca.data.requests import StockBarsRequest
             from alpaca.data.timeframe import TimeFrame
 
-            req = StockBarsRequest(
-                symbol_or_symbols="SPY", timeframe=TimeFrame.Day, limit=limit
-            )
-            bars = client.get_stock_bars(req)
-            rows = (getattr(bars, "data", {}) or {}).get("SPY") or []
-            closes = [float(b.close) for b in rows][-limit:]
+            kw = {
+                "symbol_or_symbols": "SPY",
+                "timeframe": TimeFrame.Day,
+                "limit": limit,
+            }
+            # Paper accounts are entitled to IEX (free), not SIP — without this the bars call 403s.
+            try:
+                from alpaca.data.enums import DataFeed
+
+                kw["feed"] = DataFeed.IEX
+            except Exception:
+                pass
+            bars = client.get_stock_bars(StockBarsRequest(**kw))
+            data = getattr(bars, "data", None)
+            rows = data.get("SPY") if isinstance(data, dict) else None
+            if rows is None:
+                try:
+                    rows = bars["SPY"]
+                except Exception:
+                    rows = []
+            closes = [
+                float(b.close)
+                for b in (rows or [])
+                if getattr(b, "close", None) is not None
+            ][-limit:]
             if len(closes) >= 3:
                 return {"closes": closes, "src": "alpaca"}
         except Exception as exc:
+            err = f"alpaca:{exc}"
             _log.info("spy_closes alpaca failed: %s", exc)
     closes = _stooq_closes("spy.us", limit)
     if len(closes) >= 3:
         return {"closes": closes, "src": "stooq"}
-    return {"closes": [], "src": "none"}
+    out = {"closes": [], "src": "none"}
+    if err:
+        out["err"] = err
+    return out
 
 
 def latest_trade_prices(syms) -> dict:
@@ -1754,9 +1778,14 @@ def latest_trade_prices(syms) -> dict:
     try:
         from alpaca.data.requests import StockLatestTradeRequest
 
-        res = client.get_stock_latest_trade(
-            StockLatestTradeRequest(symbol_or_symbols=arr)
-        )
+        kw = {"symbol_or_symbols": arr}
+        try:
+            from alpaca.data.enums import DataFeed
+
+            kw["feed"] = DataFeed.IEX
+        except Exception:
+            pass
+        res = client.get_stock_latest_trade(StockLatestTradeRequest(**kw))
         trades = {}
         for sym in arr:
             t = res.get(sym)
