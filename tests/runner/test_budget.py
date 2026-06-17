@@ -68,6 +68,22 @@ def test_daytime_cap_unchanged(tmp_path, monkeypatch):
     assert budget_module.is_budget_exceeded() is True
 
 
+def test_negative_spend_cannot_lower_the_meter(tmp_path, monkeypatch):
+    # Regression: a negative cost must never reduce total_usd (cap-bypass vector).
+    _patch_budget(monkeypatch, tmp_path)
+    budget_module.record_spend("manager", 5.00)
+    budget_module.record_spend("manager", -100.00)
+    assert budget_module.get_daily_spend() == pytest.approx(5.00)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_nonfinite_spend_is_ignored(tmp_path, monkeypatch, bad):
+    _patch_budget(monkeypatch, tmp_path)
+    budget_module.record_spend("manager", 5.00)
+    budget_module.record_spend("manager", bad)
+    assert budget_module.get_daily_spend() == pytest.approx(5.00)
+
+
 def test_spend_resets_on_new_day(tmp_path, monkeypatch):
     _patch_budget(monkeypatch, tmp_path)
     spend_file = tmp_path / "daily-spend.json"

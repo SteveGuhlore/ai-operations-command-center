@@ -1,3 +1,5 @@
+import pytest
+
 from runner.tools import market_regime as mr
 from runner.tools import tony_ideas as ti
 from runner.ledger import tony_live_guard as guard
@@ -52,3 +54,26 @@ def test_kill_switch_blocks(monkeypatch, tmp_path):
     ks = tmp_path / "kill"; ks.write_text("stop")
     monkeypatch.setattr(guard, "KILL_SWITCH", ks)
     assert guard.live_allowed({"tony_win_rate": 99, "graded": 100})["allowed"] is False
+
+
+@pytest.mark.parametrize("falsey", ["0", "false", "False", "no", "off", " ", ""])
+def test_live_falsey_optin_does_not_enable(monkeypatch, tmp_path, falsey):
+    # Regression: a string meant to DISABLE (e.g. "0"/"false") must not satisfy the
+    # opt-in. Previously `if not os.environ.get(...)` treated any non-empty string as set.
+    monkeypatch.setenv("TONY_LIVE_ENABLED", falsey)
+    monkeypatch.setattr(guard, "KILL_SWITCH", tmp_path / "no_kill")
+    assert guard.live_allowed({"tony_win_rate": 99, "graded": 100})["allowed"] is False
+
+
+@pytest.mark.parametrize("truthy", ["1", "true", "TRUE", "yes", "on"])
+def test_live_truthy_optin_enables(monkeypatch, tmp_path, truthy):
+    monkeypatch.setenv("TONY_LIVE_ENABLED", truthy)
+    monkeypatch.setattr(guard, "KILL_SWITCH", tmp_path / "no_kill")
+    assert guard.live_allowed({"tony_win_rate": 99, "graded": 100})["allowed"] is True
+
+
+def test_live_nan_winrate_rejected(monkeypatch, tmp_path):
+    # Regression: NaN win rate slips past `nan < MIN_WIN_RATE` (always False).
+    monkeypatch.setenv("TONY_LIVE_ENABLED", "1")
+    monkeypatch.setattr(guard, "KILL_SWITCH", tmp_path / "no_kill")
+    assert guard.live_allowed({"tony_win_rate": float("nan"), "graded": 100})["allowed"] is False

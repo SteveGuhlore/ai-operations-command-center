@@ -12,6 +12,7 @@ import logging
 import math
 import os
 from pathlib import Path
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ def breaker_state(
     max_consec: "int | None" = None,
     max_dd_pct: "float | None" = None,
     throttle_mult: "float | None" = None,
+    state_known: bool = True,
 ) -> dict:
     """Compute the circuit-breaker state from realized rows and an optional equity series.
 
@@ -104,6 +106,19 @@ def breaker_state(
 
     consec = consecutive_losses(rows)
     dd = max_drawdown_pct(equity_series or [])
+
+    # Fail CLOSED when the risk state is unknown: an existing ledger/equity file that
+    # cannot be read means we genuinely don't know the loss streak or drawdown, so we
+    # must halt new entries rather than assume "all clear". (A *missing* file is a
+    # legitimate cold start and keeps state_known=True — see current_breaker.)
+    if not state_known:
+        return {
+            "halted": True,
+            "throttle_mult": 0.0,
+            "consecutive_losses": consec,
+            "drawdown_pct": round(dd, 4),
+            "reasons": ["risk state unknown (corrupt/unreadable ledger or equity file) — failing closed"],
+        }
 
     halted = False
     reasons: list[str] = []
@@ -150,45 +165,88 @@ def breaker_state(
 # IO (fail-soft)
 # ---------------------------------------------------------------------------
 
-def load_realized_rows() -> list:
-    """Best-effort read of the Tony realized ledger. Returns [] on any error."""
-    path = Path(os.environ.get(
+def _read_json(path: Path) -> "tuple[Any, str]":
+    """Read a JSON file. Returns (data, status) where status is one of:
+    'ok' (parsed), 'missing' (file absent — a clean cold start), or
+    'corrupt' (exists but unreadable/invalid — risk state is UNKNOWN)."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None, "missing"
+    except OSError as exc:
+        _log.warning("drawdown_breaker: cannot read %s: %s", path, exc)
+        return None, "corrupt"
+    try:
+        return json.loads(text), "ok"
+    except json.JSONDecodeError as exc:
+        _log.warning("drawdown_breaker: corrupt JSON in %s: %s", path, exc)
+        return None, "corrupt"
+
+
+def _realized_path() -> Path:
+    return Path(os.environ.get(
         "TONY_REALIZED_FILE",
         str(Path(__file__).parent.parent.parent / "workspace" / "tony-realized.json"),
     ))
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError, FileNotFoundError) as exc:
-        _log.info("drawdown_breaker: realized rows unavailable: %s", exc)
-        return []
 
 
-def _load_equity_series() -> list:
-    """Best-effort read of workspace/equity-history.json, returning a list of tony equity floats.
-
-    The file is a list of {ts, tony, bot} dicts (see equity_history.py). We extract the
-    'tony' field and skip None entries so that missing snapshots don't distort the drawdown.
-    On any unexpected shape or error, returns [] so the drawdown contribution is simply 0.
-    """
-    path = Path(os.environ.get(
+def _equity_path() -> Path:
+    return Path(os.environ.get(
         "TONY_EQUITY_HISTORY_FILE",
         str(Path(__file__).parent.parent.parent / "workspace" / "equity-history.json"),
     ))
+
+
+def _read_realized() -> "tuple[list, str]":
+    data, status = _read_json(_realized_path())
+    rows = data if (status == "ok" and isinstance(data, list)) else []
+    return rows, status
+
+
+def load_realized_rows() -> list:
+    """Best-effort read of the Tony realized ledger. Returns [] on any error.
+
+    Back-compat shim — prefer _read_realized() when the missing/corrupt distinction
+    matters (current_breaker uses it to fail closed on corruption).
+    """
+    return _read_realized()[0]
+
+
+def _read_equity() -> "tuple[list, str]":
+    """Read workspace/equity-history.json -> (tony-equity floats, status).
+
+    status is 'ok' | 'missing' | 'corrupt'. A malformed shape (exists but not the
+    expected list-of-{tony} structure) counts as 'corrupt' so the breaker fails closed
+    rather than silently reading a 0% drawdown off unreadable data.
+    """
+    data, status = _read_json(_equity_path())
+    if status != "ok":
+        return [], status
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, list) or not data:
-            return []
-        # Expect list of dicts with a 'tony' key. If the first item isn't a dict or lacks 'tony',
-        # degrade gracefully rather than raise.
+        if not isinstance(data, list):
+            return [], "corrupt"
+        if not data:
+            return [], "ok"  # legitimately empty history (cold start)
         if not isinstance(data[0], dict) or "tony" not in data[0]:
-            return []
-        return [float(p["tony"]) for p in data if p.get("tony") is not None]
-    except (json.JSONDecodeError, OSError, FileNotFoundError, KeyError, TypeError, ValueError) as exc:
-        _log.info("drawdown_breaker: equity series unavailable: %s", exc)
-        return []
+            return [], "corrupt"
+        return [float(p["tony"]) for p in data if p.get("tony") is not None], "ok"
+    except (KeyError, TypeError, ValueError) as exc:
+        _log.warning("drawdown_breaker: malformed equity series: %s", exc)
+        return [], "corrupt"
+
+
+def _load_equity_series() -> list:
+    """Best-effort read of equity history. Returns [] on any error (back-compat shim)."""
+    return _read_equity()[0]
 
 
 def current_breaker() -> dict:
-    """Convenience: breaker_state from the live realized ledger and equity history."""
-    return breaker_state(load_realized_rows(), _load_equity_series())
+    """Convenience: breaker_state from the live realized ledger and equity history.
+
+    Fails CLOSED (halted) when either source file exists but is corrupt/unreadable;
+    a *missing* file is treated as a clean cold start (not halted).
+    """
+    rows, r_status = _read_realized()
+    equity, e_status = _read_equity()
+    state_known = "corrupt" not in (r_status, e_status)
+    return breaker_state(rows, equity, state_known=state_known)

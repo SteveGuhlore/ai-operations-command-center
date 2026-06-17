@@ -1,7 +1,20 @@
 # runner/ledger/budget.py
 import json
+import math
 from datetime import date
 from pathlib import Path
+
+
+def _clean_cost(cost_usd: float) -> float:
+    """Spend can only ever ADD to the meter. Reject negative or non-finite values
+    so a stray refund/NaN/inf can't lower the running total and bypass the cap."""
+    try:
+        c = float(cost_usd)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(c) or c < 0:
+        return 0.0
+    return c
 
 LEDGER_DIR = Path(__file__).parent.parent.parent / "workspace" / "ledger"
 SPEND_FILE = LEDGER_DIR / "daily-spend.json"
@@ -23,6 +36,7 @@ def _save_spend(data: dict) -> None:
 
 
 def record_spend(role_id: str, cost_usd: float, pod: str | None = None) -> None:
+    cost_usd = _clean_cost(cost_usd)
     data = _load_spend()
     data["total_usd"] = round(data["total_usd"] + cost_usd, 6)
     data["by_role"][role_id] = round(data["by_role"].get(role_id, 0.0) + cost_usd, 6)

@@ -368,3 +368,50 @@ class TestCurrentBreaker:
         monkeypatch.delenv("TONY_BREAKER_THROTTLE_MULT", raising=False)
         state = db.current_breaker()
         assert state["halted"] is True  # 4 Friday losses must still trip the breaker
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed on unknown risk state (corrupt vs missing files)
+# ---------------------------------------------------------------------------
+class TestFailClosedOnUnknownState:
+    def _clear_thresholds(self, monkeypatch):
+        monkeypatch.delenv("TONY_BREAKER_MAX_CONSEC_LOSSES", raising=False)
+        monkeypatch.delenv("TONY_BREAKER_MAX_DRAWDOWN_PCT", raising=False)
+        monkeypatch.delenv("TONY_BREAKER_THROTTLE_MULT", raising=False)
+
+    def test_missing_files_are_a_clean_cold_start(self, tmp_path, monkeypatch):
+        # A *missing* ledger/equity file = no trades yet => must NOT halt.
+        self._clear_thresholds(monkeypatch)
+        monkeypatch.setenv("TONY_REALIZED_FILE", str(tmp_path / "nope-realized.json"))
+        monkeypatch.setenv("TONY_EQUITY_HISTORY_FILE", str(tmp_path / "nope-equity.json"))
+        state = db.current_breaker()
+        assert state["halted"] is False
+
+    def test_corrupt_realized_ledger_fails_closed(self, tmp_path, monkeypatch):
+        # Regression: an existing-but-corrupt ledger previously read as [] (=> all clear).
+        self._clear_thresholds(monkeypatch)
+        rf = tmp_path / "realized.json"; rf.write_text("{ not json", encoding="utf-8")
+        monkeypatch.setenv("TONY_REALIZED_FILE", str(rf))
+        monkeypatch.setenv("TONY_EQUITY_HISTORY_FILE", str(tmp_path / "missing-eq.json"))
+        state = db.current_breaker()
+        assert state["halted"] is True
+        assert state["throttle_mult"] == 0.0
+        assert any("unknown" in r for r in state["reasons"])
+
+    def test_corrupt_equity_history_fails_closed(self, tmp_path, monkeypatch):
+        self._clear_thresholds(monkeypatch)
+        ef = tmp_path / "equity.json"; ef.write_text("totally not json", encoding="utf-8")
+        monkeypatch.setenv("TONY_REALIZED_FILE", str(tmp_path / "missing-r.json"))
+        monkeypatch.setenv("TONY_EQUITY_HISTORY_FILE", str(ef))
+        assert db.current_breaker()["halted"] is True
+
+    def test_malformed_equity_shape_fails_closed(self, tmp_path, monkeypatch):
+        self._clear_thresholds(monkeypatch)
+        ef = tmp_path / "equity.json"; ef.write_text(json.dumps({"unexpected": "obj"}), encoding="utf-8")
+        monkeypatch.setenv("TONY_REALIZED_FILE", str(tmp_path / "missing-r.json"))
+        monkeypatch.setenv("TONY_EQUITY_HISTORY_FILE", str(ef))
+        assert db.current_breaker()["halted"] is True
+
+    def test_breaker_state_default_state_known_unchanged(self):
+        # Direct breaker_state callers (e.g. eval harness) keep prior behavior.
+        assert db.breaker_state([], []) == db.breaker_state([], [], state_known=True)
