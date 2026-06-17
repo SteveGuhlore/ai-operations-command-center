@@ -612,6 +612,66 @@ def _load(p) -> list:
         return []
 
 
+def _save_executed_log(done) -> None:
+    """Atomic write of the executed-order dedupe log. A torn write here would erase
+    dedupe history and let the NEXT sync re-submit already-placed orders, so write to
+    a temp sibling and os.replace (atomic on the same filesystem, incl. Windows)."""
+    EXECUTED_LOG.parent.mkdir(parents=True, exist_ok=True)
+    tmp = EXECUTED_LOG.with_name(EXECUTED_LOG.name + f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(sorted(done)), encoding="utf-8")
+    os.replace(tmp, EXECUTED_LOG)
+
+
+_SYNC_LOCK_STALE_SECS = 600
+
+
+def _sync_lock_path() -> Path:
+    # Derived from EXECUTED_LOG at call time so it follows the file location (incl.
+    # tests that repoint EXECUTED_LOG).
+    return EXECUTED_LOG.parent / "alpaca-sync.lock"
+
+
+def _acquire_sync_lock():
+    """Best-effort cross-process lock so two OVERLAPPING sync() runs cannot both read
+    the same dedupe set and double-submit the same orders (the 2026-06-12 mass re-buy
+    class of bug). Returns:
+      - the lock Path when acquired (caller must release),
+      - "" when the lock could not be created for an infra reason (proceed WITHOUT a
+        lock rather than block all trading on a lock glitch — fail open on infra),
+      - None when another live sync holds it (caller should skip this cycle).
+    A lock older than _SYNC_LOCK_STALE_SECS is treated as abandoned and stolen.
+    """
+    lock = _sync_lock_path()
+    try:
+        if lock.exists():
+            try:
+                if time.time() - lock.stat().st_mtime > _SYNC_LOCK_STALE_SECS:
+                    lock.unlink()
+            except OSError:
+                pass
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        try:
+            os.write(fd, str(os.getpid()).encode())
+        finally:
+            os.close(fd)
+        return lock
+    except FileExistsError:
+        return None
+    except OSError as exc:
+        _log.warning("sync lock unavailable, proceeding unlocked: %s", exc)
+        return ""
+
+
+def _release_sync_lock(token) -> None:
+    if not token:
+        return
+    try:
+        Path(token).unlink()
+    except OSError:
+        pass
+
+
 # --- Phase-0 code-enforced guards (LLM-independent). All default OFF: live paper behavior is
 # unchanged until the operator flips the flag. Each is fail-soft — a guard error never blocks the
 # trading cycle. See docs/runbooks/tony-real-money-cutover.md for the flags. ---
@@ -1281,7 +1341,19 @@ def sync(broker=None) -> dict:
         broker = _alpaca_broker()
     if broker is None:
         return {"status": "no_keys", "executed": 0}
+    lock = _acquire_sync_lock()
+    if lock is None:
+        # Another sync is mid-flight; skipping avoids re-reading the same dedupe set
+        # and double-submitting. The next scheduled cycle picks up where it left off.
+        return {"status": "locked", "executed": 0}
+    try:
+        return _sync_locked(broker)
+    finally:
+        _release_sync_lock(lock)
 
+
+def _sync_locked(broker) -> dict:
+    """Body of sync(), run while holding the cross-process sync lock (see sync)."""
     verdicts = _load(VERDICTS_FILE)
     done = set(_load(EXECUTED_LOG))
     levels = _latest_scanner_levels()
@@ -1417,8 +1489,7 @@ def sync(broker=None) -> dict:
     repriced = _reprice_adjusted(broker, verdicts, done, opened_now)
 
     try:
-        EXECUTED_LOG.parent.mkdir(parents=True, exist_ok=True)
-        EXECUTED_LOG.write_text(json.dumps(sorted(done)), encoding="utf-8")
+        _save_executed_log(done)
     except OSError as exc:
         _log.warning("executed-log write failed: %s", exc)
 
@@ -1439,7 +1510,7 @@ def sync(broker=None) -> dict:
     try:
         lifecycle = _apply_lifecycle(broker, done, today)
         if lifecycle.get("added"):
-            EXECUTED_LOG.write_text(json.dumps(sorted(done)), encoding="utf-8")
+            _save_executed_log(done)
     except Exception as exc:
         _log.warning("lifecycle (ratchet/max-hold) failed: %s", exc)
 

@@ -472,3 +472,45 @@ def test_flush_session_no_keys_still_clears(tmp_path, monkeypatch):
     (tmp_path / "v.json").write_text("[]")
     res = ap.flush_session()
     assert res["cancelled"] == "no_keys" and "v.json" in res["cleared"]
+
+
+# --- order-dedupe lock + atomic executed-log (multi-review HIGH) ---
+
+def test_acquire_sync_lock_is_exclusive(tmp_path, monkeypatch):
+    monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    tok = ap._acquire_sync_lock()
+    assert tok  # acquired
+    assert ap._acquire_sync_lock() is None  # second caller sees it held
+    ap._release_sync_lock(tok)
+    tok2 = ap._acquire_sync_lock()  # released -> acquirable again
+    assert tok2
+    ap._release_sync_lock(tok2)
+
+
+def test_stale_lock_is_stolen(tmp_path, monkeypatch):
+    monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    monkeypatch.setattr(ap, "_SYNC_LOCK_STALE_SECS", -1)  # everything counts as stale
+    ap._sync_lock_path().parent.mkdir(parents=True, exist_ok=True)
+    ap._sync_lock_path().write_text("99999")  # someone else's abandoned lock
+    tok = ap._acquire_sync_lock()
+    assert tok  # stolen
+    ap._release_sync_lock(tok)
+
+
+def test_sync_skips_when_lock_held(tmp_path, monkeypatch):
+    monkeypatch.setenv("TONY_MARKET_SESSION", "open")
+    monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    held = ap._acquire_sync_lock()
+    try:
+        r = ap.sync(broker=FakeBroker())
+        assert r["status"] == "locked" and r["executed"] == 0
+    finally:
+        ap._release_sync_lock(held)
+
+
+def test_save_executed_log_atomic_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setattr(ap, "EXECUTED_LOG", tmp_path / "exec.json")
+    ap._save_executed_log({"b", "a", "c"})
+    assert ap._load(ap.EXECUTED_LOG) == ["a", "b", "c"]
+    # no leftover temp files
+    assert not list(tmp_path.glob("*.tmp"))
