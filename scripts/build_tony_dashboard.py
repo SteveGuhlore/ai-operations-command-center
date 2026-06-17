@@ -255,6 +255,24 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
     )
 
     # ================================================================
+    # B3: paper-book render must tolerate LIVE symbols absent from the SIM tickers map.
+    # renderVals maps this.book through this.tickers[b.sym] for decorations (name, spark,
+    # target/stop, horizon); a real Alpaca position whose symbol isn't a SIM ticker made
+    # `t` undefined -> "Cannot read properties of undefined (reading 'name')". Guard with a
+    # complete default so the row still shows the live b.* fields (sym/qty/entry/last/unreal).
+    # ================================================================
+    OLD_B3 = "const t = this.tickers[b.sym]; return {"
+    NEW_B3 = (
+        "const t = this.tickers[b.sym] || { name:b.sym, stop:'', target:'', rmult:'', "
+        "rCol:'#7e8a82', tony:{verb:''}, verbCol:'#7e8a82', day:'', dayCol:'#7e8a82', "
+        "sparkPts:'', sparkArea:'', sparkColor:'#37e0ff', targetGap:'', targetGapCol:'#7e8a82', "
+        "horizon:'—' }; return {"
+    )
+    count_b3 = tpl.count(OLD_B3)
+    tpl = tpl.replace(OLD_B3, NEW_B3)
+    patch_report("B3 book render tolerates live symbols", count_b3, required=True)
+
+    # ================================================================
     # PRIORITY C: masthead aggregates — NO template literals found (0 backticks)
     # The HTML is static markup in the template, not a JS template-literal render.
     # Priority C panels are LEFT AS SIM — reporting below.
