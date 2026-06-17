@@ -6,7 +6,7 @@ Run: python3 scripts/build_tony_dashboard.py [--source /path/to/Tony-standalone.
 """
 
 import re
-import html
+import json
 import sys
 import pathlib
 import argparse
@@ -58,8 +58,12 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
     tpl_raw = tpl_match.group(2)
     tag_close = tpl_match.group(3)
 
-    tpl = html.unescape(tpl_raw)
-    print(f"\nTemplate extracted: {len(tpl)} chars (after unescape)")
+    # The template script is a RAW-TEXT element holding a JSON-encoded string (literal <, &;
+    # newlines as \n). Do NOT html.unescape/escape it — that decodes embedded &quot;/&amp;
+    # (closing the JSON string early -> "non-whitespace after JSON") and re-escapes < to &lt;,
+    # corrupting the bundle. Patch the raw text directly.
+    tpl = tpl_raw
+    print(f"\nTemplate extracted: {len(tpl)} chars (raw)")
     print("\n=== Applying patches ===")
 
     # ================================================================
@@ -220,7 +224,10 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
 
     INITFEED_ANCHOR = "async initFeed(){"
     count_b1 = tpl.count(INITFEED_ANCHOR)
-    tpl = tpl.replace(INITFEED_ANCHOR, HYDRATE_METHOD + "  " + INITFEED_ANCHOR, 1)
+    # The template is a JSON string, so the inserted method must be JSON-escaped (real
+    # newlines -> \n, quotes/unicode handled) — json.dumps(...)[1:-1] is the escaped inner text.
+    method_encoded = json.dumps(HYDRATE_METHOD)[1:-1]
+    tpl = tpl.replace(INITFEED_ANCHOR, method_encoded + "  " + INITFEED_ANCHOR, 1)
     patch_report("B1 _hydrateLive method insert", count_b1, required=True)
 
     # ================================================================
@@ -269,10 +276,8 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
     # ================================================================
     # Re-escape tpl and splice back into the template block in the source
     # ================================================================
-    tpl_escaped = html.escape(tpl, quote=False)
-
-    # Build the replacement bundler script block (tag_open and tag_close from original)
-    new_block = tag_open + tpl_escaped + tag_close
+    # Raw-text JSON string: splice the patched template back verbatim, NO entity escaping.
+    new_block = tag_open + tpl + tag_close
 
     # Replace the original bundler block in the (already A1-patched) src.
     # Use a split/join approach instead of re.sub so the replacement string is
