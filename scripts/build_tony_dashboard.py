@@ -12,7 +12,11 @@ import pathlib
 import argparse
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-DEFAULT_SOURCE = pathlib.Path("/tmp/tony_design_unzip/handoff/Tony-standalone.html")
+# The approved design artifact is vendored in-repo so the build is reproducible on the VM/CI.
+# (Falls back to the original /tmp unzip path if someone is iterating on a fresh export.)
+DEFAULT_SOURCE = REPO_ROOT / "dashboard" / "design" / "Tony-standalone.html"
+if not DEFAULT_SOURCE.exists():
+    DEFAULT_SOURCE = pathlib.Path("/tmp/tony_design_unzip/handoff/Tony-standalone.html")
 OUTPUT = REPO_ROOT / "dashboard" / "tony.html"
 
 
