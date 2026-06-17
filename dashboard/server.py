@@ -20,6 +20,9 @@ STATE_FILE = Path(__file__).parent.parent / "workspace" / "dashboard-state.json"
 SITES_DIR = Path(__file__).parent.parent / "workspace" / "sites"
 UPSELL_CATALOG = Path(__file__).parent.parent / "vault" / "revenue" / "upsell-catalog.md"
 _STRIPE_URL_RE = re.compile(r"^https://(?:buy\.stripe\.com|[a-z0-9.-]+\.stripe\.com)/\S+$")
+# A landing slug is a simple path component. Validating it keeps request-supplied
+# slugs out of filesystem traversal (../) and out of reflected HTML (XSS).
+_SLUG_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 _UPSELL_HEADER = (
     "# Upsell Catalog\n\n"
     "| product | one_liner | landing_url | fits_business_types |\n"
@@ -388,6 +391,9 @@ async def outreach_followup_sweep():
 async def view_site(slug: str):
     """Serve a built landing page locally so the operator can preview it from the
     dashboard instead of digging through workspace/sites/."""
+    if not _SLUG_RE.match(slug):
+        # Reject invalid slugs with a generic message — never reflect raw input.
+        return HTMLResponse("<h1>No built page.</h1>", status_code=404)
     index = (SITES_DIR / slug / "index.html").resolve()
     if not str(index).startswith(str(SITES_DIR.resolve())) or not index.exists():
         return HTMLResponse(f"<h1>No built page for {slug!r} yet.</h1>", status_code=404)
@@ -420,6 +426,8 @@ async def api_landing_deploy(request: Request):
     url = (data.get("payment_link_url") or "").strip()
     if not slug:
         return {"error": "slug required"}
+    if not _SLUG_RE.match(slug):
+        return {"error": "invalid slug"}
     if not _STRIPE_URL_RE.match(url):
         return {"error": "payment_link_url must be a valid Stripe link (https://buy.stripe.com/...)"}
 
