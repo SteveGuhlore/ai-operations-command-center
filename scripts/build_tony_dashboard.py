@@ -165,6 +165,20 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
         });
       }
     } catch(e) {}
+    // Honesty pass: the artifact ships a fixed SIM ticker universe (AXON/DHR/…) that collides
+    // with real positions. Clear their baked verdict/bracket unless a REAL projection exists,
+    // so a live position never shows a Tony call he didn't actually make today.
+    try {
+      const projs = json.projections || {};
+      const selfN = this;
+      Object.keys(this.tickers).forEach(function(sym){
+        if (projs[sym]) return;
+        const t = selfN.tickers[sym];
+        if (!t) return;
+        if (t.tony) t.tony.verb = '';
+        t.verb = ''; t.stop = ''; t.target = ''; t.rmult = ''; t.targetGap = ''; t.horizon = '—';
+      });
+    } catch(e) {}
     try {
       const eq = json.equity;
       if (eq && eq.tony && eq.tony.length && eq.bot && eq.bot.length) {
@@ -219,6 +233,11 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
         const eqNode = document.querySelector('[data-count][data-prefix="$"]');
         if (eqNode) eqNode.textContent = '$' + Math.round(s.equity).toLocaleString();
       }
+      const cal = L.calibration || {};
+      const pctFmt = function(v){ return Math.round(v <= 1 ? v * 100 : v) + '%'; };
+      setByLabel('low conf', cal.low, pctFmt);
+      setByLabel('med conf', cal.medium, pctFmt);
+      setByLabel('high conf', cal.high, pctFmt);
     } catch(e) {
       // swallow — leave SIM values in place
     }
@@ -275,6 +294,16 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
     count_b3 = tpl.count(OLD_B3)
     tpl = tpl.replace(OLD_B3, NEW_B3)
     patch_report("B3 book render tolerates live symbols", count_b3, required=True)
+
+    # ================================================================
+    # B4: updateMarks parses b.entry for P&L but only strips commas, not the '$' our live rows
+    # carry ("$185.55") -> parseFloat NaN -> "Unreal −NaN" on the bracketed positions. Strip $ too.
+    # ================================================================
+    OLD_B4 = "parseFloat(String(b.entry).replace(/,/g,''))"
+    NEW_B4 = "parseFloat(String(b.entry).replace(/[$,]/g,''))"
+    count_b4 = tpl.count(OLD_B4)
+    tpl = tpl.replace(OLD_B4, NEW_B4)
+    patch_report("B4 updateMarks strips $ from entry", count_b4, required=True)
 
     # ================================================================
     # PRIORITY C: masthead aggregates — NO template literals found (0 backticks)
