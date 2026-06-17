@@ -121,7 +121,9 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
       const res = await fetch('/api/tony/live');
       if (!res.ok) return;
       const json = await res.json();
-      if (!json || json.status === 'error' || json.sim === true) return;
+      if (!json || json.status === 'error') return;
+      // Per-section hydration: each block below gates on its OWN data, so record-derived
+      // numbers can go live even if (say) the Alpaca marks feed is momentarily down.
 
       // book
       if (json.book && json.book.length) {
@@ -170,8 +172,43 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
       }
 
       this.forceUpdate();
+      setTimeout(()=>{ try{ this._patchStatics(); }catch(e){} }, 50);
     } catch(e) {
       // swallow — SIM data stays intact
+    }
+  }
+
+  _patchStatics(){
+    // Post-render DOM patch for the masthead aggregates + the "Does the 2nd pass help?"
+    // quadrant, which the design artifact renders as static HTML (no template-literal seam).
+    // Only override SIM when we genuinely have graded outcomes (status 'scored'); otherwise
+    // leave the illustrative SIM numbers rather than wipe the panel to misleading zeros.
+    try {
+      const L = this.live;
+      if (!L || L.status !== 'scored') return;
+      const setByLabel = (label, value, fmt) => {
+        if (value == null) return;
+        const nodes = document.querySelectorAll('div');
+        for (let i=0;i<nodes.length;i++){
+          const t = nodes[i].textContent;
+          if (t && t.trim() === label){
+            const n = nodes[i].previousElementSibling;
+            if (n) n.textContent = fmt ? fmt(value) : String(value);
+            return;
+          }
+        }
+      };
+      const q = L.quadrant || {};
+      setByLabel('agreed · right', q.agreed_right);
+      setByLabel('agreed · wrong', q.agreed_wrong);
+      setByLabel('tony saved', q.tony_saved);
+      setByLabel('tony missed', q.tony_missed);
+      const s = L.stats || {};
+      setByLabel('Call accuracy', s.call_accuracy_pct, v => Math.round(v<=1 ? v*100 : v) + '%');
+      setByLabel('Graded calls', s.graded);
+      setByLabel('Open positions', s.open_positions);
+    } catch(e) {
+      // swallow — leave SIM values in place
     }
   }
 
@@ -199,7 +236,7 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
     # PRIORITY B2b: setInterval for _hydrateLive in componentDidMount
     # ================================================================
     MOUNT_ANCHOR = "this.initFeed();\\n    this._feed = setInterval(()=>this.initFeed(), 60000);\\n  }"
-    MOUNT_REPLACE = "this.initFeed();\\n    this._feed = setInterval(()=>this.initFeed(), 60000);\\n    this._liveFeed = setInterval(()=>this._hydrateLive(), 60000);\\n  }"
+    MOUNT_REPLACE = "this.initFeed();\\n    this._feed = setInterval(()=>this.initFeed(), 60000);\\n    this._liveFeed = setInterval(()=>this._hydrateLive(), 60000);\\n    this._statics = setInterval(()=>this._patchStatics(), 5000);\\n  }"
     count_b2b = tpl.count(MOUNT_ANCHOR)
     tpl = tpl.replace(MOUNT_ANCHOR, MOUNT_REPLACE)
     patch_report(
@@ -211,16 +248,18 @@ def build(source_path: pathlib.Path, output_path: pathlib.Path):
     # The HTML is static markup in the template, not a JS template-literal render.
     # Priority C panels are LEFT AS SIM — reporting below.
     # ================================================================
-    print("\n=== Priority C (best-effort) ===")
+    print("\n=== Priority C (post-render DOM patch via _patchStatics) ===")
     print(
-        "  [SIM] Render method uses static HTML strings (0 backtick template literals found)."
+        "  [LIVE] quadrant (agreed·right/wrong, tony saved/missed) + Call accuracy / Graded calls /"
     )
     print(
-        "  [SIM] quadrant (agreed·right, agreed·wrong, tony saved, tony missed) — SIM baked values kept."
+        "         Open positions — patched from /api/tony/live by label, ONLY when status=='scored'"
     )
-    print("  [SIM] Call accuracy / stats / calibration — SIM baked values kept.")
     print(
-        "  NOTE: this.live is stashed so a future JS patch to the HTML fragment can wire these up."
+        "         (else SIM baked values kept, re-applied every 5s to survive re-renders)."
+    )
+    print(
+        "  [SIM]  Avg outcome (R) and calibration buckets — left SIM (no clean live metric yet)."
     )
 
     # ================================================================
