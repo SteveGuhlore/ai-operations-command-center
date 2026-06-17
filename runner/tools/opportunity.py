@@ -1,4 +1,5 @@
 # runner/tools/opportunity.py
+import re
 from datetime import datetime
 from pathlib import Path
 from runner.ledger.revenue import get_pod_revenue
@@ -6,6 +7,10 @@ from runner.ledger.revenue import get_pod_revenue
 BASE_DIR = Path(__file__).parent.parent.parent
 OPP_DIR = BASE_DIR / "vault" / "opportunities"
 LEDGER_FILE = OPP_DIR / "ledger.md"
+
+# slug is interpolated into OPP_DIR / f"{slug}.md" — restrict it so a crafted
+# slug can't create or overwrite .md files outside vault/opportunities.
+_SLUG_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 
 _WEIGHTS = {
     "willingness_to_pay": 0.25,
@@ -93,6 +98,8 @@ def log_opportunity(
     est_rev_mo: float = 0.0,
 ) -> dict:
     try:
+        if not _SLUG_RE.match(slug or ""):
+            return {"error": f"invalid slug: {slug!r}"}
         ledger = _ensure_ledger()
         if _slug_in_ledger(ledger, slug):
             return {"skipped": True, "reason": f"{slug} already in ledger", "slug": slug}
@@ -168,6 +175,8 @@ _VALID_VERDICTS = {"promising", "weak", "dead"}
 def grade_poc(slug: str, verdict: str, reason: str) -> dict:
     if verdict not in _VALID_VERDICTS:
         return {"error": f"verdict must be one of {sorted(_VALID_VERDICTS)}"}
+    if not _SLUG_RE.match(slug or ""):
+        return {"error": f"invalid slug: {slug!r}"}
     try:
         page = OPP_DIR / f"{slug}.md"
         if page.exists():

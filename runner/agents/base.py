@@ -225,7 +225,14 @@ class AgentBase:
                             }),
                         })
                         continue
-                    result = dispatch_tool(tc.function.name, tool_input)
+                    try:
+                        result = dispatch_tool(tc.function.name, tool_input)
+                    except ValueError as exc:
+                        # A hallucinated/renamed tool name raises ValueError in
+                        # dispatch_tool. Don't abort the whole task — feed the error
+                        # back so the model can correct, same as the bad-JSON path.
+                        result = {"error": f"Unknown or invalid tool '{tc.function.name}': {exc}. "
+                                           f"Use only the tools listed in your prompt."}
                     tool_calls_total += 1
                     if isinstance(result, dict) and result.get("error"):
                         tool_calls_errored += 1

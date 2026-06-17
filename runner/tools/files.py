@@ -5,8 +5,12 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 
 
 def _safe_path(relative: str) -> Path | None:
-    target = (PROJECT_ROOT / relative).resolve()
-    if not str(target).startswith(str(PROJECT_ROOT.resolve())):
+    root = PROJECT_ROOT.resolve()
+    target = (root / relative).resolve()
+    # is_relative_to is a true parent-membership check; the old str.startswith
+    # test let sibling dirs sharing the prefix (…/AI Operations Command Center-backup)
+    # escape the repo root.
+    if target != root and not target.is_relative_to(root):
         return None
     return target
 

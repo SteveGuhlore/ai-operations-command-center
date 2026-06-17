@@ -1,21 +1,34 @@
 # runner/tools/landing.py
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
 LANDINGS_DIR = Path(__file__).parent.parent.parent / "workspace" / "landings"
 
+# slug is interpolated into a filename — restrict it so a crafted slug like
+# "../logs/x" can't read or overwrite .json files outside workspace/landings.
+_SLUG_RE = re.compile(r"^[a-z0-9-]{1,64}$")
+
 
 def _path(slug: str) -> Path:
+    if not _SLUG_RE.match(slug or ""):
+        raise ValueError(f"invalid landing slug: {slug!r}")
     return LANDINGS_DIR / f"{slug}.json"
 
 
 def landing_exists(slug: str) -> bool:
-    return _path(slug).exists()
+    try:
+        return _path(slug).exists()
+    except ValueError:
+        return False
 
 
 def read_landing_state(slug: str) -> dict:
-    p = _path(slug)
+    try:
+        p = _path(slug)
+    except ValueError:
+        return {}
     if not p.exists():
         return {}
     try:

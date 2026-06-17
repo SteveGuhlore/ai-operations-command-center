@@ -46,7 +46,13 @@ def graded_picks(verdicts: list, outcomes: list) -> list:
         v = sc._matched_verdict(o, verdicts)
         if not v:
             continue
-        ret = float(o.get("return_pct", 0) or 0)
+        try:
+            ret = float(o.get("return_pct", 0) or 0)
+        except (TypeError, ValueError):
+            # One malformed recorded outcome must not abort the whole harness —
+            # skip the bad row and keep grading the rest.
+            _log.warning("graded_picks: skipping outcome with bad return_pct: %r", o.get("symbol"))
+            continue
         out.append({
             "symbol": o.get("symbol"),
             "pick_date": o.get("pick_date"),

@@ -7,6 +7,11 @@ AGENTS_MEMORY_DIR = BASE_DIR / "vault" / "agents"
 SYNTHESIS_DIR = BASE_DIR / "vault" / "synthesis"
 _MAX_INSIGHTS_CHARS = 1500
 
+# role_id becomes a directory name under vault/agents — restrict it to a plain
+# identifier so a tool caller can't traverse (../other_agent) and poison another
+# agent's memory.md (which is injected into that agent's system prompt).
+_ROLE_RE = re.compile(r"^[a-z0-9_]{1,64}$")
+
 WRITE_MEMORY_TOOL_SPEC = {
     "name": "write_memory",
     "description": (
@@ -45,6 +50,8 @@ WRITE_MEMORY_TOOL_SPEC = {
 
 
 def _agent_dir(role_id: str) -> Path:
+    if not _ROLE_RE.match(role_id or ""):
+        raise ValueError(f"invalid role_id: {role_id!r}")
     d = AGENTS_MEMORY_DIR / role_id
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -92,6 +99,8 @@ def auto_write_task_memory(
 
 def load_agent_memory(role_id: str) -> str:
     """Called by prompts.py — injects memory into every agent's system prompt."""
+    if not _ROLE_RE.match(role_id or ""):
+        return ""
     agent_dir = AGENTS_MEMORY_DIR / role_id
     if not agent_dir.exists():
         return ""
