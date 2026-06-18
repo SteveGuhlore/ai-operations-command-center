@@ -1,0 +1,62 @@
+[
+  {
+    "id": "T-EXEC-1",
+    "severity": "critical",
+    "file": "src/trading_bot/execution/order_router.py",
+    "line": "87",
+    "issue": "Duplicate order submission for pending buys",
+    "evidence": "should_trade only filters against state.open_symbols. In alpaca_paper.py, open_symbols is derived from list_positions (line 151), which only returns filled positions. Orders in 'new' or 'accepted' status are ignored, leading to multiple redundant BUY orders being submitted every cycle until the first fill.",
+    "fix": "Include pending buy orders in state.open_symbols or add a separate pending_symbols check to should_trade.",
+    "confidence": "high"
+  },
+  {
+    "id": "T-EXEC-2",
+    "severity": "high",
+    "file": "src/trading_bot/execution/order_router.py",
+    "line": "59",
+    "issue": "Missing buying power validation",
+    "evidence": "size_position and should_trade calculate qty based on equity risk (dollar_risk) but never validate if the total notional (qty * entry) exceeds available buying power or cash. PortfolioState lacks these fields entirely.",
+    "fix": "Add buying_power to PortfolioState and ensure (qty * entry) <= buying_power in size_position.",
+    "confidence": "high"
+  },
+  {
+    "id": "T-EXEC-3",
+    "severity": "high",
+    "file": "src/trading_bot/execution/alpaca_paper.py",
+    "line": "45",
+    "issue": "Plaintext secret leakage in instance attributes",
+    "evidence": "self.api_key and self.secret_key are stored as attributes on the AlpacaPaperBroker instance, exposing them to accidental leakage via object serialization, logging (e.g. __dict__), or debugging tools.",
+    "fix": "Use the keys to initialize the client then discard them; do not store as instance attributes.",
+    "confidence": "high"
+  },
+  {
+    "id": "T-EXEC-4",
+    "severity": "medium",
+    "file": "src/trading_bot/execution/alpaca_paper.py",
+    "line": "68",
+    "issue": "Slippage-induced risk violation via Market Orders",
+    "evidence": "submit_bracket uses MarketOrderRequest. The router sizes based on a specific entry price. If market slippage occurs on entry, the actual risk (fill_price - stop) can significantly exceed the intended 1% risk-per-trade.",
+    "fix": "Use LimitOrderRequest for entry or add a slippage tolerance check.",
+    "confidence": "high"
+  },
+  {
+    "id": "T-EXEC-5",
+    "severity": "medium",
+    "file": "src/trading_bot/execution/order_router.py",
+    "line": "60",
+    "issue": "Potential qty explosion due to small risk denominator",
+    "evidence": "shares = int(dollar_risk // (e - s)). If (e - s) is extremely small (e.g. 0.001) due to tight planning or float precision, qty can become massive. This is only capped if max_notional_per_position is non-zero.",
+    "fix": "Enforce a minimum risk_per_share (e.g. 0.01) before division.",
+    "confidence": "med"
+  },
+  {
+    "id": "T-EXEC-6",
+    "severity": "low",
+    "file": "src/trading_bot/execution/alpaca_paper.py",
+    "line": "139",
+    "issue": "Fail-open behavior in protection status check",
+    "evidence": "open_protective_symbols returns an empty set on any Exception. This causes the bot to assume positions are unprotected and attempt duplicate OCO submissions if the Alpaca API is temporarily unreachable.",
+    "fix": "Raise the exception or return None to indicate unknown status and halt the protection loop.",
+    "confidence": "high"
+  }
+]

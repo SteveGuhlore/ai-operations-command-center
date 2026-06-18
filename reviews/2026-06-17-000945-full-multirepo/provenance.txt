@@ -1,0 +1,6 @@
+claude: opus-4-8
+codex: codex-cli 0.132.0
+gemini: 0.46.0
+aiops_head: 350d8f9e7195a5391715ae2e85cc00fcd50748fb
+tony_branch: feat/kinetic-dashboard
+tony_head: 5d3980c4bafc789dd1eb930f89844a88196aa1ae

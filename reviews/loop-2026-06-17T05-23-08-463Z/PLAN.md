@@ -1,0 +1,158 @@
+# Plan (raw)
+
+```json
+[
+  {
+    "severity": "critical",
+    "file": "dashboard/server.py",
+    "issue": "All state-changing endpoints (`/api/trigger`, outreach updates, landing deploy, revenue log, runway revive, spawn-schedules, etc.) are exposed with no authentication/authorization or CSRF protection, so any reachable client can trigger autonomous workflows and rewrite on-disk state.",
+    "fix": "Require authenticated admin access on every mutating route and reject cross-site requests with a real auth/token layer.",
+    "support": {},
+    "against": {}
+  },
+  {
+    "severity": "high",
+    "file": "dashboard/server.py",
+    "issue": "`slug` is used in filesystem paths without a safe containment check: `/sites/{slug}` uses `startswith()` on resolved strings and `/api/landing/deploy` writes `SITES_DIR / slug / index.html` directly, so `..` paths like `../sites-malicious` can read or overwrite files outside `workspace/sites`.",
+    "fix": "Normalize `slug`, reject path separators/`..`, and enforce `resolved_path.is_relative_to(SITES_DIR.resolve())` before reading or writing.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "high",
+    "file": "runner/ledger/alpaca_paper.py",
+    "issue": "`sync()` has no interprocess/thread lock around `done = set(_load(EXECUTED_LOG))` and order submission, so two overlapping runs can both see the same verdict as unexecuted and place duplicate buys/closes before either writes the log.",
+    "fix": "Guard `sync()` with an interprocess lock or atomically claim each verdict key before submitting the broker order.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "high",
+    "file": "runner/ledger/alpaca_paper.py",
+    "issue": "`EXECUTED_LOG` is written with plain `write_text()` while `_load()` treats JSON decode errors as `[]`; a crash or partial write can erase dedupe history and cause old verdicts to be replayed as fresh orders on the next cycle.",
+    "fix": "Write the executed log atomically via temp-file-plus-replace and fail closed if the dedupe log is unreadable.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "high",
+    "file": "runner/agents/prompts.py",
+    "issue": "`build_system_prompt()` injects raw agent memory and cross-agent insight files straight into the system prompt, so any actor that can write those vault files gets system-level prompt-injection over autonomous tool use.",
+    "fix": "Treat stored memory as quoted data or structured fields, sanitize it, and keep it out of the highest-privilege system prompt channel.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "medium",
+    "file": "runner/bridge/tony_bridge.py",
+    "issue": "If `_PROCESSED_LOG` is corrupt, `_load_processed()` returns an empty set; because `_make_daily_brief()`/`_make_brief_from_bridge()` write task files without checking whether that task id already exists, one bad log or crash-after-write can re-enqueue stale bridge work.",
+    "fix": "On processed-log corruption rebuild state from existing task files/bridge markers and make task creation idempotent by refusing to recreate an existing task id.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "medium",
+    "file": "dashboard/watcher.py",
+    "issue": "`on_modified()` reads the JSON file immediately and broadcasts `{}` on parse failure, so any non-atomic state-file write can temporarily wipe the dashboard state for all websocket clients.",
+    "fix": "Debounce file events and keep the last valid payload instead of broadcasting an empty object when the file is mid-write.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "medium",
+    "file": "dashboard/server.py",
+    "issue": "`update_outreach_status()` never validates `new_status` against `CALL_OUTCOMES` and writes raw user text into a markdown table, so invalid statuses or `|`/newline characters can corrupt `crm.md` and break downstream stats/parsing.",
+    "fix": "Validate status against the allowlist and escape or reject markdown-table metacharacters/newlines before rewriting the CRM row.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "medium",
+    "file": "runner/eval/data_contract.py",
+    "issue": "`graded_picks()` does `float(o.get(\"return_pct\", 0) or 0)` without error handling, so one malformed recorded outcome crashes the whole eval harness instead of surfacing a bad-record warning.",
+    "fix": "Wrap numeric coercion in `try/except` and skip or report malformed rows rather than aborting the harness.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "medium",
+    "file": "runner/agents/base.py",
+    "issue": "A hallucinated or renamed tool call can crash the entire agent run because `dispatch_tool()` raises `ValueError` for unknown tools and `run()` does not catch it around tool execution.",
+    "fix": "Catch unknown-tool failures in the tool-call loop and feed a structured tool error back to the model instead of terminating the task.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "high",
+    "file": "runner/tools/landing.py",
+    "issue": "`_path(slug)` builds `LANDINGS_DIR / f\"{slug}.json\"` with no containment check, so crafted slugs like `../logs/x` let callers read or overwrite arbitrary `.json` files outside `workspace/landings`.",
+    "fix": "Resolve the candidate path and reject it unless it stays under `LANDINGS_DIR` (for example with `relative_to()`/`is_relative_to()`), and restrict slugs to a safe character set.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "low",
+    "file": "runner/ledger/market_clock.py",
+    "issue": "The fail-safe holiday table only covers 2026-2027, so if Alpaca clock lookup is unavailable in later years the ET fallback can misclassify future market holidays as open days.",
+    "fix": "Replace the static set with a maintained exchange-calendar source or regenerate holiday dates dynamically for the current year range.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "high",
+    "file": "dashboard/server.py",
+    "issue": "`/api/opportunity/grade` accepts an unvalidated `slug` and passes it to `runner.tools.opportunity.grade_poc()`, which uses `OPP_DIR / f\"{slug}.md\"` with no containment check; a crafted slug like `../../../vault/agents/market_research_worker/learned_rules` can modify arbitrary existing `.md` files outside `vault/opportunities`, including prompt memory files.",
+    "fix": "Validate `slug` with the same strict slug regex used for landings and enforce that the resolved target path stays under `vault/opportunities` before any read or write.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "high",
+    "file": "runner/tools/files.py",
+    "issue": "`_safe_path()` uses `str(target).startswith(str(PROJECT_ROOT.resolve()))` for containment, which can be bypassed with sibling paths sharing the project prefix (for example `..\\AI Operations Command Center-backup\\...`), allowing `file_editor` reads/writes outside the repo root.",
+    "fix": "Resolve both paths and enforce containment with `target.is_relative_to(PROJECT_ROOT.resolve())` (or an equivalent parent-membership check) instead of string-prefix matching.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "high",
+    "file": "dashboard/server.py",
+    "issue": "`api_trigger()` starts an unbounded background `run_cycle()` thread per request, and `run_cycle()` has no process-wide lock, so concurrent clicks or overlap with the scheduler can execute the full cycle twice and duplicate side effects.",
+    "fix": "Serialize the entire cycle with a global/interprocess lock and coalesce manual triggers into a queued wake-up instead of spawning raw threads.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "high",
+    "file": "runner/tools/vault_memory.py",
+    "issue": "`write_memory()` trusts `role_id` as a path segment (`AGENTS_MEMORY_DIR / role_id`), so a tool caller can use traversal like `../other_agent` to write another agent’s `memory.md` and poison future system prompts.",
+    "fix": "Validate `role_id` against the configured agent IDs and enforce resolved-path containment under `vault/agents` before writing.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  },
+  {
+    "severity": "high",
+    "file": "runner/tools/opportunity.py",
+    "issue": "`log_opportunity()` writes `OPP_DIR / f\"{slug}.md\"` with no containment check, so a crafted slug can create or overwrite arbitrary `.md` files outside `vault/opportunities`.",
+    "fix": "Restrict `slug` to a safe pattern such as kebab-case and reject any resolved path that is not contained within `OPP_DIR`.",
+    "support": {},
+    "against": {},
+    "note": "auto-fix failed validation"
+  }
+]
+```
