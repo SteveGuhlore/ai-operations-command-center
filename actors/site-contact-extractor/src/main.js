@@ -29,12 +29,19 @@ const crawler = new CheerioCrawler({
     if (!acc) return;
 
     $("script, style, noscript").remove();
+    // Append a space inside every element so adjacent text nodes don't fuse — otherwise the email
+    // regex grabs glued runs like "01608617-359-6800shop@gmail.comFully".
+    $("body *").append(" ");
     const text = $("body").text().replace(/\s+/g, " ").trim();
     const links = $("a[href]")
       .map((_, a) => $(a).attr("href"))
       .get();
-    // Include hrefs (mailto:, instagram.com/...) in the blob so contact data in attributes is caught.
-    const blob = `${text} ${links.join(" ")}`;
+    // mailto: hrefs are the cleanest email source — rank them first in the blob.
+    const mailtos = $('a[href^="mailto:"]')
+      .map((_, a) => ($(a).attr("href") || "").replace(/^mailto:/i, "").split("?")[0])
+      .get();
+    // hrefs (mailto:, instagram.com/...) join the blob so contact data in attributes is caught too.
+    const blob = `${mailtos.join(" ")} ${text} ${links.join(" ")}`;
 
     merge(acc, extractSignals(blob, links));
     acc.raw.push(text);

@@ -40,5 +40,15 @@ ok(item.fetch_status === "ok" && item.pages_fetched === 1, "status ok / pages co
 const empty = finalizeItem("https://nope.example", newAcc());
 ok(empty.fetch_status === "no_pages" && empty.emails.length === 0, "unfetched url -> no_pages, empty");
 
+// Glued local-part: a zip/phone fused onto the address is dropped, but a clean address in the
+// same blob survives (regression for the greedy email local-part class).
+const glued = extractSignals("zip 01608617-359-6800shop@gmail.com or shop@gmail.com").emails;
+ok(!glued.some((e) => e.toLowerCase().startsWith("01608")), "glued digit-run email dropped");
+ok(glued.includes("shop@gmail.com"), "clean email kept alongside glued one");
+
+// Over-long local part (RFC 5321 64-char ceiling) dropped.
+const longLocal = `${"a".repeat(65)}@gmail.com`;
+ok(extractSignals(`contact ${longLocal}`).emails.length === 0, "over-64-char local part dropped");
+
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL PASS");
 process.exit(failures ? 1 : 0);

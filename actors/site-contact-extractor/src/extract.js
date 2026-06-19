@@ -26,7 +26,10 @@ function _emails(text) {
     e = e.trim().replace(/[,.;:]+$/, "");
     const low = e.toLowerCase();
     if (seen.has(low)) continue;
-    const domain = low.split("@")[1] || "";
+    const [local, domain = ""] = low.split("@");
+    // Glued extractions fuse a zip/phone/word onto the local part (e.g. 01608617-359-6800shop@…);
+    // reject leading digit-runs and over-long locals (RFC max 64).
+    if (/^\d{5,}/.test(local) || local.length > 64) continue;
     if (ASSET_RE.test(domain)) continue; // hero@2x.png etc.
     if (EMAIL_DENY.some((d) => low.includes(d))) continue;
     seen.add(low);
