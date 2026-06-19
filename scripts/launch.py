@@ -9,6 +9,7 @@ Usage:
 Open http://127.0.0.1:8765 to see the live dashboard.
 Press Ctrl-C to stop everything.
 """
+
 import argparse
 import os
 import re
@@ -21,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 REQUIRED_KEYS = ["GOOGLE_AI_API_KEY"]
@@ -40,18 +42,30 @@ def check_keys():
     missing = [k for k in REQUIRED_KEYS if not os.environ.get(k)]
     if missing:
         print(f"\nERROR: Missing required environment variables: {', '.join(missing)}")
-        print("Add them to .env in the project root. See config/.env.example for the template.")
+        print(
+            "Add them to .env in the project root. See config/.env.example for the template."
+        )
         sys.exit(1)
 
     optional_missing = [k for k in OPTIONAL_KEYS if not os.environ.get(k)]
     if optional_missing:
-        print(f"NOTE: Optional keys not set (some tools will be skipped): {', '.join(optional_missing)}")
+        print(
+            f"NOTE: Optional keys not set (some tools will be skipped): {', '.join(optional_missing)}"
+        )
 
 
 def start_dashboard():
     proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "dashboard.server:app",
-         "--host", "127.0.0.1", "--port", "8765"],
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "dashboard.server:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8765",
+        ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -86,20 +100,34 @@ def cleanup_stale_tasks():
             dead += 1
             continue
         if m:
-            text = re.sub(r"^resume_count:\s*\d+", f"resume_count: {count + 1}",
-                          text, count=1, flags=re.MULTILINE)
+            text = re.sub(
+                r"^resume_count:\s*\d+",
+                f"resume_count: {count + 1}",
+                text,
+                count=1,
+                flags=re.MULTILINE,
+            )
         else:
-            text = re.sub(r"^(status:.*)$", r"\1\nresume_count: 1",
-                          text, count=1, flags=re.MULTILINE)
-        text = re.sub(r"^status:\s*\w+", "status: todo", text, count=1, flags=re.MULTILINE)
+            text = re.sub(
+                r"^(status:.*)$",
+                r"\1\nresume_count: 1",
+                text,
+                count=1,
+                flags=re.MULTILINE,
+            )
+        text = re.sub(
+            r"^status:\s*\w+", "status: todo", text, count=1, flags=re.MULTILINE
+        )
         (todo / f.name).write_text(text, encoding="utf-8")
         f.unlink()
         resumed += 1
     for f in locks.glob("*.lock"):
         f.unlink(missing_ok=True)
     if resumed or dead:
-        print(f"Startup recovery: re-queued {resumed} interrupted task(s) to todo/, "
-              f"{dead} exceeded retry cap -> failed/. Cleared locks.")
+        print(
+            f"Startup recovery: re-queued {resumed} interrupted task(s) to todo/, "
+            f"{dead} exceeded retry cap -> failed/. Cleared locks."
+        )
 
 
 def seed_equity_history():
@@ -110,6 +138,7 @@ def seed_equity_history():
     only when sparse, so a healthy file is never overwritten."""
     try:
         from runner.ledger import equity_history as eh
+
         points = eh._load()
         if len(points) >= 12:
             return  # already has shape — leave it; snapshot() keeps it growing
@@ -121,23 +150,40 @@ def seed_equity_history():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--interval", type=int, default=120, help="Seconds between cycles (default: 120 = 2 min)")
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=120,
+        help="Seconds between cycles (default: 120 = 2 min)",
+    )
     parser.add_argument("--once", action="store_true", help="Run one cycle and exit")
+    parser.add_argument(
+        "--no-dashboard",
+        action="store_true",
+        help="Run the agent loop ONLY; do not start the dashboard (served separately by "
+        "cc-dashboard.service). Lets you stop/start agents for cost control without dropping the UI.",
+    )
     args = parser.parse_args()
 
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("  AI OPS COMMAND CENTER — LAUNCH")
-    print("="*50 + "\n")
+    print("=" * 50 + "\n")
 
-    if _already_running():
-        print("System already running (dashboard live on 8765) — not starting a duplicate.")
+    if not args.no_dashboard and _already_running():
+        print(
+            "System already running (dashboard live on 8765) — not starting a duplicate."
+        )
         print(f"View at {DASHBOARD_URL}")
         return
 
     check_keys()
     cleanup_stale_tasks()
 
-    dashboard_proc = start_dashboard()
+    dashboard_proc = None if args.no_dashboard else start_dashboard()
+    if args.no_dashboard:
+        print(
+            "Agent-loop-only mode (--no-dashboard): UI is served separately by cc-dashboard.service."
+        )
     seed_equity_history()
 
     from runner.main import run_cycle
@@ -151,7 +197,8 @@ def main():
             while True:
                 time.sleep(5)
         except KeyboardInterrupt:
-            dashboard_proc.terminate()
+            if dashboard_proc:
+                dashboard_proc.terminate()
             print("\nStopped.")
         return
 
@@ -172,7 +219,8 @@ def main():
     except KeyboardInterrupt:
         print("\nShutting down...")
         cron.stop()
-        dashboard_proc.terminate()
+        if dashboard_proc:
+            dashboard_proc.terminate()
         print("Stopped.")
 
 
