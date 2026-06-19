@@ -1,0 +1,17 @@
+{
+  "name": "site-contact-extractor",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Crawl business websites and extract emails, phones, and social handles for the local_outreach_pod funnel.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "test": "node --input-type=module -e \"import('./test/extract.test.mjs')\""
+  },
+  "dependencies": {
+    "apify": "^3.2.6",
+    "crawlee": "^3.13.0"
+  }
+}

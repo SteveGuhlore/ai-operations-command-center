@@ -1,0 +1,35 @@
+{
+  "title": "Site Contact Extractor input",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "urls": {
+      "title": "URLs",
+      "type": "array",
+      "description": "Business website URLs to extract contacts from (the find_prospects 'website' field).",
+      "editor": "stringList",
+      "items": { "type": "string" }
+    },
+    "maxPagesPerSite": {
+      "title": "Max pages per site",
+      "type": "integer",
+      "description": "Home page plus same-origin /contact, /about (capped).",
+      "default": 3,
+      "minimum": 1,
+      "maximum": 5
+    },
+    "respectRobots": {
+      "title": "Respect robots.txt",
+      "type": "boolean",
+      "default": true
+    },
+    "maxConcurrency": {
+      "title": "Max concurrency",
+      "type": "integer",
+      "default": 5,
+      "minimum": 1,
+      "maximum": 50
+    }
+  },
+  "required": ["urls"]
+}
