@@ -372,29 +372,51 @@ def test_html_only_reply_is_analyzed():
     assert ir._is_interested("Re: site", body)["interested"] is True
 
 
-# ----------------------------------------------------------------- places: unknown != no-website
+# ----------------------------------------------------------------- places: searchText 2-state website
 
-def test_failed_place_detail_reads_unknown_not_no_website(monkeypatch):
+def test_find_prospects_searchtext_two_state_website(monkeypatch):
+    # Places API (New) is one searchText call: websiteUri is present iff the business has a site, so
+    # has_website is a clean 2-state and no failed detail lookup can force an "unknown".
     from runner.tools import places as pl
     monkeypatch.setenv("GOOGLE_MAPS_API_KEY", "k")
 
     class _Resp:
-        def __init__(self, data):
-            self._d = data
+        status_code = 200
 
         def json(self):
-            return self._d
+            return {
+                "places": [
+                    {"id": "p1", "displayName": {"text": "Has Site Cafe"},
+                     "formattedAddress": "1 Main St, Salem MA", "nationalPhoneNumber": "(978) 555-0101",
+                     "websiteUri": "https://hassite.example", "rating": 4.6, "userRatingCount": 88,
+                     "types": ["cafe"]},
+                    {"id": "p2", "displayName": {"text": "No Site Diner"},
+                     "formattedAddress": "2 Elm St, Salem MA", "nationalPhoneNumber": "(978) 555-0202",
+                     "rating": 4.2, "userRatingCount": 30, "types": ["restaurant"]},
+                ]
+            }
 
-    def fake_get(url, params=None, timeout=None):
-        if "textsearch" in url:
-            return _Resp({"status": "OK", "results": [{"place_id": "p1", "name": "Has Site Cafe"}]})
-        return _Resp({"status": "OVER_QUERY_LIMIT"})  # detail lookup fails
+    def fake_post(url, headers=None, json=None, timeout=None):
+        assert "places:searchText" in url
+        return _Resp()
 
-    monkeypatch.setattr(pl.httpx, "get", fake_get)
+    monkeypatch.setattr(pl.httpx, "post", fake_post)
     out = pl.find_prospects("cafes in Salem MA")
-    p = out["prospects"][0]
-    assert p["has_website"] is None and "unknown" in p["website_status"]
-    assert out["no_website_count"] == 0  # never counted as a no-website pitch target
+
+    assert out["total_found"] == 2
+    assert out["no_website_count"] == 1  # only the diner (no websiteUri) is a no-site target
+    assert out["query"] == "cafes in Salem MA"
+
+    cafe = out["prospects"][0]
+    assert cafe["name"] == "Has Site Cafe"
+    assert cafe["has_website"] is True and cafe["website_status"] == "confirmed"
+    assert cafe["website"] == "https://hassite.example"
+    assert cafe["phone"] == "(978) 555-0101"
+    assert cafe["user_ratings_total"] == 88 and cafe["rating"] == 4.6
+    assert cafe["place_id"] == "p1" and cafe["reviews"] == []
+
+    diner = out["prospects"][1]
+    assert diner["has_website"] is False and diner["website"] is None
 
 
 # ----------------------------------------------------------------- E2E: bot -> CC -> broker -> feedback
