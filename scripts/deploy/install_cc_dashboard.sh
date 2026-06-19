@@ -34,8 +34,14 @@ SUDO=""; [ "$(id -u)" -eq 0 ] || SUDO="sudo"
 # --- preflight -------------------------------------------------------------
 [ -d "$CC_DIR" ]  || { echo "FATAL: $CC_DIR not found (override with CC_DIR=...)"; exit 1; }
 [ -x "$PY" ]      || { echo "FATAL: venv python missing at $PY"; exit 1; }
-"$PY" -c 'import uvicorn, dashboard.server' 2>/dev/null \
-  || { echo "FATAL: 'uvicorn dashboard.server' not importable under the venv — is the deploy current?"; exit 1; }
+# Run the import from INSIDE $CC_DIR so the `dashboard` package resolves — the service does
+# this via WorkingDirectory, so mirror it here. Surface the real traceback if it still fails.
+if ! ( cd "$CC_DIR" && "$PY" -c 'import uvicorn, dashboard.server' ) 2>/tmp/cc_dash_import.err; then
+  echo "FATAL: 'uvicorn dashboard.server' not importable under the venv. Error:"
+  sed 's/^/    /' /tmp/cc_dash_import.err 2>/dev/null
+  echo "  (venv python: $PY ; import cwd: $CC_DIR)"
+  exit 1
+fi
 
 # Own the service with the account that owns the checkout (NOT root, even under sudo),
 # so load_dotenv() reads that user's /opt/command-center/.env exactly like cc-runner does.
