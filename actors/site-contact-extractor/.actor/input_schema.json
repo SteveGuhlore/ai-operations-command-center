@@ -21,11 +21,13 @@
     "respectRobots": {
       "title": "Respect robots.txt",
       "type": "boolean",
+      "description": "If true, honor each site's robots.txt.",
       "default": true
     },
     "maxConcurrency": {
       "title": "Max concurrency",
       "type": "integer",
+      "description": "Maximum sites fetched in parallel.",
       "default": 5,
       "minimum": 1,
       "maximum": 50
