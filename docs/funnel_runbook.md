@@ -45,11 +45,12 @@ OUTREACH_AUTOMATION=false
 
 ## 3. Phase-0 validation (no cold infra; minimal spend)
 - Keep `OUTREACH_PAUSED=True` and `OUTREACH_AUTOMATION=false`.
-- Run one `outreach_compose` cycle (or the pod once) → it finds → `score_and_hook` → `enrich_contacts`
-  (needs Actor A deployed for real emails) → composes → `export_cold_leads` writes a CSV to
-  `vault/outreach/cold-export/`.
-- Send that batch from your own inbox/phone to validate messaging. Log outcomes in the CRM
-  (`vault/outreach/crm.md`) via the pod (`cold_export` → `booked`/`replied`).
+- Run a batch (preview first with `--dry-run`):
+  `python scripts/phase0_outreach.py --city "Worcester, MA" --category plumbers --max 10`
+  → finds → `score_and_hook` → `enrich_contacts` (needs Actor A) → composes → `export_cold_leads`
+  writes `vault/outreach/cold-export/<campaign>-<date>.csv` + CRM rows.
+- Send that batch from your own inbox/phone to validate messaging; log outcomes in the CRM
+  (`vault/outreach/crm.md`: `cold_export` → `replied`/`booked`).
 
 ## 4. Go-live gate (before flipping the switch)
 `scripts/outreach_synthesis.py` surfaces sent/reply/booked in the AUTO-CALIBRATION block. Thresholds:
