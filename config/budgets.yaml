@@ -33,6 +33,8 @@ budgets:
     opportunity_pod:
       daily_spend_limit_usd: 0.00   # Tony-only: Prospector dormant (see PROSPECTOR_PAUSED). 0 = pod cannot spend.
       per_poc_limit_usd: 2.00
+    local_outreach_pod:
+      daily_spend_limit_usd: 3.00   # Caps Apify enrichment + Places lookups for the trades acquisition funnel.
 
   retry_limits:
     default_max_retries: 2

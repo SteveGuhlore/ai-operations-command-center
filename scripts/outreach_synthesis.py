@@ -17,6 +17,7 @@ Signals it learns from vault/outreach/crm.md:
 Deterministic — no model call — so it is safe to run nightly and fully testable.
 Invoked by the daily learning hook in runner.main._maybe_run_learning.
 """
+
 import logging
 import re
 import sys
@@ -43,9 +44,9 @@ _CAL_RE = re.compile(
 )
 
 # A contact was actually attempted through a real channel.
-_SENT = {"emailed", "email_sent", "dm_sent", "dm_queued", "followed_up"}
+_SENT = {"emailed", "email_sent", "dm_sent", "dm_queued", "followed_up", "cold_export"}
 # A real human signalled back.
-_POSITIVE = {"replied", "closed"}
+_POSITIVE = {"replied", "closed", "booked"}
 # Parked without a real send.
 _PASSIVE = {"call_queued", "new"}
 
@@ -56,14 +57,24 @@ def _rows() -> list[dict]:
     out = []
     for line in CRM_FILE.read_text(encoding="utf-8").splitlines():
         line = line.strip()
-        if not line.startswith("|") or line.startswith("| Business") or set(line) <= set("|- "):
+        if (
+            not line.startswith("|")
+            or line.startswith("| Business")
+            or set(line) <= set("|- ")
+        ):
             continue
         cells = [c.strip() for c in line.strip("|").split("|")]
         if len(cells) >= 8:
-            out.append({
-                "business": cells[0], "type": cells[1].lower(), "city": cells[2],
-                "contact": cells[3], "channel": cells[4].lower(), "status": cells[5].lower(),
-            })
+            out.append(
+                {
+                    "business": cells[0],
+                    "type": cells[1].lower(),
+                    "city": cells[2],
+                    "contact": cells[3],
+                    "channel": cells[4].lower(),
+                    "status": cells[5].lower(),
+                }
+            )
     return out
 
 
@@ -78,7 +89,9 @@ def _norm_channel(c: str) -> str:
     return c or "unknown"
 
 
-def find_call_queued_overreliance(rows: list[dict], min_rows: int = 10, frac: float = 0.5) -> dict:
+def find_call_queued_overreliance(
+    rows: list[dict], min_rows: int = 10, frac: float = 0.5
+) -> dict:
     """MISTAKE signal: too many prospects parked at call_queued instead of sent."""
     if not rows:
         return {"triggered": False, "total": 0, "call_queued": 0, "rate": 0.0}
@@ -110,6 +123,7 @@ def find_segment_winners(rows: list[dict]) -> list[str]:
 def find_revenue() -> float:
     try:
         from runner.ledger.revenue import get_pod_revenue
+
         return round(get_pod_revenue(OUTREACH_POD), 2)
     except Exception:
         return 0.0
@@ -123,7 +137,9 @@ def write_learnings(over: dict, mix: dict, winners: list[str], revenue: float) -
     lines.append(f"- CRM rows analysed: {over['total']}")
     lines.append(f"- call_queued: {over['call_queued']} ({int(over['rate'] * 100)}%)")
     lines.append(f"- channel mix: {mix or '—'}")
-    lines.append(f"- segments that replied/closed: {', '.join(winners) if winners else 'none yet'}")
+    lines.append(
+        f"- segments that replied/closed: {', '.join(winners) if winners else 'none yet'}"
+    )
     lines.append(f"- {OUTREACH_POD} real revenue: ${revenue}")
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return out
@@ -173,8 +189,10 @@ def update_calibration_block(text: str) -> bool:
     if not _CAL_RE.search(cur):
         return False
     today = datetime.now().strftime("%Y-%m-%d")
-    note = (f"<!-- Auto-maintained by scripts/outreach_synthesis.py from the Pitch CRM "
-            f"track record — do not edit by hand. Updated {today}. -->")
+    note = (
+        f"<!-- Auto-maintained by scripts/outreach_synthesis.py from the Pitch CRM "
+        f"track record — do not edit by hand. Updated {today}. -->"
+    )
 
     def _repl(m: "re.Match") -> str:
         return f"{m.group(1)}\n{note}\n{text}\n{m.group(3)}"
@@ -191,9 +209,16 @@ def run() -> None:
     revenue = find_revenue()
     write_learnings(over, mix, winners, revenue)
     updated = update_calibration_block(build_calibration(over, mix, winners, revenue))
-    log.info("Outreach synthesis: rows=%d call_queued_overreliance=%s channels=%s winners=%d "
-             "revenue=%s calibration_updated=%s",
-             over["total"], over["triggered"], mix, len(winners), revenue, updated)
+    log.info(
+        "Outreach synthesis: rows=%d call_queued_overreliance=%s channels=%s winners=%d "
+        "revenue=%s calibration_updated=%s",
+        over["total"],
+        over["triggered"],
+        mix,
+        len(winners),
+        revenue,
+        updated,
+    )
 
 
 if __name__ == "__main__":

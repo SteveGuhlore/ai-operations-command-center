@@ -6,22 +6,22 @@ from runner.tools.vault_memory import load_agent_memory, load_cross_agent_insigh
 BASE_DIR = Path(__file__).parent.parent.parent
 
 _ROLE_MD_FILES = {
-    "manager":                "agents/manager.md",
-    "heavy_worker":           "agents/heavy_worker.md",
-    "debug_worker":           "agents/debug_worker.md",
-    "content_worker":         "agents/content_worker.md",
-    "media_worker":           "agents/media_worker.md",
-    "audio_worker":           "agents/audio_worker.md",
-    "guard_worker":           "agents/guard_worker.md",
-    "budget_worker":          "agents/budget_worker.md",
+    "manager": "agents/manager.md",
+    "heavy_worker": "agents/heavy_worker.md",
+    "debug_worker": "agents/debug_worker.md",
+    "content_worker": "agents/content_worker.md",
+    "media_worker": "agents/media_worker.md",
+    "audio_worker": "agents/audio_worker.md",
+    "guard_worker": "agents/guard_worker.md",
+    "budget_worker": "agents/budget_worker.md",
     "digital_product_worker": "agents/digital_product_worker.md",
-    "marketing_worker":       "agents/marketing_worker.md",
+    "marketing_worker": "agents/marketing_worker.md",
     "market_research_worker": "agents/market_research_worker.md",
-    "social_media_worker":    "agents/social_media_worker.md",
-    "outreach_worker":        "agents/outreach_worker.md",
-    "librarian":              "agents/librarian.md",
-    "builder":                "agents/builder.md",
-    "opportunity_worker":     "agents/opportunity_worker.md",
+    "social_media_worker": "agents/social_media_worker.md",
+    "outreach_worker": "agents/outreach_worker.md",
+    "librarian": "agents/librarian.md",
+    "builder": "agents/builder.md",
+    "opportunity_worker": "agents/opportunity_worker.md",
 }
 
 
@@ -78,9 +78,10 @@ def build_system_prompt(role_id: str) -> str:
             "after a real human interaction.\n"
             "3. DEDUP: Before writing, compare every new prospect name against the existing CRM rows. If the "
             "business name already appears (any status), SKIP IT — do not add a duplicate row.\n"
-            "4. NO WEB_RESEARCH FOR CONTACT LOOKUP: web_research hits CAPTCHA on every contact lookup and "
-            "will consume your entire time budget. Use ONLY what find_prospects returns. Phone number alone "
-            "is sufficient — set status to call_queued and move on. Never call web_research to find emails."
+            "4. CONTACT LOOKUP — USE enrich_contacts, NOT web_research: web_research CAPTCHAs on contact "
+            "lookups and burns the time budget — never use it to find emails. For prospects WITH a website, "
+            "batch their URLs into enrich_contacts (our reliable Apify actor) for emails/socials. A business "
+            "with no website has nothing to enrich — use its phone (call_queued)."
         )
 
     skills_content = build_agent_skills_prompt(role_id)

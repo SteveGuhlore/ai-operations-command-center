@@ -50,6 +50,9 @@ from runner.tools.vault_memory import (
 )
 from runner.tools.inbox_reader import TOOL_SPEC as INBOX_TOOL_SPEC
 from runner.tools.outreach_crm import TOOL_SPEC as OUTREACH_CRM_TOOL_SPEC
+from runner.tools.lead_score import TOOL_SPEC as LEAD_SCORE_TOOL_SPEC
+from runner.tools.apify import TOOL_SPEC as APIFY_TOOL_SPEC
+from runner.tools.cold_export import TOOL_SPEC as COLD_EXPORT_TOOL_SPEC
 from runner.ledger.research_queue import TOOL_SPEC as RESEARCH_QUEUE_TOOL_SPEC
 from runner.tools.crm_dedup import dedup_crm
 from runner.tools.opportunity import (
@@ -172,8 +175,11 @@ ROLE_TOOLS: dict[str, list[dict]] = {
     ],
     "outreach_worker": [
         PLACES_TOOL_SPEC,
+        LEAD_SCORE_TOOL_SPEC,
+        APIFY_TOOL_SPEC,
         WEB_TOOL_SPEC,
         EMAIL_TOOL_SPEC,
+        COLD_EXPORT_TOOL_SPEC,
         SOCIAL_DM_TOOL_SPEC,
         OUTREACH_CRM_TOOL_SPEC,
         FILE_TOOL_SPEC,

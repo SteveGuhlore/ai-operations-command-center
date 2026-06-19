@@ -2,22 +2,31 @@ import os
 import httpx
 
 _TEXT_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-_DETAIL_URL      = "https://maps.googleapis.com/maps/api/place/details/json"
-_DETAIL_FIELDS   = "name,formatted_address,formatted_phone_number,website,rating,types"
+_DETAIL_URL = "https://maps.googleapis.com/maps/api/place/details/json"
+# rating already puts this request on the Atmosphere SKU, so user_ratings_total + reviews add no
+# billing tier — they power the outreach review-hook / offer routing (lead_score).
+_DETAIL_FIELDS = "name,formatted_address,formatted_phone_number,website,rating,user_ratings_total,reviews,types"
 
 TOOL_SPEC = {
     "name": "find_prospects",
     "description": (
         "Search Google Maps for local businesses by category and city. "
-        "Returns name, address, phone, website (if any), and rating. "
+        "Returns name, address, phone, website (if any), rating, and review count. "
         "Use to find businesses with no website for outreach. "
         "Falls back to instructions for web_research if no API key is set."
     ),
     "input_schema": {
         "type": "object",
         "properties": {
-            "query":       {"type": "string",  "description": "Search query e.g. 'hair salons Boston MA' or 'plumbers Chicago IL'"},
-            "max_results": {"type": "integer", "description": "Max results to return (default 10, max 15)", "default": 10},
+            "query": {
+                "type": "string",
+                "description": "Search query e.g. 'hair salons Boston MA' or 'plumbers Chicago IL'",
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "Max results to return (default 10, max 15)",
+                "default": 10,
+            },
         },
         "required": ["query"],
     },
@@ -48,36 +57,56 @@ def find_prospects(query: str, max_results: int = 10) -> dict:
         search_data = search_resp.json()
         status = search_data.get("status")
         if status not in ("OK", "ZERO_RESULTS"):
-            return {"error": f"Places API error: {status} — {search_data.get('error_message', '')}"}
+            return {
+                "error": f"Places API error: {status} — {search_data.get('error_message', '')}"
+            }
 
         results = []
         for place in search_data.get("results", [])[:max_results]:
             place_id = place.get("place_id")
-            detail   = _get_place_detail(place_id, api_key)
+            detail = _get_place_detail(place_id, api_key)
             # A failed detail fetch (quota, timeout, REQUEST_DENIED) must read as UNKNOWN,
             # not "no website" — otherwise the agent pitches "I noticed you have no website"
             # to businesses that have one.
             detail_failed = detail is None
             detail = detail or {}
-            results.append({
-                "name":        detail.get("name") or place.get("name"),
-                "address":     detail.get("formatted_address") or place.get("formatted_address"),
-                "phone":       detail.get("formatted_phone_number"),
-                "website":     detail.get("website"),
-                "has_website": None if detail_failed else bool(detail.get("website")),
-                "website_status": ("unknown — detail lookup failed, do NOT pitch as no-website"
-                                   if detail_failed else "confirmed"),
-                "rating":      detail.get("rating") or place.get("rating"),
-                "types":       place.get("types", []),
-                "place_id":    place_id,
-            })
+            results.append(
+                {
+                    "name": detail.get("name") or place.get("name"),
+                    "address": detail.get("formatted_address")
+                    or place.get("formatted_address"),
+                    "phone": detail.get("formatted_phone_number"),
+                    "website": detail.get("website"),
+                    "has_website": None
+                    if detail_failed
+                    else bool(detail.get("website")),
+                    "website_status": (
+                        "unknown — detail lookup failed, do NOT pitch as no-website"
+                        if detail_failed
+                        else "confirmed"
+                    ),
+                    "rating": detail.get("rating") or place.get("rating"),
+                    "user_ratings_total": detail.get("user_ratings_total")
+                    or place.get("user_ratings_total"),
+                    "reviews": [
+                        {
+                            "rating": r.get("rating"),
+                            "text": (r.get("text") or "")[:200],
+                            "time": r.get("relative_time_description"),
+                        }
+                        for r in (detail.get("reviews") or [])[:5]
+                    ],
+                    "types": place.get("types", []),
+                    "place_id": place_id,
+                }
+            )
 
         no_site = [r for r in results if r["has_website"] is False]
         return {
-            "prospects":        results,
+            "prospects": results,
             "no_website_count": len(no_site),
-            "total_found":      len(results),
-            "query":            query,
+            "total_found": len(results),
+            "query": query,
         }
 
     except Exception as exc:
