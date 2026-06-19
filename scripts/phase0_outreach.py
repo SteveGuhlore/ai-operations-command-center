@@ -1,21 +1,21 @@
-"""Phase-0 outreach validation runner.
+"""Phase-0 outreach validation runner — DETERMINISTIC (no LLM agent).
 
-Runs the outreach_worker ONCE against a generated trades-acquisition task for a single city +
-category, producing a campaign CSV in vault/outreach/cold-export/ (CSV mode — no live send) plus
-CRM rows, so the operator can validate messaging before automating. Unlike scripts/test_agent.py
-this does not hard-require ANTHROPIC_API_KEY (the outreach role runs on gemini) and it builds the
-task in-memory. A live run makes real (pod-capped) LLM/Places/Apify spend; --dry-run makes none.
+Calls the funnel tools directly (find_prospects -> score_and_hook -> enrich_site_contacts ->
+export_cold_leads -> log_outreach_lead) with templated per-offer copy, so a Phase-0 batch reliably
+produces a CSV for manual validation at ~$0 LLM cost. (The agent-based path skipped steps and cost
+$0.57; for validation we want determinism, not orchestration by a weak model.)
 
-Live run needs in .env: GOOGLE_AI_API_KEY (gemini), GOOGLE_MAPS_API_KEY (Places),
-APIFY_TOKEN + APIFY_CONTACT_ACTOR (enrichment). Keep OUTREACH_AUTOMATION unset/false for Phase 0.
+A live run spends only Places + Apify (pod-capped). --dry-run makes zero calls and previews the copy.
+Needs in .env: GOOGLE_MAPS_API_KEY (discovery); APIFY_TOKEN + APIFY_CONTACT_ACTOR (emails). Keep
+OUTREACH_AUTOMATION unset/false for Phase 0 (export goes to CSV).
 
 Usage:
-    python scripts/phase0_outreach.py --city "Worcester, MA" --category plumbers
-    python scripts/phase0_outreach.py --city "Lowell, MA" --category HVAC --max 15 --campaign trades-lowell
-    python scripts/phase0_outreach.py --city "Salem, MA" --category roofers --dry-run
+    python scripts/phase0_outreach.py --city "Worcester, MA" --category plumbers --max 10
+    python scripts/phase0_outreach.py --city "Lowell, MA" --category HVAC --dry-run
 """
 
 import argparse
+import os
 import re
 import sys
 from pathlib import Path
@@ -26,94 +26,192 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from runner.agents.base import AgentBase
-from runner.agents.prompts import build_system_prompt
 from runner.ledger.budget import is_pod_budget_exceeded
-from runner.main import MODELS, ROLE_TOOLS
+from runner.tools.apify import enrich_site_contacts
+from runner.tools.cold_export import export_cold_leads
+from runner.tools.lead_score import score_and_hook
+from runner.tools.outreach_crm import log_outreach_lead
+from runner.tools.places import find_prospects
 
-ROLE = "outreach_worker"
 POD = "local_outreach_pod"
 
+_GENERIC = {
+    "ai_receptionist": "most home-services calls that hit voicemail never get a callback",
+    "review_automation": "steady new Google reviews are the cheapest way to climb local search",
+    "site_care": "most customers check for a website before they call",
+}
 
-def _body(city: str, category: str, max_results: int, campaign: str) -> str:
-    return f"""Trades acquisition — PHASE 0 VALIDATION. No live send (OUTREACH_AUTOMATION is off); export to CSV only.
 
-City: {city}
-Category: {category}
-Target: up to {max_results} prospects.
-
-Do this:
-1. find_prospects("{category} {city}") — up to {max_results} businesses.
-2. For EACH prospect, call score_and_hook(business, business_type, city, rating, user_ratings_total, has_website, types) to get its offer + hook.
-3. Collect the websites of prospects that have one and call enrich_contacts(urls=[...]) ONCE for the batch; read contacts[website] for emails/socials.
-4. For each prospect with a plausible email, compose a short subject + plain-text body for its offer, opening with the hook (use the hook verbatim; never invent ratings/reviews).
-5. Call export_cold_leads(campaign="{campaign}", leads=[{{email, business, business_type, city, offer, hook, subject, body}}, ...]) ONCE — it writes a CSV for manual review.
-6. log_outreach_lead once per prospect (status "cold_export" if exported, else "call_queued").
-Do NOT call send_email (cold goes through export_cold_leads only)."""
+def _compose(offer: str, business: str, category: str, hook: str) -> tuple[str, str]:
+    """Deterministic per-offer copy. Opens with the real hook (or a generic line), no fabricated claims."""
+    booking = os.environ.get("COLD_BOOKING_URL", "").strip()
+    cta = (
+        f"Worth a quick 15-min look? {booking}"
+        if booking
+        else "Open to a quick 15-min look?"
+    )
+    opener = (
+        f"Noticed {hook}."
+        if hook
+        else _GENERIC.get(offer, _GENERIC["review_automation"]).capitalize() + "."
+    )
+    sig = (
+        "\n\n— Stephen, easysimplesites.org\n\nReply STOP and I won't reach out again."
+    )
+    if offer == "ai_receptionist":
+        subject = f"{business} — missed calls = missed jobs?"
+        pitch = (
+            "We set up an AI receptionist + missed-call text-back so a missed call becomes a booked "
+            "job instead of a voicemail nobody returns. Runs 24/7, ~$299/mo."
+        )
+    elif offer == "site_care":
+        subject = f"{business} — a simple website"
+        pitch = (
+            f"We build a clean, mobile-friendly site for local {category} — $299 one-time, you own "
+            "it, no monthly fees."
+        )
+    else:  # review_automation
+        subject = f"{business} — more Google reviews"
+        pitch = (
+            "We run done-for-you Google review requests (compliant — we never filter reviews) so you "
+            "steadily climb local search. ~$149/mo."
+        )
+    return subject, f"Hi {business},\n\n{opener}\n\n{pitch}\n\n{cta}{sig}"
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(
-        description="Run one Phase-0 outreach validation batch (CSV, no send)."
+    ap = argparse.ArgumentParser(
+        description="Deterministic Phase-0 outreach batch (CSV, no live send)."
     )
-    p.add_argument("--city", required=True, help='City + state, e.g. "Worcester, MA"')
-    p.add_argument(
+    ap.add_argument("--city", required=True, help='City + state, e.g. "Worcester, MA"')
+    ap.add_argument(
         "--category", required=True, help="Trade category, e.g. plumbers, HVAC, roofers"
     )
-    p.add_argument("--max", type=int, default=10, help="Max prospects (default 10)")
-    p.add_argument(
+    ap.add_argument("--max", type=int, default=10, help="Max prospects (default 10)")
+    ap.add_argument(
         "--campaign", default="", help="Campaign label (default derived from the city)"
     )
-    p.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print the task + tools only; no API calls",
+    ap.add_argument(
+        "--dry-run", action="store_true", help="Preview copy; make zero API calls"
     )
-    args = p.parse_args()
+    args = ap.parse_args()
 
     campaign = args.campaign or "trades-" + re.sub(
         r"[^a-z0-9]+", "-", args.city.lower()
     ).strip("-")
-    task = {
-        "task_id": f"PHASE0-{campaign}",
-        "task_type": "outreach_compose",
-        "pod": POD,
-        "body": _body(args.city, args.category, args.max, campaign),
-    }
-
-    model = MODELS[ROLE]
-    system_prompt = build_system_prompt(ROLE)
-    tools = ROLE_TOOLS[ROLE]
-
-    print(f"\n{'=' * 60}")
-    print(f"  Phase-0 outreach  |  role={ROLE}  model={model}")
-    print(
-        f"  {args.category} in {args.city}  ->  campaign '{campaign}'  (max {args.max})"
-    )
-    print("=" * 60)
+    print(f"\n{'=' * 60}\n  Phase-0 (deterministic)  |  {args.category} in {args.city}")
+    print(f"  campaign '{campaign}'  (max {args.max})\n{'=' * 60}")
 
     if args.dry_run:
-        print("\n--- TOOLS ---")
-        print(", ".join(t["name"] for t in tools))
-        print("\n--- TASK BODY ---")
-        print(task["body"])
+        print("\nDRY RUN — no API calls. Sample copy per offer:")
+        for offer in ("ai_receptionist", "review_automation", "site_care"):
+            s, b = _compose(
+                offer,
+                "Acme Plumbing",
+                args.category,
+                "you're at 4.6 stars across 80 reviews",
+            )
+            print(f"\n[{offer}] subject: {s}\n{b}")
+        print(
+            "\nReal run: find_prospects -> score_and_hook -> enrich_contacts -> export_cold_leads(CSV) -> log_outreach_lead"
+        )
         return
 
     if is_pod_budget_exceeded(POD):
-        print(
-            f"ABORT: {POD} is over its daily spend cap (config/budgets.yaml). Try again tomorrow."
-        )
+        print(f"ABORT: {POD} is over its daily spend cap (config/budgets.yaml).")
         sys.exit(1)
 
-    agent = AgentBase(ROLE, model, system_prompt, tools=tools)
-    result = agent.run(task)
-
-    print("\n--- AGENT OUTPUT ---")
-    sys.stdout.buffer.write(result["output"][:3000].encode("utf-8", errors="replace"))
-    print(f"\n\n--- cost ${result.get('cost_usd', 0):.4f} ---")
+    res = find_prospects(f"{args.category} {args.city}", args.max)
+    if res.get("error"):
+        print(f"find_prospects error: {res['error']}")
+        sys.exit(1)
+    if res.get("fallback"):
+        print(
+            f"find_prospects fell back (GOOGLE_MAPS_API_KEY missing/invalid?): {res.get('message')}"
+        )
+        sys.exit(1)
+    prospects = res.get("prospects", [])
     print(
-        "CSV (if any) -> vault/outreach/cold-export/   |   CRM -> vault/outreach/crm.md"
+        f"\nfound {len(prospects)} prospects ({res.get('no_website_count', 0)} without a website)"
     )
+    if not prospects:
+        return
+
+    for p in prospects:
+        sh = score_and_hook(
+            p.get("name", ""),
+            args.category,
+            args.city,
+            p.get("rating"),
+            p.get("user_ratings_total"),
+            p.get("has_website"),
+            p.get("types"),
+        )
+        p["_offer"], p["_hook"], p["_tier"] = sh["offer"], sh["hook"], sh["tier"]
+
+    sites = [
+        p["website"] for p in prospects if p.get("has_website") and p.get("website")
+    ]
+    contacts: dict = {}
+    if sites:
+        en = enrich_site_contacts(sites)
+        if en.get("contacts"):
+            contacts = en["contacts"]
+        elif en.get("fallback"):
+            print(
+                f"enrich fell back (APIFY_TOKEN missing?) — emails will be sparse: {en.get('message')}"
+            )
+        elif en.get("error"):
+            print(f"enrich error: {en['error']}")
+
+    leads, by_offer, emailable = [], {}, 0
+    for p in prospects:
+        by_offer[p["_offer"]] = by_offer.get(p["_offer"], 0) + 1
+        email = (contacts.get(p.get("website") or "", {}).get("emails") or [None])[0]
+        note = f"{p['_offer']} | {p['_tier']}"
+        if email:
+            emailable += 1
+            subject, body = _compose(p["_offer"], p["name"], args.category, p["_hook"])
+            leads.append(
+                {
+                    "email": email,
+                    "business": p["name"],
+                    "business_type": args.category,
+                    "city": args.city,
+                    "offer": p["_offer"],
+                    "hook": p["_hook"],
+                    "subject": subject,
+                    "body": body,
+                }
+            )
+            log_outreach_lead(
+                business=p["name"],
+                business_type=args.category,
+                city=args.city,
+                contact=email,
+                channel="email",
+                status="cold_export",
+                notes=note,
+            )
+        else:
+            log_outreach_lead(
+                business=p["name"],
+                business_type=args.category,
+                city=args.city,
+                contact=p.get("phone") or "",
+                channel="phone",
+                status="call_queued",
+                notes=note,
+            )
+
+    exp = (
+        export_cold_leads(campaign, leads)
+        if leads
+        else {"exported": 0, "reason": "no emails found"}
+    )
+    print(f"\nby offer: {by_offer}")
+    print(f"emailable: {emailable}/{len(prospects)}   export: {exp}")
+    print("CSV -> vault/outreach/cold-export/   |   CRM -> vault/outreach/crm.md")
 
 
 if __name__ == "__main__":
