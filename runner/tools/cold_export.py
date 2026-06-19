@@ -90,35 +90,75 @@ def _write_csv(campaign: str, leads) -> Path:
     return path
 
 
-def _push_to_provider(api_url: str, api_key: str, campaign_id: str, leads) -> dict:
-    payload = {
-        "campaign": campaign_id,
-        "leads": [
-            {
-                "email": l["email"],
-                "company_name": l.get("business", ""),
-                "first_name": l.get("first_name", ""),
-                "personalization": l.get("hook", ""),
-                "custom_variables": {
-                    "subject": l.get("subject", ""),
-                    "body": l.get("body", ""),
-                    "city": l.get("city", ""),
-                    "offer": l.get("offer", ""),
-                },
-            }
-            for l in leads
-        ],
+def _instantly_lead(l: dict) -> dict:
+    return {
+        "email": l["email"],
+        "first_name": l.get("first_name", ""),
+        "company_name": l.get("business", ""),
+        "personalization": l.get("hook", ""),
+        "custom_variables": {
+            "subject": l.get("subject", ""),
+            "body": l.get("body", ""),
+            "city": l.get("city", ""),
+            "offer": l.get("offer", ""),
+        },
     }
+
+
+def _smartlead_lead(l: dict) -> dict:
+    return {
+        "email": l["email"],
+        "first_name": l.get("first_name", ""),
+        "company_name": l.get("business", ""),
+        "custom_fields": {
+            "subject": l.get("subject", ""),
+            "body": l.get("body", ""),
+            "city": l.get("city", ""),
+            "offer": l.get("offer", ""),
+            "hook": l.get("hook", ""),
+        },
+    }
+
+
+def _push_to_provider(campaign_id: str, leads) -> dict:
+    """POST the batch to the configured cold-email provider. COLD_EMAIL_PROVIDER selects
+    instantly (default) or smartlead; COLD_EMAIL_API_URL overrides with a generic Bearer POST."""
+    provider = os.environ.get("COLD_EMAIL_PROVIDER", "instantly").strip().lower()
+    api_key = os.environ.get("COLD_EMAIL_API_KEY", "")
+    override_url = os.environ.get("COLD_EMAIL_API_URL", "")
+
+    if override_url:
+        url = override_url
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "campaign": campaign_id,
+            "leads": [_instantly_lead(x) for x in leads],
+        }
+    elif provider == "smartlead":
+        # api_key is a query param; leads under lead_list; campaign in the path (≤400/req).
+        url = f"https://server.smartlead.ai/api/v1/campaigns/{campaign_id}/leads?api_key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        payload = {"lead_list": [_smartlead_lead(x) for x in leads]}
+    else:
+        # Instantly v2 bulk add: Bearer auth, campaign_id top-level, leads array (1–1000).
+        url = "https://api.instantly.ai/api/v2/leads/add"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "campaign_id": campaign_id,
+            "leads": [_instantly_lead(x) for x in leads],
+        }
+
     try:
-        r = httpx.post(
-            api_url,
-            headers={"Authorization": f"Bearer {api_key}"},
-            json=payload,
-            timeout=30,
-        )
+        r = httpx.post(url, headers=headers, json=payload, timeout=30)
         if r.status_code in (200, 201, 202):
             return {"success": True}
-        return {"error": f"{r.status_code}: {r.text[:200]}"}
+        return {"error": f"{provider} {r.status_code}: {r.text[:200]}"}
     except Exception as exc:
         msg = str(exc).lower()
         return {"ambiguous": "timeout" in msg or "timed out" in msg, "error": str(exc)}
@@ -138,18 +178,19 @@ def export_cold_leads(campaign: str, leads) -> dict:
         }
 
     enabled = os.environ.get("OUTREACH_AUTOMATION", "false").lower() == "true"
-    api_url = os.environ.get("COLD_EMAIL_API_URL")
-    api_key = os.environ.get("COLD_EMAIL_API_KEY")
-    campaign_id = os.environ.get("COLD_EMAIL_CAMPAIGN_ID", campaign)
+    api_key = os.environ.get("COLD_EMAIL_API_KEY", "")
+    # Real provider campaign id (Instantly/Smartlead), NOT the local label — without it we can't
+    # target a campaign, so fall back to CSV.
+    campaign_id = os.environ.get("COLD_EMAIL_CAMPAIGN_ID", "")
     emails = [l["email"] for l in fresh]
 
-    if enabled and api_url and api_key:
+    if enabled and api_key and campaign_id:
         if not os.environ.get("COLD_PHYSICAL_ADDRESS"):
             return {
                 "error": "COLD_PHYSICAL_ADDRESS not set (CAN-SPAM) — refusing API export. "
-                "Set it, or unset COLD_EMAIL_API_URL to export via CSV."
+                "Set it, or unset OUTREACH_AUTOMATION to export via CSV."
             }
-        result = _push_to_provider(api_url, api_key, campaign_id, fresh)
+        result = _push_to_provider(campaign_id, fresh)
         if result.get("success"):
             _record_exported(emails)
             return {
