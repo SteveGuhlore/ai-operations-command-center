@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import threading
 import time
 
 import openai
@@ -14,35 +15,42 @@ _log = logging.getLogger(__name__)
 # system stays runnable without google-auth installed.
 _vertex_creds = None
 _vertex_request = None
+_vertex_lock = threading.Lock()
 
 
 def _vertex_token() -> str:
+    # Up to MAX_CONCURRENT worker threads call this concurrently; the lazy init and
+    # the token refresh mutate module-global creds, and google.auth credentials are
+    # not thread-safe. Serialize both under one lock to avoid racing refresh().
     global _vertex_creds, _vertex_request
-    if _vertex_creds is None:
-        import google.auth
-        import google.auth.transport.requests
-        _vertex_creds, _ = google.auth.default(
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
-        _vertex_request = google.auth.transport.requests.Request()
-    if not _vertex_creds.valid:
-        _vertex_creds.refresh(_vertex_request)
-    return _vertex_creds.token
+    with _vertex_lock:
+        if _vertex_creds is None:
+            import google.auth
+            import google.auth.transport.requests
+
+            _vertex_creds, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            _vertex_request = google.auth.transport.requests.Request()
+        if not _vertex_creds.valid:
+            _vertex_creds.refresh(_vertex_request)
+        return _vertex_creds.token
+
 
 # (input_$/MTok, output_$/MTok)
 MODEL_PRICING: dict[str, tuple[float, float]] = {
-"moonshotai/kimi-k2.5":         (0.60,   3.0),
-    "minimax/minimax-m2.5":         (0.15,   1.15),
-    "google/gemini-flash-1.5":      (0.075,  0.30),  # via OpenRouter
-    "gemini-1.5-flash":             (0.075,  0.30),  # Google direct
-    "gemini-2.0-flash":             (0.10,   0.40),  # Google direct
-    "gemini-2.5-flash":             (0.30,   2.50),  # Google direct — primary worker model
-    "gemini-2.5-flash-lite":        (0.10,   0.40),  # Google direct
-    "gemini-2.5-pro":               (1.25,  10.00),  # Google direct — Atlas + Tony Stocks
-    "claude-opus-4-8":              (15.0,  75.0),   # Claude builds (see 2026-05-29 spec)
-    "claude-opus-4-7":              (15.0,  75.0),
-    "claude-sonnet-4-6":            (3.0,   15.0),
-    "claude-haiku-4-5":             (0.80,   4.0),
+    "moonshotai/kimi-k2.5": (0.60, 3.0),
+    "minimax/minimax-m2.5": (0.15, 1.15),
+    "google/gemini-flash-1.5": (0.075, 0.30),  # via OpenRouter
+    "gemini-1.5-flash": (0.075, 0.30),  # Google direct
+    "gemini-2.0-flash": (0.10, 0.40),  # Google direct
+    "gemini-2.5-flash": (0.30, 2.50),  # Google direct — primary worker model
+    "gemini-2.5-flash-lite": (0.10, 0.40),  # Google direct
+    "gemini-2.5-pro": (1.25, 10.00),  # Google direct — Atlas + Tony Stocks
+    "claude-opus-4-8": (15.0, 75.0),  # Claude builds (see 2026-05-29 spec)
+    "claude-opus-4-7": (15.0, 75.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-4-5": (0.80, 4.0),
 }
 
 
@@ -54,7 +62,9 @@ def _to_openai_tools(tools: list[dict]) -> list[dict]:
             "function": {
                 "name": t["name"],
                 "description": t.get("description", ""),
-                "parameters": t.get("input_schema", {"type": "object", "properties": {}}),
+                "parameters": t.get(
+                    "input_schema", {"type": "object", "properties": {}}
+                ),
             },
         }
         for t in tools
@@ -84,12 +94,15 @@ class AgentBase:
         #   3. everything else                      -> OpenRouter
         # Accept both the CC's own names (VERTEX_*) and the google-genai SDK names
         # (GOOGLE_CLOUD_*) the VM deployment sets, so one .env works everywhere.
-        vertex_project = os.environ.get("VERTEX_PROJECT") or os.environ.get("GOOGLE_CLOUD_PROJECT")
+        vertex_project = os.environ.get("VERTEX_PROJECT") or os.environ.get(
+            "GOOGLE_CLOUD_PROJECT"
+        )
         google_key = os.environ.get("GOOGLE_AI_API_KEY")
         self._use_vertex = False
         if vertex_project and model.startswith("gemini-"):
-            location = (os.environ.get("VERTEX_LOCATION")
-                        or os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1"))
+            location = os.environ.get("VERTEX_LOCATION") or os.environ.get(
+                "GOOGLE_CLOUD_LOCATION", "us-central1"
+            )
             self._use_vertex = True
             self.model = f"google/{model}"
             self.client = openai.OpenAI(
@@ -118,27 +131,39 @@ class AgentBase:
         last = None
         for attempt in range(max(1, tries)):
             if self._use_vertex:
-                self.client.api_key = _vertex_token()  # refresh the short-lived token each attempt
+                self.client.api_key = (
+                    _vertex_token()
+                )  # refresh the short-lived token each attempt
             try:
                 return self.client.chat.completions.create(**kwargs)
             except Exception as exc:
                 s = str(exc)
-                is_rate = ("429" in s or "RESOURCE_EXHAUSTED" in s
-                           or isinstance(exc, getattr(openai, "RateLimitError", ())))
+                is_rate = (
+                    "429" in s
+                    or "RESOURCE_EXHAUSTED" in s
+                    or isinstance(exc, getattr(openai, "RateLimitError", ()))
+                )
                 if not is_rate or attempt == tries - 1:
                     if is_rate:
                         last = exc
                         break
                     raise
-                wait = min(30.0, 2.0 ** attempt)  # 1, 2, 4, 8, 16s
-                _log.warning("%s rate-limited (429) — backing off %.0fs (attempt %d/%d)",
-                             self.model, wait, attempt + 1, tries)
+                wait = min(30.0, 2.0**attempt)  # 1, 2, 4, 8, 16s
+                _log.warning(
+                    "%s rate-limited (429) — backing off %.0fs (attempt %d/%d)",
+                    self.model,
+                    wait,
+                    attempt + 1,
+                    tries,
+                )
                 time.sleep(wait)
                 last = exc
         raise last
 
     def run(self, task: dict) -> dict:
-        task_text = f"# Task: {task.get('task_id', 'unknown')}\n\n{task.get('body', '')}"
+        task_text = (
+            f"# Task: {task.get('task_id', 'unknown')}\n\n{task.get('body', '')}"
+        )
         messages: list[dict] = [
             {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": task_text},
@@ -159,7 +184,10 @@ class AgentBase:
             # returned "(no tool calls made this run)" — same trap as Clay. Give him room.
             max_tokens = 16384
         elif self.role_id in (
-            "digital_product_worker", "content_worker", "heavy_worker", "outreach_worker"
+            "digital_product_worker",
+            "content_worker",
+            "heavy_worker",
+            "outreach_worker",
         ):
             max_tokens = 8192
         else:
@@ -192,7 +220,10 @@ class AgentBase:
 
             if finish_reason == "tool_calls" and msg.tool_calls:
                 # Append assistant message with tool_calls serialised as plain dict
-                assistant_entry: dict = {"role": "assistant", "content": msg.content or ""}
+                assistant_entry: dict = {
+                    "role": "assistant",
+                    "content": msg.content or "",
+                }
                 assistant_entry["tool_calls"] = [
                     {
                         "id": tc.id,
@@ -216,14 +247,18 @@ class AgentBase:
                         # JSON on the next turn.
                         tool_calls_total += 1
                         tool_calls_errored += 1
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc.id,
-                            "content": json.dumps({
-                                "error": f"Invalid JSON in tool arguments: {exc}. "
-                                         f"Resend this tool call with valid JSON."
-                            }),
-                        })
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": tc.id,
+                                "content": json.dumps(
+                                    {
+                                        "error": f"Invalid JSON in tool arguments: {exc}. "
+                                        f"Resend this tool call with valid JSON."
+                                    }
+                                ),
+                            }
+                        )
                         continue
                     try:
                         result = dispatch_tool(tc.function.name, tool_input)
@@ -231,8 +266,10 @@ class AgentBase:
                         # A hallucinated/renamed tool name raises ValueError in
                         # dispatch_tool. Don't abort the whole task — feed the error
                         # back so the model can correct, same as the bad-JSON path.
-                        result = {"error": f"Unknown or invalid tool '{tc.function.name}': {exc}. "
-                                           f"Use only the tools listed in your prompt."}
+                        result = {
+                            "error": f"Unknown or invalid tool '{tc.function.name}': {exc}. "
+                            f"Use only the tools listed in your prompt."
+                        }
                     tool_calls_total += 1
                     if isinstance(result, dict) and result.get("error"):
                         tool_calls_errored += 1
@@ -243,11 +280,13 @@ class AgentBase:
                     limit = 20000 if tc.function.name == "file_editor" else 4000
                     if len(content) > limit:
                         content = content[:limit] + "\n...[truncated]"
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": content,
-                    })
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc.id,
+                            "content": content,
+                        }
+                    )
 
                 kwargs["messages"] = messages
                 step += 1
@@ -259,26 +298,32 @@ class AgentBase:
             if self.role_id == "outreach_worker":
                 called = {
                     tc["function"]["name"]
-                    for m in messages if isinstance(m, dict) and m.get("role") == "assistant"
+                    for m in messages
+                    if isinstance(m, dict) and m.get("role") == "assistant"
                     for tc in (m.get("tool_calls") or [])
                 }
                 wrote_crm = "log_outreach_lead" in called or any(
-                    tc["function"]["name"] == "file_editor" and
-                    ('"write"' in tc["function"].get("arguments", "") or
-                     '"append"' in tc["function"].get("arguments", ""))
-                    for m in messages if isinstance(m, dict) and m.get("role") == "assistant"
+                    tc["function"]["name"] == "file_editor"
+                    and (
+                        '"write"' in tc["function"].get("arguments", "")
+                        or '"append"' in tc["function"].get("arguments", "")
+                    )
+                    for m in messages
+                    if isinstance(m, dict) and m.get("role") == "assistant"
                     for tc in (m.get("tool_calls") or [])
                 )
                 found_prospects = "find_prospects" in called or "web_research" in called
                 if found_prospects and not wrote_crm:
                     messages.append({"role": "assistant", "content": output_text})
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            "You found prospects but have NOT called log_outreach_lead to save them to the "
-                            "CRM. Call log_outreach_lead now — once per prospect, with its fields. Do it immediately."
-                        )
-                    })
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "You found prospects but have NOT called log_outreach_lead to save them to the "
+                                "CRM. Call log_outreach_lead now — once per prospect, with its fields. Do it immediately."
+                            ),
+                        }
+                    )
                     kwargs["messages"] = messages
                     output_text = ""
                     step += 1
@@ -286,17 +331,24 @@ class AgentBase:
 
             break
 
-        all_tools_errored = tool_calls_total > 0 and tool_calls_errored == tool_calls_total
+        all_tools_errored = (
+            tool_calls_total > 0 and tool_calls_errored == tool_calls_total
+        )
 
         # Gemini often returns empty content after tool calls — build summary from actual data
         if not output_text.strip():
             tool_names = [
                 tc["function"]["name"]
-                for m in messages if isinstance(m, dict) and m.get("role") == "assistant"
+                for m in messages
+                if isinstance(m, dict) and m.get("role") == "assistant"
                 for tc in (m.get("tool_calls") or [])
             ]
             if tool_names:
-                tail = "ALL_TOOLS_ERRORED" if all_tools_errored else "(agent returned no text summary — see the files it changed)"
+                tail = (
+                    "ALL_TOOLS_ERRORED"
+                    if all_tools_errored
+                    else "(agent returned no text summary — see the files it changed)"
+                )
                 output_text = f"Run completed via tool calls: {', '.join(dict.fromkeys(tool_names))}. {tail}"
             else:
                 output_text = "(no tool calls made this run)"

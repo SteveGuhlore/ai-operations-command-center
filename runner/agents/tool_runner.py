@@ -1,4 +1,7 @@
+import logging
 from typing import Any, Callable
+
+_log = logging.getLogger(__name__)
 
 TOOL_REGISTRY: dict[str, Callable] = {}
 
@@ -13,6 +16,9 @@ def dispatch_tool(tool_name: str, tool_input: dict) -> Any:
     try:
         return TOOL_REGISTRY[tool_name](**tool_input)
     except Exception as exc:
+        # Surface the failure in the launch logs — previously every tool error was
+        # silently flattened into the model's context with no operator-visible trace.
+        _log.warning("tool %s failed: %s", tool_name, exc, exc_info=True)
         return {"error": str(exc)}
 
 
