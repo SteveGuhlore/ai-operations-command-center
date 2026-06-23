@@ -1,10 +1,14 @@
 import openai
 from pathlib import Path
 
+from runner.llm_switch import llm_disabled
+
 OUTPUT_DIR = Path(__file__).parent.parent.parent / "workspace" / "assets" / "audio"
 
 
 def generate_audio(text: str, filename: str, voice: str = "alloy") -> dict:
+    if llm_disabled():
+        return {"error": "audio generation skipped — CC_LLM_DISABLED"}
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     client = openai.OpenAI()
     try:
@@ -31,7 +35,10 @@ TOOL_SPEC = {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "Text to convert to speech"},
-            "filename": {"type": "string", "description": "Output filename, e.g. intro.mp3"},
+            "filename": {
+                "type": "string",
+                "description": "Output filename, e.g. intro.mp3",
+            },
             "voice": {
                 "type": "string",
                 "enum": ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
@@ -39,5 +46,5 @@ TOOL_SPEC = {
             },
         },
         "required": ["text", "filename"],
-    }
+    },
 }

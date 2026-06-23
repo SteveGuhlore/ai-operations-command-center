@@ -8,6 +8,7 @@ import openai
 
 from runner.ledger.budget import record_spend
 from runner.agents.tool_runner import dispatch_tool
+from runner.llm_switch import llm_disabled
 
 _log = logging.getLogger(__name__)
 
@@ -88,6 +89,13 @@ class AgentBase:
         self.model = model
         self.system_prompt = system_prompt
         self.tools = tools or []
+        self._disabled = llm_disabled()
+        if self._disabled:
+            # Global kill-switch (CC_LLM_DISABLED): build no provider client and mint no
+            # Vertex token, so a disabled-API deploy spends $0 and stays quiet.
+            self._use_vertex = False
+            self.client = None
+            return
         # Routing precedence:
         #   1. VERTEX_PROJECT set + gemini-* model  -> Vertex AI (uses $300 GCP credit)
         #   2. GOOGLE_AI_API_KEY set + slash-free   -> AI Studio Gemini API
@@ -161,6 +169,20 @@ class AgentBase:
         raise last
 
     def run(self, task: dict) -> dict:
+        if self._disabled:
+            _log.info(
+                "LLM disabled (CC_LLM_DISABLED) — skipping %s task %s",
+                self.role_id,
+                task.get("task_id"),
+            )
+            return {
+                "role_id": self.role_id,
+                "task_id": task.get("task_id"),
+                "output": "(skipped — CC_LLM_DISABLED)",
+                "cost_usd": 0.0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+            }
         task_text = (
             f"# Task: {task.get('task_id', 'unknown')}\n\n{task.get('body', '')}"
         )
