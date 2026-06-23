@@ -359,15 +359,15 @@ Production runs 24/7 on the VM (`/opt/command-center`, systemd `cc-runner`) off 
 
 | ID | Title | Tier | Fix | Status |
 |----|-------|------|-----|--------|
-| C1 | UTC budget rollover resets spend caps | Critical | 🟢 | ☐ |
-| C2 | web_fetch SSRF | Critical | 🟢 | ☐ |
-| C3 | web_research bypasses injection guard | Critical | 🟢 | ☐ |
-| C4 | Dashboard stored XSS | Critical | 🟢 | ☐ |
-| C5 | config.py no validation | Critical | 🟢 | ☐ |
-| C6 | CI runs no tests | Critical | 🟢 | ☐ |
-| C7 | No Alpaca account-identity guard | Critical | 🟢/🔴 | ☐ |
+| C1 | UTC budget rollover resets spend caps | Critical | 🟢 | ✅ |
+| C2 | web_fetch SSRF | Critical | 🟢 | ✅ |
+| C3 | web_research bypasses injection guard | Critical | 🟢 | ✅ |
+| C4 | Dashboard stored XSS | Critical | 🟢 | ✅ |
+| C5 | config.py no validation | Critical | 🟢 | ✅ |
+| C6 | CI runs no tests | Critical | 🟢 | ✅ |
+| C7 | No Alpaca account-identity guard | Critical | 🟢/🔴 | ✅ (env-gated; pin `TONY_ALPACA_ACCOUNT_ID` to arm) |
 | C8 | run_cycle god-fn + no real timeout | Critical | 🟡 | ☐ |
-| C9 | systemd units wrong layout | Critical | 🔴 | ☐ |
+| C9 | systemd units wrong layout | Critical | 🔴 | ☐ (needs VM-layout confirm) |
 | M1 | Shared JSON-I/O helper | Medium | 🟢 | ☐ |
 | M2 | Shared markdown-table parser | Medium | 🟢 | ☐ |
 | M3 | Tokens → headers | Medium | 🟢 | ☐ |
@@ -376,39 +376,40 @@ Production runs 24/7 on the VM (`/opt/command-center`, systemd `cc-runner`) off 
 | M6 | Vertex token lock | Medium | 🟢 | ☐ |
 | M7 | Outreach post-run hook | Medium | 🟢 | ☐ |
 | M8 | Market-clock holiday/fallback | Medium | 🟢 | ☐ |
-| M9 | date.today()→trading_day() | Medium | 🟢 | ☐ |
+| M9 | date.today()→trading_day() | Medium | 🟢 | ✅ |
 | M10 | Single verdict vocabulary | Medium | 🟢 | ☐ |
 | M11 | Equity feed-outage handling | Medium | 🟢 | ☐ |
 | M12 | bot_equity() parse guards | Medium | 🟢 | ☐ |
-| M13 | One equity-history env var | Medium | 🟢 | ☐ |
+| M13 | One equity-history env var | Medium | 🟢 | ✅ |
 | M14 | IMAP caps + sanitize | Medium | 🟢 | ☐ |
 | M15 | send_email hardening | Medium | 🟢 | ☐ |
 | M16 | Tool registration consistency | Medium | 🟢 | ☐ |
 | M17 | dispatch_tool error classify | Medium | 🟢 | ☐ |
 | M18 | Config/example reconcile | Medium | 🟢 | ☐ |
 | M19 | budgets.yaml drift | Medium | 🟢 | ☐ |
-| M20 | brand.yaml strip Etsy | Medium | 🟢 | ☐ |
+| M20 | brand.yaml strip Etsy | Medium | 🟢 | ✅ |
 | M21 | Consolidate eval dirs | Medium | 🟢 | ☐ |
-| M22 | Delete dashboard-state orphan | Medium | 🟢 | ☐ |
+| M22 | Delete dashboard-state orphan | Medium | 🟢 | ✅ |
 | M23 | Pin requirements | Medium | 🟢 | ☐ |
 | M24 | improvement_loop docstring/param | Medium | 🟢 | ☐ |
-| M25 | Delete dead _runner_loop.py | Medium | 🟢 | ☐ |
+| M25 | Delete dead _runner_loop.py | Medium | 🟢 | ✅ |
 | M26 | PowerShell sprawl | Medium | 🟢 | ☐ |
 | M27 | No-assert tests + locker | Medium | 🟢 | ☐ |
 | M28 | Long-only P&L guard | Medium | 🟢 | ☐ |
 | M29 | runner/paths.py | Medium | 🟢 | ☐ |
 | M30 | Remove etsy.py | Medium | 🟡 | ☐ |
 | M31 | HTTP skeleton + idempotency util | Medium | 🟢 | ☐ |
-| M32 | Harden server note filter | Medium | 🟢 | ☐ |
+| M32 | Harden server note filter | Medium | 🟢 | ✅ |
 | M33 | Pause flags → config | Medium | 🟡 | ☐ |
 | M34 | move_task atomic rename | Medium | 🟡 | ☐ |
 | M35 | Split alpaca_paper.py | Medium | 🟡 | ☐ |
 | M36 | build_tony_dashboard JS source | Medium | 🟡 | ☐ |
 | M37 | backfill_outreach idempotency | Medium | 🟡 | ☐ |
+| M38 | Untrack committed .pyc | Medium | 🟢 | ✅ |
 | N1 | Separate Obsidian vault | Nice | 🟢 | ☐ |
 | N2 | Purge scrapped-pod artifacts | Nice | 🟢 | ☐ |
 | N3 | em-dash filename + slug | Nice | 🟢 | ☐ |
-| N4 | .gitignore cleanup | Nice | 🟢 | ☐ |
-| N5 | Retire setup_windows.py | Nice | 🟢 | ☐ |
+| N4 | .gitignore cleanup | Nice | 🟢 | ✅ |
+| N5 | Retire setup_windows.py | Nice | 🟢 | ✅ |
 | N6 | launch.py readiness | Nice | 🟢 | ☐ |
 | N7 | Off-hours lane meter | Nice | 🟡 | ☐ |
