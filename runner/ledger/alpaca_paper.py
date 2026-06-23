@@ -898,6 +898,16 @@ def _alpaca_broker():
         return None
 
     client = TradingClient(key, secret, paper=True)
+    # Fail-closed account-identity guard: never trade the bot's account from the CC (§5.3).
+    from runner.ledger.account_mode import assert_paper_account_identity
+
+    try:
+        assert_paper_account_identity(client)
+    except Exception as exc:
+        _log.error(
+            "Alpaca account identity check failed — paper book disabled: %s", exc
+        )
+        return None
     data = StockHistoricalDataClient(key, secret)
 
     class _Broker:

