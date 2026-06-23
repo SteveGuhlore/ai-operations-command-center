@@ -3,6 +3,7 @@
 Friday 2026-06-06 incident: 4 consecutive stop-outs (FCX, SLB, SNAP, DVN, ~-$945).
 The breaker must catch that cluster before new entries are taken.
 """
+
 import json
 import math
 import os
@@ -15,6 +16,7 @@ from runner.ledger import drawdown_breaker as db
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
+
 
 def _row(symbol, pl, date="2026-06-06", reason="stop", exit_order_id=None):
     return {
@@ -42,6 +44,7 @@ FRIDAY_ROWS = [
 # consecutive_losses
 # ---------------------------------------------------------------------------
 
+
 class TestConsecutiveLosses:
     def test_friday_four_consecutive_stop_outs(self):
         assert db.consecutive_losses(FRIDAY_ROWS) == 4
@@ -49,7 +52,7 @@ class TestConsecutiveLosses:
     def test_win_in_middle_resets(self):
         rows = [
             _row("A", -100.0, date="2026-06-01"),
-            _row("B", +50.0, date="2026-06-02"),   # win resets the run
+            _row("B", +50.0, date="2026-06-02"),  # win resets the run
             _row("C", -80.0, date="2026-06-03"),
             _row("D", -90.0, date="2026-06-04"),
         ]
@@ -59,7 +62,7 @@ class TestConsecutiveLosses:
         rows = [
             _row("A", -100.0, date="2026-06-01"),
             _row("B", -80.0, date="2026-06-02"),
-            _row("C", +40.0, date="2026-06-03"),   # last trade is a win
+            _row("C", +40.0, date="2026-06-03"),  # last trade is a win
         ]
         assert db.consecutive_losses(rows) == 0
 
@@ -75,7 +78,7 @@ class TestConsecutiveLosses:
     def test_breakeven_resets(self):
         rows = [
             _row("A", -100.0, date="2026-06-01"),
-            _row("B", 0.0, date="2026-06-02"),     # break-even resets (realized_pl >= 0)
+            _row("B", 0.0, date="2026-06-02"),  # break-even resets (realized_pl >= 0)
             _row("C", -60.0, date="2026-06-03"),
         ]
         assert db.consecutive_losses(rows) == 1
@@ -85,24 +88,29 @@ class TestConsecutiveLosses:
         # Verify sort happens inside the function (not pre-sorted by caller).
         rows = [
             _row("Z", -10.0, date="2026-06-06"),
-            _row("A", +100.0, date="2026-06-05"),   # earlier date, win
+            _row("A", +100.0, date="2026-06-05"),  # earlier date, win
             _row("M", -10.0, date="2026-06-06"),
         ]
         # After sort: A(win, 06-05), M(loss, 06-06), Z(loss, 06-06) -> 2 trailing losses
         assert db.consecutive_losses(rows) == 2
 
     def test_all_losses(self):
-        rows = [_row(s, -50.0, date="2026-06-0" + str(i + 1)) for i, s in enumerate("ABCDE")]
+        rows = [
+            _row(s, -50.0, date="2026-06-0" + str(i + 1)) for i, s in enumerate("ABCDE")
+        ]
         assert db.consecutive_losses(rows) == 5
 
     def test_all_wins(self):
-        rows = [_row(s, +50.0, date="2026-06-0" + str(i + 1)) for i, s in enumerate("ABCDE")]
+        rows = [
+            _row(s, +50.0, date="2026-06-0" + str(i + 1)) for i, s in enumerate("ABCDE")
+        ]
         assert db.consecutive_losses(rows) == 0
 
 
 # ---------------------------------------------------------------------------
 # max_drawdown_pct
 # ---------------------------------------------------------------------------
+
 
 class TestMaxDrawdownPct:
     def test_standard_series(self):
@@ -144,6 +152,7 @@ class TestMaxDrawdownPct:
 # ---------------------------------------------------------------------------
 # breaker_state
 # ---------------------------------------------------------------------------
+
 
 class TestBreakerState:
     def test_four_consecutive_losses_halts(self, monkeypatch):
@@ -251,7 +260,13 @@ class TestBreakerState:
         monkeypatch.delenv("TONY_BREAKER_MAX_DRAWDOWN_PCT", raising=False)
         monkeypatch.delenv("TONY_BREAKER_THROTTLE_MULT", raising=False)
         state = db.breaker_state([])
-        for key in ("halted", "throttle_mult", "consecutive_losses", "drawdown_pct", "reasons"):
+        for key in (
+            "halted",
+            "throttle_mult",
+            "consecutive_losses",
+            "drawdown_pct",
+            "reasons",
+        ):
             assert key in state
 
     def test_none_equity_series_ignored(self, monkeypatch):
@@ -266,10 +281,18 @@ class TestBreakerState:
 # load_realized_rows
 # ---------------------------------------------------------------------------
 
+
 class TestLoadRealizedRows:
     def test_reads_valid_file(self, tmp_path, monkeypatch):
         f = tmp_path / "realized.json"
-        rows = [{"symbol": "X", "realized_pl": -50.0, "date": "2026-06-06", "reason": "stop"}]
+        rows = [
+            {
+                "symbol": "X",
+                "realized_pl": -50.0,
+                "date": "2026-06-06",
+                "reason": "stop",
+            }
+        ]
         f.write_text(json.dumps(rows), encoding="utf-8")
         monkeypatch.setenv("TONY_REALIZED_FILE", str(f))
         result = db.load_realized_rows()
@@ -296,10 +319,13 @@ class TestLoadRealizedRows:
 # _load_equity_series (internal, tested via current_breaker or directly)
 # ---------------------------------------------------------------------------
 
+
 class TestLoadEquitySeries:
     def test_reads_tony_field(self, tmp_path, monkeypatch):
-        pts = [{"ts": "t1", "tony": 1_000_000.0, "bot": 100_000.0},
-               {"ts": "t2", "tony": 990_000.0, "bot": 101_000.0}]
+        pts = [
+            {"ts": "t1", "tony": 1_000_000.0, "bot": 100_000.0},
+            {"ts": "t2", "tony": 990_000.0, "bot": 101_000.0},
+        ]
         f = tmp_path / "equity.json"
         f.write_text(json.dumps(pts), encoding="utf-8")
         monkeypatch.setenv("TONY_EQUITY_HISTORY_FILE", str(f))
@@ -323,9 +349,11 @@ class TestLoadEquitySeries:
         assert db._load_equity_series() == []
 
     def test_skips_none_tony_values(self, tmp_path, monkeypatch):
-        pts = [{"ts": "t1", "tony": 100.0, "bot": 50.0},
-               {"ts": "t2", "tony": None, "bot": 50.0},
-               {"ts": "t3", "tony": 95.0, "bot": 50.0}]
+        pts = [
+            {"ts": "t1", "tony": 100.0, "bot": 50.0},
+            {"ts": "t2", "tony": None, "bot": 50.0},
+            {"ts": "t3", "tony": 95.0, "bot": 50.0},
+        ]
         f = tmp_path / "equity.json"
         f.write_text(json.dumps(pts), encoding="utf-8")
         monkeypatch.setenv("TONY_EQUITY_HISTORY_FILE", str(f))
@@ -343,6 +371,7 @@ class TestLoadEquitySeries:
 # ---------------------------------------------------------------------------
 # current_breaker (smoke test — just verify it doesn't raise)
 # ---------------------------------------------------------------------------
+
 
 class TestCurrentBreaker:
     def test_does_not_raise_with_empty_files(self, tmp_path, monkeypatch):
@@ -383,16 +412,21 @@ class TestFailClosedOnUnknownState:
         # A *missing* ledger/equity file = no trades yet => must NOT halt.
         self._clear_thresholds(monkeypatch)
         monkeypatch.setenv("TONY_REALIZED_FILE", str(tmp_path / "nope-realized.json"))
-        monkeypatch.setenv("TONY_EQUITY_HISTORY_FILE", str(tmp_path / "nope-equity.json"))
+        monkeypatch.setenv(
+            "TONY_EQUITY_HISTORY_FILE", str(tmp_path / "nope-equity.json")
+        )
         state = db.current_breaker()
         assert state["halted"] is False
 
     def test_corrupt_realized_ledger_fails_closed(self, tmp_path, monkeypatch):
         # Regression: an existing-but-corrupt ledger previously read as [] (=> all clear).
         self._clear_thresholds(monkeypatch)
-        rf = tmp_path / "realized.json"; rf.write_text("{ not json", encoding="utf-8")
+        rf = tmp_path / "realized.json"
+        rf.write_text("{ not json", encoding="utf-8")
         monkeypatch.setenv("TONY_REALIZED_FILE", str(rf))
-        monkeypatch.setenv("TONY_EQUITY_HISTORY_FILE", str(tmp_path / "missing-eq.json"))
+        monkeypatch.setenv(
+            "TONY_EQUITY_HISTORY_FILE", str(tmp_path / "missing-eq.json")
+        )
         state = db.current_breaker()
         assert state["halted"] is True
         assert state["throttle_mult"] == 0.0
@@ -400,14 +434,16 @@ class TestFailClosedOnUnknownState:
 
     def test_corrupt_equity_history_fails_closed(self, tmp_path, monkeypatch):
         self._clear_thresholds(monkeypatch)
-        ef = tmp_path / "equity.json"; ef.write_text("totally not json", encoding="utf-8")
+        ef = tmp_path / "equity.json"
+        ef.write_text("totally not json", encoding="utf-8")
         monkeypatch.setenv("TONY_REALIZED_FILE", str(tmp_path / "missing-r.json"))
         monkeypatch.setenv("TONY_EQUITY_HISTORY_FILE", str(ef))
         assert db.current_breaker()["halted"] is True
 
     def test_malformed_equity_shape_fails_closed(self, tmp_path, monkeypatch):
         self._clear_thresholds(monkeypatch)
-        ef = tmp_path / "equity.json"; ef.write_text(json.dumps({"unexpected": "obj"}), encoding="utf-8")
+        ef = tmp_path / "equity.json"
+        ef.write_text(json.dumps({"unexpected": "obj"}), encoding="utf-8")
         monkeypatch.setenv("TONY_REALIZED_FILE", str(tmp_path / "missing-r.json"))
         monkeypatch.setenv("TONY_EQUITY_HISTORY_FILE", str(ef))
         assert db.current_breaker()["halted"] is True
@@ -415,3 +451,12 @@ class TestFailClosedOnUnknownState:
     def test_breaker_state_default_state_known_unchanged(self):
         # Direct breaker_state callers (e.g. eval harness) keep prior behavior.
         assert db.breaker_state([], []) == db.breaker_state([], [], state_known=True)
+
+
+def test_equity_path_honors_writer_env_name(monkeypatch, tmp_path):
+    # M13: the breaker must resolve the SAME equity file the writer uses. Setting only
+    # the writer's var (TONY_EQUITY_HISTORY) must be honored by this reader too.
+    monkeypatch.delenv("TONY_EQUITY_HISTORY_FILE", raising=False)
+    p = tmp_path / "eq.json"
+    monkeypatch.setenv("TONY_EQUITY_HISTORY", str(p))
+    assert db._equity_path() == p

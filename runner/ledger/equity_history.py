@@ -6,6 +6,7 @@ comes straight from his Alpaca account; the bot doesn't expose equity, so we mar
 positions to market ($100k start + realized + unrealized). Both degrade to None on any error so
 a missing side never breaks the snapshot. See docs/CONTRACTS/execution-parity.md.
 """
+
 import json
 import logging
 import os
@@ -15,9 +16,14 @@ from pathlib import Path
 
 _log = logging.getLogger(__name__)
 
-HISTORY_FILE = Path(os.environ.get(
-    "TONY_EQUITY_HISTORY",
-    str(Path(__file__).parent.parent.parent / "workspace" / "equity-history.json")))
+# Honor both env names with one precedence (this writer historically used
+# TONY_EQUITY_HISTORY, the drawdown breaker reader used TONY_EQUITY_HISTORY_FILE) so
+# setting either var can never split writer and reader onto different files.
+HISTORY_FILE = Path(
+    os.environ.get("TONY_EQUITY_HISTORY")
+    or os.environ.get("TONY_EQUITY_HISTORY_FILE")
+    or str(Path(__file__).parent.parent.parent / "workspace" / "equity-history.json")
+)
 BOT_API = os.environ.get("BOT_API_BASE", "http://127.0.0.1:8001")
 BOT_START_CAPITAL = float(os.environ.get("BOT_START_CAPITAL", "100000"))
 TONY_START_CAPITAL = float(os.environ.get("TONY_START_CAPITAL", "1000000"))
@@ -32,31 +38,46 @@ def _load() -> list:
         return []
 
 
-def append_point(points: list, ts: str, tony, bot, *, max_points: int = MAX_POINTS) -> list:
+def append_point(
+    points: list, ts: str, tony, bot, *, max_points: int = MAX_POINTS
+) -> list:
     """Pure: append a snapshot (skipping a fully-empty one), capped to the most recent max_points."""
     if tony is None and bot is None:
         return points
     return (points + [{"ts": ts, "tony": tony, "bot": bot}])[-max_points:]
 
 
-def indexed_curve(points: list, tony_base: float = TONY_START_CAPITAL,
-                  bot_base: float = BOT_START_CAPITAL) -> dict:
+def indexed_curve(
+    points: list,
+    tony_base: float = TONY_START_CAPITAL,
+    bot_base: float = BOT_START_CAPITAL,
+) -> dict:
     """Pure: index each series to 100 at its STARTING CAPITAL (Tony $1M, bot $100k) so the curve
     shows total %-return since inception. Indexing to start capital (not the first snapshot) means
     the real head-to-head difference is visible immediately and stays put through the close —
     equity only moves when the market is open, so the lines hold their gap overnight."""
     out = []
     for p in points:
-        out.append({
-            "ts": p.get("ts"),
-            "tony": round(p["tony"] / tony_base * 100, 3) if (tony_base and p.get("tony") is not None) else None,
-            "bot": round(p["bot"] / bot_base * 100, 3) if (bot_base and p.get("bot") is not None) else None,
-        })
+        out.append(
+            {
+                "ts": p.get("ts"),
+                "tony": round(p["tony"] / tony_base * 100, 3)
+                if (tony_base and p.get("tony") is not None)
+                else None,
+                "bot": round(p["bot"] / bot_base * 100, 3)
+                if (bot_base and p.get("bot") is not None)
+                else None,
+            }
+        )
     last = points[-1] if points else {}
     return {
         "points": out,
-        "tony_return_pct": round((last["tony"] / tony_base - 1) * 100, 2) if (tony_base and last.get("tony") is not None) else None,
-        "bot_return_pct": round((last["bot"] / bot_base - 1) * 100, 2) if (bot_base and last.get("bot") is not None) else None,
+        "tony_return_pct": round((last["tony"] / tony_base - 1) * 100, 2)
+        if (tony_base and last.get("tony") is not None)
+        else None,
+        "bot_return_pct": round((last["bot"] / bot_base - 1) * 100, 2)
+        if (bot_base and last.get("bot") is not None)
+        else None,
     }
 
 
@@ -66,11 +87,17 @@ def _latest_prices(symbols: list) -> dict:
     try:
         from alpaca.data.historical import StockHistoricalDataClient
         from alpaca.data.requests import StockLatestTradeRequest
-        key, secret = os.environ.get("ALPACA_API_KEY"), os.environ.get("ALPACA_SECRET_KEY")
+
+        key, secret = (
+            os.environ.get("ALPACA_API_KEY"),
+            os.environ.get("ALPACA_SECRET_KEY"),
+        )
         if not (key and secret):
             return {}
         client = StockHistoricalDataClient(key, secret)
-        res = client.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=symbols))
+        res = client.get_stock_latest_trade(
+            StockLatestTradeRequest(symbol_or_symbols=symbols)
+        )
         return {s: float(res[s].price) for s in res}
     except Exception as exc:
         _log.info("equity_history latest_prices: %s", exc)
@@ -112,6 +139,7 @@ def mark_live(acct: dict) -> dict:
 def tony_equity():
     try:
         from runner.ledger.alpaca_paper import account_record
+
         rec = account_record()
         if rec.get("status") != "ok":
             return None
@@ -124,7 +152,9 @@ def tony_equity():
 def bot_equity():
     """Mark-to-market the bot's book: start capital + realized + unrealized (live prices)."""
     try:
-        with urllib.request.urlopen(f"{BOT_API}/api/paper/positions", timeout=8) as resp:
+        with urllib.request.urlopen(
+            f"{BOT_API}/api/paper/positions", timeout=8
+        ) as resp:
             data = json.loads(resp.read())
     except Exception as exc:
         _log.info("bot_equity fetch: %s", exc)
@@ -142,7 +172,9 @@ def bot_equity():
 
 def snapshot() -> dict:
     """Capture one {tony, bot} equity point. Degrades to None sides on error, never raises."""
-    points = append_point(_load(), datetime.now(timezone.utc).isoformat(), tony_equity(), bot_equity())
+    points = append_point(
+        _load(), datetime.now(timezone.utc).isoformat(), tony_equity(), bot_equity()
+    )
     try:
         HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
         HISTORY_FILE.write_text(json.dumps(points), encoding="utf-8")
@@ -179,12 +211,19 @@ def _tony_portfolio_history(days: int):
     try:
         from alpaca.trading.client import TradingClient
         from alpaca.trading.requests import GetPortfolioHistoryRequest
-        key, secret = os.environ.get("ALPACA_API_KEY"), os.environ.get("ALPACA_SECRET_KEY")
+
+        key, secret = (
+            os.environ.get("ALPACA_API_KEY"),
+            os.environ.get("ALPACA_SECRET_KEY"),
+        )
         if not (key and secret):
             return []
         c = TradingClient(key, secret, paper=True)
-        ph = c.get_portfolio_history(GetPortfolioHistoryRequest(
-            period=f"{days}D", timeframe="1H", intraday_reporting="market_hours"))
+        ph = c.get_portfolio_history(
+            GetPortfolioHistoryRequest(
+                period=f"{days}D", timeframe="1H", intraday_reporting="market_hours"
+            )
+        )
         # Drop pre-funding / no-data samples (equity 0 or a tiny placeholder) — a real $1M paper
         # account never sits below half its base, so this cleanly removes the leading garbage.
         floor = TONY_START_CAPITAL * 0.5
@@ -200,20 +239,32 @@ def _tony_portfolio_history(days: int):
 
 def _bot_open_positions() -> list:
     try:
-        with urllib.request.urlopen(f"{BOT_API}/api/paper/positions", timeout=8) as resp:
+        with urllib.request.urlopen(
+            f"{BOT_API}/api/paper/positions", timeout=8
+        ) as resp:
             data = json.loads(resp.read())
     except Exception as exc:
         _log.info("bot positions fetch: %s", exc)
         return []
     out = []
-    for o in (data.get("open") or []):
+    for o in data.get("open") or []:
         try:
             oa = o.get("opened_at")
-            opened = datetime.fromisoformat(oa.replace("Z", "+00:00")) if oa else datetime(1970, 1, 1, tzinfo=timezone.utc)
+            opened = (
+                datetime.fromisoformat(oa.replace("Z", "+00:00"))
+                if oa
+                else datetime(1970, 1, 1, tzinfo=timezone.utc)
+            )
         except ValueError:
             opened = datetime(1970, 1, 1, tzinfo=timezone.utc)
-        out.append({"symbol": o["symbol"], "qty": float(o["qty"]),
-                    "entry_price": float(o["entry_price"]), "opened_at": opened})
+        out.append(
+            {
+                "symbol": o["symbol"],
+                "qty": float(o["qty"]),
+                "entry_price": float(o["entry_price"]),
+                "opened_at": opened,
+            }
+        )
     return out
 
 
@@ -225,14 +276,24 @@ def _historical_bars(symbols: list, days: int) -> dict:
         from alpaca.data.historical import StockHistoricalDataClient
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame
-        key, secret = os.environ.get("ALPACA_API_KEY"), os.environ.get("ALPACA_SECRET_KEY")
+
+        key, secret = (
+            os.environ.get("ALPACA_API_KEY"),
+            os.environ.get("ALPACA_SECRET_KEY"),
+        )
         if not (key and secret):
             return {}
         client = StockHistoricalDataClient(key, secret)
-        req = StockBarsRequest(symbol_or_symbols=symbols, timeframe=TimeFrame.Hour,
-                               start=datetime.now(timezone.utc) - timedelta(days=days))
+        req = StockBarsRequest(
+            symbol_or_symbols=symbols,
+            timeframe=TimeFrame.Hour,
+            start=datetime.now(timezone.utc) - timedelta(days=days),
+        )
         data = client.get_stock_bars(req).data
-        return {s: sorted((b.timestamp, float(b.close)) for b in data.get(s, [])) for s in symbols}
+        return {
+            s: sorted((b.timestamp, float(b.close)) for b in data.get(s, []))
+            for s in symbols
+        }
     except Exception as exc:
         _log.warning("historical bars: %s", exc)
         return {}
@@ -247,11 +308,20 @@ def backfill(days: int = 7) -> dict:
         return {"status": "no_tony_history", "points": 0}
     opens = _bot_open_positions()
     bars = _historical_bars(sorted({o["symbol"] for o in opens}), days)
-    pts = [{"ts": ts.isoformat(), "tony": eq,
-            "bot": round(_bot_equity_at(ts, opens, bars, BOT_START_CAPITAL), 2) if opens else BOT_START_CAPITAL}
-           for ts, eq in tony]
+    pts = [
+        {
+            "ts": ts.isoformat(),
+            "tony": eq,
+            "bot": round(_bot_equity_at(ts, opens, bars, BOT_START_CAPITAL), 2)
+            if opens
+            else BOT_START_CAPITAL,
+        }
+        for ts, eq in tony
+    ]
     last_ts = pts[-1]["ts"] if pts else ""
-    live_newer = [p for p in _load() if str(p.get("ts", "")) > last_ts]  # don't lose live points
+    live_newer = [
+        p for p in _load() if str(p.get("ts", "")) > last_ts
+    ]  # don't lose live points
     pts = (pts + live_newer)[-MAX_POINTS:]
     try:
         HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)

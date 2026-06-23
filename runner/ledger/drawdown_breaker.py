@@ -7,6 +7,7 @@ It is intentionally LLM-free and IO-free in its core logic — pure functions th
 on the realized ledger rows already recorded by tony_realized.py. Call `current_breaker()`
 for a live reading; embed `breaker_state()` in any entry-gate that already has the data.
 """
+
 import json
 import logging
 import math
@@ -25,6 +26,7 @@ _DEFAULT_THROTTLE_MULT = 0.5
 # Pure logic
 # ---------------------------------------------------------------------------
 
+
 def consecutive_losses(rows: list) -> int:
     """Trailing run of losing trades (realized_pl < 0) from the chronological END of rows.
 
@@ -35,7 +37,10 @@ def consecutive_losses(rows: list) -> int:
         return 0
     sorted_rows = sorted(
         rows,
-        key=lambda r: (str(r.get("date", "")), str(r.get("exit_order_id") or r.get("symbol", ""))),
+        key=lambda r: (
+            str(r.get("date", "")),
+            str(r.get("exit_order_id") or r.get("symbol", "")),
+        ),
     )
     count = 0
     for row in reversed(sorted_rows):
@@ -94,14 +99,26 @@ def breaker_state(
     Env vars: TONY_BREAKER_MAX_CONSEC_LOSSES, TONY_BREAKER_MAX_DRAWDOWN_PCT,
               TONY_BREAKER_THROTTLE_MULT.
     """
-    cfg_max_consec = max_consec if max_consec is not None else int(
-        os.environ.get("TONY_BREAKER_MAX_CONSEC_LOSSES", str(_DEFAULT_MAX_CONSEC))
+    cfg_max_consec = (
+        max_consec
+        if max_consec is not None
+        else int(
+            os.environ.get("TONY_BREAKER_MAX_CONSEC_LOSSES", str(_DEFAULT_MAX_CONSEC))
+        )
     )
-    cfg_max_dd = max_dd_pct if max_dd_pct is not None else float(
-        os.environ.get("TONY_BREAKER_MAX_DRAWDOWN_PCT", str(_DEFAULT_MAX_DD_PCT))
+    cfg_max_dd = (
+        max_dd_pct
+        if max_dd_pct is not None
+        else float(
+            os.environ.get("TONY_BREAKER_MAX_DRAWDOWN_PCT", str(_DEFAULT_MAX_DD_PCT))
+        )
     )
-    cfg_throttle = throttle_mult if throttle_mult is not None else float(
-        os.environ.get("TONY_BREAKER_THROTTLE_MULT", str(_DEFAULT_THROTTLE_MULT))
+    cfg_throttle = (
+        throttle_mult
+        if throttle_mult is not None
+        else float(
+            os.environ.get("TONY_BREAKER_THROTTLE_MULT", str(_DEFAULT_THROTTLE_MULT))
+        )
     )
 
     consec = consecutive_losses(rows)
@@ -117,7 +134,9 @@ def breaker_state(
             "throttle_mult": 0.0,
             "consecutive_losses": consec,
             "drawdown_pct": round(dd, 4),
-            "reasons": ["risk state unknown (corrupt/unreadable ledger or equity file) — failing closed"],
+            "reasons": [
+                "risk state unknown (corrupt/unreadable ledger or equity file) — failing closed"
+            ],
         }
 
     halted = False
@@ -165,6 +184,7 @@ def breaker_state(
 # IO (fail-soft)
 # ---------------------------------------------------------------------------
 
+
 def _read_json(path: Path) -> "tuple[Any, str]":
     """Read a JSON file. Returns (data, status) where status is one of:
     'ok' (parsed), 'missing' (file absent — a clean cold start), or
@@ -184,17 +204,27 @@ def _read_json(path: Path) -> "tuple[Any, str]":
 
 
 def _realized_path() -> Path:
-    return Path(os.environ.get(
-        "TONY_REALIZED_FILE",
-        str(Path(__file__).parent.parent.parent / "workspace" / "tony-realized.json"),
-    ))
+    return Path(
+        os.environ.get(
+            "TONY_REALIZED_FILE",
+            str(
+                Path(__file__).parent.parent.parent / "workspace" / "tony-realized.json"
+            ),
+        )
+    )
 
 
 def _equity_path() -> Path:
-    return Path(os.environ.get(
-        "TONY_EQUITY_HISTORY_FILE",
-        str(Path(__file__).parent.parent.parent / "workspace" / "equity-history.json"),
-    ))
+    # Same precedence as equity_history.HISTORY_FILE: honor TONY_EQUITY_HISTORY (the
+    # writer's name) and TONY_EQUITY_HISTORY_FILE (this reader's historical name) so the
+    # breaker can never read a different file than the writer wrote.
+    return Path(
+        os.environ.get("TONY_EQUITY_HISTORY")
+        or os.environ.get("TONY_EQUITY_HISTORY_FILE")
+        or str(
+            Path(__file__).parent.parent.parent / "workspace" / "equity-history.json"
+        )
+    )
 
 
 def _read_realized() -> "tuple[list, str]":
