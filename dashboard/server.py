@@ -361,6 +361,11 @@ async def update_outreach_status(request: Request):
         # CRM rows are a markdown table; a pipe/newline in free-text notes would break
         # the row structure (or inject extra rows).
         return {"error": "notes may not contain '|' or newlines"}
+    if "<" in new_notes or ">" in new_notes or '"' in new_notes:
+        # Notes are rendered into the dashboard CRM table; reject HTML-significant chars
+        # so stored markup can't execute in the operator's session (defense in depth — the
+        # client also escapes on render).
+        return {"error": "notes may not contain '<', '>', or '\"'"}
     crm_file = VAULT_DIR / "outreach" / "crm.md"
     if not crm_file.exists():
         return {"error": "CRM not found"}
