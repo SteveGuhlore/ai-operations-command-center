@@ -369,7 +369,7 @@ Production runs 24/7 on the VM (`/opt/command-center`, systemd `cc-runner`) off 
 | C8 | run_cycle god-fn + no real timeout | Critical | 🟡 | ☐ |
 | C9 | systemd units wrong layout | Critical | 🔴 | ☐ (needs VM-layout confirm) |
 | M1 | Shared JSON-I/O helper | Medium | 🟢 | ✅ |
-| M2 | Shared markdown-table parser | Medium | 🟢 | ☐ |
+| M2 | Shared markdown-table parser (tools+dashboard; scripts pending) | Medium | 🟢 | ✅ |
 | M3 | Tokens → headers | Medium | 🟢 | ☐ |
 | M4 | Single _fail_task() | Medium | 🟢 | ☐ |
 | M5 | Task dedup via frontmatter | Medium | 🟢 | ☐ |
@@ -397,7 +397,7 @@ Production runs 24/7 on the VM (`/opt/command-center`, systemd `cc-runner`) off 
 | M27 | No-assert tests + locker | Medium | 🟢 | ☐ |
 | M28 | Long-only P&L guard | Medium | 🟢 | ☐ |
 | M29 | runner/paths.py | Medium | 🟢 | ☐ |
-| M30 | Remove etsy.py | Medium | 🟡 | ☐ |
+| M30 | Remove etsy.py | Medium | 🟡 | ✅ |
 | M31 | HTTP skeleton + idempotency util | Medium | 🟢 | ☐ |
 | M32 | Harden server note filter | Medium | 🟢 | ✅ |
 | M33 | Pause flags → config | Medium | 🟡 | ☐ |
