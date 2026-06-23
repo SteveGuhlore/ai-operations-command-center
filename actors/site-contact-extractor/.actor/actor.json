@@ -1,0 +1,10 @@
+{
+  "actorSpecification": 1,
+  "name": "site-contact-extractor",
+  "title": "Site Contact Extractor",
+  "description": "Crawl business websites (home + /contact + /about) and return emails, phones, and social handles.",
+  "version": "0.1",
+  "buildTag": "latest",
+  "dockerfile": "../Dockerfile",
+  "input": "./input_schema.json"
+}

@@ -4,6 +4,8 @@ from datetime import date
 from pathlib import Path
 import httpx
 
+from runner.tools.mdtable import clean_cell
+
 BASE_DIR = Path(__file__).parent.parent.parent
 DM_QUEUE = BASE_DIR / "vault" / "outreach" / "dm-queue.md"
 
@@ -24,10 +26,16 @@ TOOL_SPEC = {
     "input_schema": {
         "type": "object",
         "properties": {
-            "instagram_handle": {"type": "string", "description": "Target Instagram handle, with or without @"},
-            "business_name":    {"type": "string", "description": "Business display name"},
-            "city":             {"type": "string", "description": "Business city"},
-            "message":          {"type": "string", "description": "DM message text (keep under 1000 chars)"},
+            "instagram_handle": {
+                "type": "string",
+                "description": "Target Instagram handle, with or without @",
+            },
+            "business_name": {"type": "string", "description": "Business display name"},
+            "city": {"type": "string", "description": "Business city"},
+            "message": {
+                "type": "string",
+                "description": "DM message text (keep under 1000 chars)",
+            },
         },
         "required": ["instagram_handle", "business_name", "message"],
     },
@@ -44,10 +52,12 @@ def send_instagram_dm(
     handle = (instagram_handle or "").strip().lstrip("@")
     handle = re.sub(r"^(?:https?://)?(?:www\.)?instagram\.com/", "", handle).strip("/")
     if not _HANDLE_RE.match(handle):
-        return {"error": f"invalid Instagram handle: {instagram_handle!r} — not queued. "
-                         "Mark the lead call_queued instead."}
+        return {
+            "error": f"invalid Instagram handle: {instagram_handle!r} — not queued. "
+            "Mark the lead call_queued instead."
+        }
     enabled = os.environ.get("OUTREACH_AUTOMATION", "false").lower() == "true"
-    token   = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
+    token = os.environ.get("INSTAGRAM_ACCESS_TOKEN")
     page_id = os.environ.get("INSTAGRAM_PAGE_ID")
 
     attempted_api = False
@@ -57,12 +67,20 @@ def send_instagram_dm(
             return result
         # A timeout AFTER the API accepted the message must not silently fall through to the
         # manual queue — that's a guaranteed double-DM. Surface the ambiguity to the reviewer.
-        attempted_api = "timed out" in str(result.get("error", "")).lower() or \
-                        "timeout" in str(result.get("error", "")).lower()
+        attempted_api = (
+            "timed out" in str(result.get("error", "")).lower()
+            or "timeout" in str(result.get("error", "")).lower()
+        )
 
-    _queue_dm(business_name, handle, city, message,
-              note="VERIFY FIRST — an API send was attempted and may have gone through"
-              if attempted_api else "")
+    _queue_dm(
+        business_name,
+        handle,
+        city,
+        message,
+        note="VERIFY FIRST — an API send was attempted and may have gone through"
+        if attempted_api
+        else "",
+    )
     return {
         "queued": True,
         "handle": handle,
@@ -93,14 +111,18 @@ def _try_graph_dm(page_id: str, token: str, handle: str, message: str) -> dict:
             f"{GRAPH_API}/{page_id}/messages",
             json={
                 "recipient": {"id": recipient_id},
-                "message":   {"text": message},
+                "message": {"text": message},
             },
             params={"access_token": token},
             timeout=15,
         )
         result = resp.json()
         if resp.status_code == 200 and "message_id" in result:
-            return {"success": True, "handle": handle, "message_id": result["message_id"]}
+            return {
+                "success": True,
+                "handle": handle,
+                "message_id": result["message_id"],
+            }
         return {"error": f"Graph API {resp.status_code}: {str(result)[:200]}"}
     except Exception as exc:
         return {"error": str(exc)}
@@ -108,10 +130,12 @@ def _try_graph_dm(page_id: str, token: str, handle: str, message: str) -> dict:
 
 def _clean_cell(s: str) -> str:
     # pipes/newlines in any cell corrupt the markdown table a human reads to send DMs
-    return (s or "").replace("|", "/").replace("\n", " ").strip()
+    return clean_cell(s)
 
 
-def _queue_dm(business_name: str, handle: str, city: str, message: str, note: str = "") -> None:
+def _queue_dm(
+    business_name: str, handle: str, city: str, message: str, note: str = ""
+) -> None:
     today = date.today().isoformat()
     if not DM_QUEUE.exists():
         DM_QUEUE.parent.mkdir(parents=True, exist_ok=True)

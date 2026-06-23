@@ -3,23 +3,27 @@ import httpx
 import openai
 from pathlib import Path
 
+from runner.llm_switch import llm_disabled
+
 OUTPUT_DIR = Path(__file__).parent.parent.parent / "workspace" / "assets" / "images"
 
 # gpt-image-1 supported sizes
 SIZES = {
-    "square":    "1024x1024",
-    "portrait":  "1024x1536",   # vertical — use for TikTok/Reels backgrounds
+    "square": "1024x1024",
+    "portrait": "1024x1536",  # vertical — use for TikTok/Reels backgrounds
     "landscape": "1536x1024",
     # Legacy aliases mapped to nearest gpt-image-1 equivalent
     "1024x1024": "1024x1024",
-    "1024x1792": "1024x1536",   # remapped
-    "1792x1024": "1536x1024",   # remapped
+    "1024x1792": "1024x1536",  # remapped
+    "1792x1024": "1536x1024",  # remapped
     "1024x1536": "1024x1536",
     "1536x1024": "1536x1024",
 }
 
 
 def generate_image(prompt: str, filename: str, size: str = "1024x1024") -> dict:
+    if llm_disabled():
+        return {"error": "image generation skipped — CC_LLM_DISABLED"}
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     client = openai.OpenAI()
     resolved_size = SIZES.get(size, "1024x1024")
@@ -38,7 +42,12 @@ def generate_image(prompt: str, filename: str, size: str = "1024x1024") -> dict:
 
         out_path = OUTPUT_DIR / filename
         out_path.write_bytes(image_data)
-        return {"success": True, "path": str(out_path), "prompt": prompt, "size": resolved_size}
+        return {
+            "success": True,
+            "path": str(out_path),
+            "prompt": prompt,
+            "size": resolved_size,
+        }
     except Exception as exc:
         return {"error": str(exc), "prompt": prompt}
 
@@ -67,7 +76,14 @@ TOOL_SPEC = {
             },
             "size": {
                 "type": "string",
-                "enum": ["1024x1024", "1024x1536", "1536x1024", "portrait", "landscape", "square"],
+                "enum": [
+                    "1024x1024",
+                    "1024x1536",
+                    "1536x1024",
+                    "portrait",
+                    "landscape",
+                    "square",
+                ],
                 "default": "1024x1024",
                 "description": "Use 'portrait' or '1024x1536' for vertical 9:16 video backgrounds.",
             },

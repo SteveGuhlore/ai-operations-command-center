@@ -1,7 +1,13 @@
+import shutil
+
 import pytest
 from runner.tools.code import run_powershell, TOOL_SPEC
 
 
+@pytest.mark.skipif(
+    shutil.which("powershell") is None,
+    reason="powershell not available on this host",
+)
 def test_run_powershell_returns_stdout():
     result = run_powershell(command='Write-Output "hello"')
     assert result["stdout"].strip() == "hello"
@@ -10,7 +16,11 @@ def test_run_powershell_returns_stdout():
 
 def test_run_powershell_captures_stderr():
     result = run_powershell(command="Get-Item C:\\nonexistent_path_xyz_abc")
-    assert result["exit_code"] != 0 or "error" in result.get("stderr", "").lower() or result["stdout"] == ""
+    assert (
+        result["exit_code"] != 0
+        or "error" in result.get("stderr", "").lower()
+        or result["stdout"] == ""
+    )
 
 
 def test_run_powershell_times_out():

@@ -10,6 +10,7 @@ gated by `daily_learning_due(hour_after=2)`) invokes this once per day after 2 A
 Rewrites are guarded by `_is_safe_rewrite` so an automated Flash rewrite can't strip a
 load-bearing guardrail (it auto-commits, so unsafe rewrites would otherwise ship unsupervised).
 """
+
 import logging
 import os
 import subprocess
@@ -58,6 +59,7 @@ def _is_safe_rewrite(agent_name: str, old: str, new: str) -> tuple[bool, str]:
             return False, f"dropped protected phrase '{phrase}'"
     return True, ""
 
+
 _IMPROVEMENT_SYSTEM = """\
 You are the improvement engine for the AI Operations Command Center.
 Your job: analyze today's agent session data and improve agent prompt files that underperformed.
@@ -95,7 +97,9 @@ def _read_recent_sessions() -> str:
     base = VAULT_DIR / "sessions"
     if not base.exists():
         return ""
-    days = sorted((p for p in base.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)
+    days = sorted(
+        (p for p in base.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True
+    )
     for d in days[:7]:
         parts = [f.read_text(encoding="utf-8") for f in sorted(d.glob("*.md"))]
         if parts:
@@ -139,7 +143,7 @@ def _parse_updates(response_text: str) -> tuple[dict[str, str], str]:
     # Everything after the last END_AGENT is the summary
     last_end = response_text.rfind("END_AGENT")
     if last_end != -1:
-        summary = response_text[last_end + len("END_AGENT"):].strip()
+        summary = response_text[last_end + len("END_AGENT") :].strip()
 
     return updates, summary
 
@@ -147,8 +151,16 @@ def _parse_updates(response_text: str) -> tuple[dict[str, str], str]:
 def _commit_improvements(agents_updated: list[str]) -> None:
     today = datetime.now().strftime("%Y-%m-%d")
     msg = f"improvement-loop: {today} — {len(agents_updated)} agent(s) updated: {', '.join(agents_updated)}"
-    subprocess.run(["git", "add", "agents/"], cwd=ROOT, check=False, capture_output=True)
-    result = subprocess.run(["git", "commit", "-m", msg], cwd=ROOT, check=False, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "add", "agents/"], cwd=ROOT, check=False, capture_output=True
+    )
+    result = subprocess.run(
+        ["git", "commit", "-m", msg],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
     if result.returncode == 0:
         log.info("Committed: %s", msg)
     else:
@@ -193,6 +205,14 @@ def run() -> None:
         + "\n".join(f"### {n}\n{c}" for n, c in agent_contents.items())
     )
 
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from runner.llm_switch import llm_disabled
+
+    if llm_disabled():
+        log.info("CC_LLM_DISABLED set — skipping improvement loop (no LLM call)")
+        return
+
     client = OpenAI(
         api_key=os.environ.get("GOOGLE_AI_API_KEY", ""),
         base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
@@ -226,14 +246,22 @@ def run() -> None:
             continue
         ok, why = _is_safe_rewrite(agent_name, agent_contents[agent_name], new_content)
         if not ok:
-            log.warning("REJECTED rewrite of agents/%s.md — %s (keeping existing prompt)", agent_name, why)
+            log.warning(
+                "REJECTED rewrite of agents/%s.md — %s (keeping existing prompt)",
+                agent_name,
+                why,
+            )
             rejected.append(f"{agent_name} ({why})")
             continue
         (AGENTS_DIR / f"{agent_name}.md").write_text(new_content, encoding="utf-8")
         log.info("Updated agents/%s.md", agent_name)
         agents_updated.append(agent_name)
     if rejected:
-        summary = (summary + "\n\n" if summary else "") + "REJECTED (unsafe): " + "; ".join(rejected)
+        summary = (
+            (summary + "\n\n" if summary else "")
+            + "REJECTED (unsafe): "
+            + "; ".join(rejected)
+        )
 
     if agents_updated:
         _commit_improvements(agents_updated)

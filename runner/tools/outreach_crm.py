@@ -8,24 +8,36 @@ removes the formatting/persistence burden from the LLM: it takes the lead fields
 and writes one canonical, append-only row (creating the file + header if missing),
 deduped by business name. The agent supplies data, not markdown.
 """
+
 import logging
 import os
 from datetime import date
 from pathlib import Path
 
+from runner.tools.mdtable import clean_cell, table_rows
+
 _log = logging.getLogger(__name__)
 
-CRM_FILE = Path(os.environ.get(
-    "OUTREACH_CRM_FILE",
-    str(Path(__file__).parent.parent.parent / "vault" / "outreach" / "crm.md"),
-))
+CRM_FILE = Path(
+    os.environ.get(
+        "OUTREACH_CRM_FILE",
+        str(Path(__file__).parent.parent.parent / "vault" / "outreach" / "crm.md"),
+    )
+)
 
 HEADER = "| Business | Type | City | Contact | Channel | Status | Date | Notes |"
 DIVIDER = "|----------|------|------|---------|---------|--------|------|-------|"
 
 _VALID_STATUS = {
-    "email_sent", "dm_queued", "call_queued",
-    "replied", "closed", "no_interest", "followed_up",
+    "email_sent",
+    "dm_queued",
+    "call_queued",
+    "replied",
+    "closed",
+    "no_interest",
+    "followed_up",
+    "cold_export",
+    "booked",
 }
 
 
@@ -33,10 +45,12 @@ def _existing_names() -> set[str]:
     if not CRM_FILE.exists():
         return set()
     names: set[str] = set()
-    for line in CRM_FILE.read_text(encoding="utf-8").splitlines():
-        if not line.startswith("|") or line.startswith("|---") or "Business" in line[:30]:
-            continue
-        parts = [p.strip() for p in line.strip("|").split("|")]
+    for parts in table_rows(
+        CRM_FILE.read_text(encoding="utf-8"),
+        strip_line=False,
+        is_divider=lambda line: line.startswith("|---"),
+        is_header=lambda line: "Business" in line[:30],
+    ):
         if parts and parts[0]:
             names.add(parts[0].lower())
     return names
@@ -44,7 +58,7 @@ def _existing_names() -> set[str]:
 
 def _clean(value: str) -> str:
     # Pipes would break the row; collapse them so a stray one can't corrupt the table.
-    return (value or "").replace("|", "/").replace("\n", " ").strip()
+    return clean_cell(value)
 
 
 def log_outreach_lead(
@@ -70,16 +84,22 @@ def log_outreach_lead(
     if business.lower() in _existing_names():
         return {"skipped": "duplicate", "business": business}
 
-    row = "| " + " | ".join([
-        business,
-        _clean(business_type),
-        _clean(city),
-        _clean(contact) or "—",
-        _clean(channel),
-        status,
-        str(date.today()),
-        _clean(notes),
-    ]) + " |"
+    row = (
+        "| "
+        + " | ".join(
+            [
+                business,
+                _clean(business_type),
+                _clean(city),
+                _clean(contact) or "—",
+                _clean(channel),
+                status,
+                str(date.today()),
+                _clean(notes),
+            ]
+        )
+        + " |"
+    )
 
     try:
         CRM_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -109,17 +129,40 @@ TOOL_SPEC = {
         "type": "object",
         "properties": {
             "business": {"type": "string", "description": "Business name (required)."},
-            "business_type": {"type": "string", "description": "Category, e.g. 'Hair Salon', 'Plumber', 'Daycare'."},
-            "city": {"type": "string", "description": "City and state, e.g. 'Salem, MA'."},
-            "contact": {"type": "string", "description": "Email, IG handle, or phone if known; leave blank if none."},
-            "channel": {"type": "string", "description": "How you reached out: 'email', 'instagram', or 'phone'."},
+            "business_type": {
+                "type": "string",
+                "description": "Category, e.g. 'Hair Salon', 'Plumber', 'Daycare'.",
+            },
+            "city": {
+                "type": "string",
+                "description": "City and state, e.g. 'Salem, MA'.",
+            },
+            "contact": {
+                "type": "string",
+                "description": "Email, IG handle, or phone if known; leave blank if none.",
+            },
+            "channel": {
+                "type": "string",
+                "description": "How you reached out: 'email', 'instagram', or 'phone'.",
+            },
             "status": {
                 "type": "string",
                 "description": (
                     "email_sent = emailed. dm_queued = IG DM sent/queued. call_queued = phone-only, "
-                    "not yet contacted. Only use replied/closed/no_interest after a real human reply."
+                    "not yet contacted. cold_export = handed off to the cold-email tool. booked = call "
+                    "scheduled. Only use replied/closed/no_interest after a real human reply."
                 ),
-                "enum": ["email_sent", "dm_queued", "call_queued", "replied", "closed", "no_interest", "followed_up"],
+                "enum": [
+                    "email_sent",
+                    "dm_queued",
+                    "call_queued",
+                    "replied",
+                    "closed",
+                    "no_interest",
+                    "followed_up",
+                    "cold_export",
+                    "booked",
+                ],
             },
             "notes": {"type": "string", "description": "Optional short note."},
         },

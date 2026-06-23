@@ -6,10 +6,11 @@ EXTENDED only by REAL logged revenue (the operator/Stripe revenue ledger, which
 no agent can write). When the runway expires the pipeline auto-pauses; an
 operator revives it. Parallel to budget.py — never merged, never touches it.
 """
-import json
-import os
+
 from datetime import date, datetime, timedelta
 from pathlib import Path
+
+from runner.ledger._jsonio import atomic_write_json, load_dict
 
 LEDGER_DIR = Path(__file__).parent.parent.parent / "workspace" / "ledger"
 RUNWAY_FILE = LEDGER_DIR / "runway.json"
@@ -32,12 +33,9 @@ def _load() -> dict:
     state = dict(_DEFAULTS)
     state["started_at"] = date.today().isoformat()
     if RUNWAY_FILE.exists():
-        try:
-            disk = json.loads(RUNWAY_FILE.read_text(encoding="utf-8"))
-            if isinstance(disk, dict):
-                state.update(disk)
-        except (json.JSONDecodeError, OSError):
-            pass
+        disk = load_dict(RUNWAY_FILE)
+        if disk:
+            state.update(disk)
     return state
 
 
@@ -45,10 +43,7 @@ def _save(state: dict) -> None:
     # Atomic write so a concurrent reader / crash can't observe a torn JSON file.
     # (Prevents corruption; full lost-update protection under concurrent writers
     # still needs a cross-process lock — tracked as a follow-up.)
-    LEDGER_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = RUNWAY_FILE.with_name(RUNWAY_FILE.name + f".{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    os.replace(tmp, RUNWAY_FILE)
+    atomic_write_json(RUNWAY_FILE, state, indent=2)
 
 
 def _real_revenue() -> float:
@@ -56,6 +51,7 @@ def _real_revenue() -> float:
     plus any pod a Prospector idea graduated into (ledger `pod` column)."""
     from runner.ledger.revenue import get_pod_revenue
     from runner.tools.opportunity import read_ledger
+
     pods = {"opportunity_pod"}
     try:
         for row in read_ledger():
@@ -69,6 +65,7 @@ def _real_revenue() -> float:
 
 def _pod_spend() -> float:
     from runner.ledger.budget import get_pod_spend
+
     return get_pod_spend("opportunity_pod")
 
 
@@ -84,7 +81,9 @@ def compute_runway() -> dict:
     days_remaining = (deadline - date.today()).days
     time_expired = date.today() > deadline
 
-    effective_allowance = float(s["spend_allowance_usd"]) + revenue * float(s["usd_per_real_dollar"])
+    effective_allowance = float(s["spend_allowance_usd"]) + revenue * float(
+        s["usd_per_real_dollar"]
+    )
     budget_expired = spend >= effective_allowance
 
     paused = s.get("status") == "paused"

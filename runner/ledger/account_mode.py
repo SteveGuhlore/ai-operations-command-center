@@ -10,9 +10,15 @@ explicitly opted in, the track record passes the guard, AND the live account is 
 bot's account (§5.3 hard rule — never trade real money from the bot's keys). This module holds NO
 keys and enables nothing on its own.
 """
+
+import logging
 import os
 
 from runner.ledger import tony_live_guard
+
+_log = logging.getLogger(__name__)
+
+_account_verified = False
 
 
 def account_mode() -> str:
@@ -38,7 +44,10 @@ def money_label() -> str:
 def live_credentials() -> tuple:
     """The SEPARATE live key pair (distinct env from the bot's ALPACA_*). Empty until the operator
     provides them on cutover day — this module never carries keys."""
-    return (os.environ.get("TONY_LIVE_ALPACA_API_KEY"), os.environ.get("TONY_LIVE_ALPACA_SECRET_KEY"))
+    return (
+        os.environ.get("TONY_LIVE_ALPACA_API_KEY"),
+        os.environ.get("TONY_LIVE_ALPACA_SECRET_KEY"),
+    )
 
 
 def live_preconditions(record: dict) -> dict:
@@ -54,10 +63,44 @@ def live_preconditions(record: dict) -> dict:
 
     live_key, live_secret = live_credentials()
     if not (live_key and live_secret):
-        reasons.append("live Alpaca credentials not provided (TONY_LIVE_ALPACA_API_KEY/SECRET)")
-    elif live_key == os.environ.get("ALPACA_API_KEY") or live_secret == os.environ.get("ALPACA_SECRET_KEY"):
+        reasons.append(
+            "live Alpaca credentials not provided (TONY_LIVE_ALPACA_API_KEY/SECRET)"
+        )
+    elif live_key == os.environ.get("ALPACA_API_KEY") or live_secret == os.environ.get(
+        "ALPACA_SECRET_KEY"
+    ):
         # Both the key AND the secret must differ from the bot account — a reused secret
         # is just as much a cross-account leak as a reused key (§5.3).
-        reasons.append("live account not isolated from the bot account (§5.3) — keys must differ")
+        reasons.append(
+            "live account not isolated from the bot account (§5.3) — keys must differ"
+        )
 
     return {"ready": not reasons, "reasons": reasons}
+
+
+def assert_paper_account_identity(client) -> None:
+    """Fail-closed check that `client` is trading Tony's paper account, not the bot's
+    (§5.3 — never run the Command Center against the bot's keys). The expected account is
+    pinned via TONY_ALPACA_ACCOUNT_ID. Unset -> warn once and allow (a fresh deploy must
+    not be bricked before the operator pins it); set -> raise on mismatch. The account
+    identity can't change mid-process, so this verifies at most once."""
+    global _account_verified
+    if _account_verified:
+        return
+    pinned = os.environ.get("TONY_ALPACA_ACCOUNT_ID", "").strip()
+    if not pinned:
+        _log.warning(
+            "TONY_ALPACA_ACCOUNT_ID not set — cannot verify the Command Center is using "
+            "Tony's paper account and not the bot's (§5.3). Set it to enable the guard."
+        )
+        _account_verified = True
+        return
+    acct = client.get_account()
+    actual = str(getattr(acct, "account_number", "") or getattr(acct, "id", "") or "")
+    if actual != pinned:
+        raise RuntimeError(
+            f"Alpaca account mismatch: TONY_ALPACA_ACCOUNT_ID={pinned!r} but the keys "
+            f"unlock account {actual!r}. Refusing to trade the wrong account (§5.3)."
+        )
+    _account_verified = True
+    _log.info("Alpaca paper account identity verified (%s).", actual)

@@ -15,6 +15,8 @@ import math
 import os
 from pathlib import Path
 
+from runner.ledger._jsonio import atomic_write_json, load_dict, load_list
+
 _log = logging.getLogger(__name__)
 
 _reports = (
@@ -167,11 +169,7 @@ def _all_verdicts() -> list:
 
 
 def _load(p) -> list:
-    try:
-        data = json.loads(Path(p).read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError, FileNotFoundError):
-        return []
+    return load_list(p)
 
 
 def _is_right(verdict: str, ret: float, source: str = "") -> bool:
@@ -352,11 +350,7 @@ def compute_record() -> dict:
 
 
 def _load_graded_archive() -> dict:
-    try:
-        data = json.loads(GRADED_ARCHIVE.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, FileNotFoundError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return load_dict(GRADED_ARCHIVE)
 
 
 def _merge_graded_archive(fresh: list[dict]) -> list[dict]:
@@ -373,8 +367,7 @@ def _merge_graded_archive(fresh: list[dict]) -> list[dict]:
             changed = True
     if changed:
         try:
-            GRADED_ARCHIVE.parent.mkdir(parents=True, exist_ok=True)
-            GRADED_ARCHIVE.write_text(json.dumps(archive, indent=2), encoding="utf-8")
+            atomic_write_json(GRADED_ARCHIVE, archive, indent=2)
         except OSError as exc:
             _log.warning("graded archive write failed: %s", exc)
     return list(archive.values())

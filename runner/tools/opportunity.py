@@ -3,6 +3,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from runner.ledger.revenue import get_pod_revenue
+from runner.tools.mdtable import split_cells, table_rows
 
 BASE_DIR = Path(__file__).parent.parent.parent
 OPP_DIR = BASE_DIR / "vault" / "opportunities"
@@ -29,8 +30,12 @@ _LEDGER_HEADER = (
 
 
 def composite_score(
-    willingness_to_pay: float, revenue_potential: float, problem_severity: float,
-    buildability: float, system_fit: float, novelty: float,
+    willingness_to_pay: float,
+    revenue_potential: float,
+    problem_severity: float,
+    buildability: float,
+    system_fit: float,
+    novelty: float,
 ) -> float:
     dims = {
         "willingness_to_pay": willingness_to_pay,
@@ -60,20 +65,30 @@ def read_ledger() -> list[dict]:
     if not LEDGER_FILE.exists():
         return []
     rows = []
-    for line in LEDGER_FILE.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line.startswith("|") or line.startswith("| slug") or set(line) <= set("|- "):
-            continue
-        c = [x.strip() for x in line.strip("|").split("|")]
+    for c in table_rows(
+        LEDGER_FILE.read_text(encoding="utf-8"),
+        is_header=lambda line: line.startswith("| slug"),
+        is_divider=lambda line: set(line) <= set("|- "),
+    ):
         if len(c) < 9:
             continue
         try:
             comp = float(c[1])
         except ValueError:
             comp = 0.0
-        rows.append({"slug": c[0], "composite": comp, "phase": c[2], "poc": c[3],
-                     "system_fit": c[4], "est_rev_mo": c[5], "status": c[6],
-                     "pod": c[7], "updated": c[8]})
+        rows.append(
+            {
+                "slug": c[0],
+                "composite": comp,
+                "phase": c[2],
+                "poc": c[3],
+                "system_fit": c[4],
+                "est_rev_mo": c[5],
+                "status": c[6],
+                "pod": c[7],
+                "updated": c[8],
+            }
+        )
     return rows
 
 
@@ -92,9 +107,16 @@ def rank_score(row: dict) -> tuple:
 
 
 def log_opportunity(
-    slug: str, one_liner: str, problem: str, who_pays: str,
-    willingness_to_pay: float, revenue_potential: float, problem_severity: float,
-    buildability: float, system_fit: float, novelty: float,
+    slug: str,
+    one_liner: str,
+    problem: str,
+    who_pays: str,
+    willingness_to_pay: float,
+    revenue_potential: float,
+    problem_severity: float,
+    buildability: float,
+    system_fit: float,
+    novelty: float,
     est_rev_mo: float = 0.0,
 ) -> dict:
     try:
@@ -102,11 +124,19 @@ def log_opportunity(
             return {"error": f"invalid slug: {slug!r}"}
         ledger = _ensure_ledger()
         if _slug_in_ledger(ledger, slug):
-            return {"skipped": True, "reason": f"{slug} already in ledger", "slug": slug}
+            return {
+                "skipped": True,
+                "reason": f"{slug} already in ledger",
+                "slug": slug,
+            }
 
         composite = composite_score(
-            willingness_to_pay, revenue_potential, problem_severity,
-            buildability, system_fit, novelty,
+            willingness_to_pay,
+            revenue_potential,
+            problem_severity,
+            buildability,
+            system_fit,
+            novelty,
         )
         today = datetime.now().strftime("%Y-%m-%d")
         row = (
@@ -148,22 +178,50 @@ TOOL_SPEC_LOG = {
     "input_schema": {
         "type": "object",
         "properties": {
-            "slug": {"type": "string", "description": "kebab-case unique id, e.g. ai-review-reply-agent"},
+            "slug": {
+                "type": "string",
+                "description": "kebab-case unique id, e.g. ai-review-reply-agent",
+            },
             "one_liner": {"type": "string", "description": "One-sentence description"},
             "problem": {"type": "string", "description": "The pain this solves"},
             "who_pays": {"type": "string", "description": "Who the paying customer is"},
-            "willingness_to_pay": {"type": "number", "description": "0-10: who pays & how much"},
-            "revenue_potential": {"type": "number", "description": "0-10: ceiling if it works"},
-            "problem_severity": {"type": "number", "description": "0-10: how real/painful"},
-            "buildability": {"type": "number", "description": "0-10: inverse of build effort"},
-            "system_fit": {"type": "number", "description": "0-10: can THIS system's agents/tools run it"},
+            "willingness_to_pay": {
+                "type": "number",
+                "description": "0-10: who pays & how much",
+            },
+            "revenue_potential": {
+                "type": "number",
+                "description": "0-10: ceiling if it works",
+            },
+            "problem_severity": {
+                "type": "number",
+                "description": "0-10: how real/painful",
+            },
+            "buildability": {
+                "type": "number",
+                "description": "0-10: inverse of build effort",
+            },
+            "system_fit": {
+                "type": "number",
+                "description": "0-10: can THIS system's agents/tools run it",
+            },
             "novelty": {"type": "number", "description": "0-10: non-slop, defensible"},
-            "est_rev_mo": {"type": "number", "description": "Estimated monthly revenue in USD (a hypothesis)"},
+            "est_rev_mo": {
+                "type": "number",
+                "description": "Estimated monthly revenue in USD (a hypothesis)",
+            },
         },
         "required": [
-            "slug", "one_liner", "problem", "who_pays",
-            "willingness_to_pay", "revenue_potential", "problem_severity",
-            "buildability", "system_fit", "novelty",
+            "slug",
+            "one_liner",
+            "problem",
+            "who_pays",
+            "willingness_to_pay",
+            "revenue_potential",
+            "problem_severity",
+            "buildability",
+            "system_fit",
+            "novelty",
         ],
     },
 }
@@ -187,18 +245,20 @@ def grade_poc(slug: str, verdict: str, reason: str) -> dict:
                 f"## PoC Grade\n**{verdict}** ({today}) — {reason}",
             )
             if graded == text:  # already graded before; append
-                graded = text + f"\n\n## PoC Grade ({today})\n**{verdict}** — {reason}\n"
+                graded = (
+                    text + f"\n\n## PoC Grade ({today})\n**{verdict}** — {reason}\n"
+                )
             page.write_text(graded, encoding="utf-8")
         ledger_matched = False
         if LEDGER_FILE.exists():
             lines = LEDGER_FILE.read_text(encoding="utf-8").splitlines()
             for i, line in enumerate(lines):
                 if line.startswith(f"| {slug} |"):
-                    cells = [c.strip() for c in line.strip("|").split("|")]
+                    cells = split_cells(line)
                     if len(cells) >= 9:
-                        cells[2] = "graded"   # phase
-                        cells[3] = verdict     # poc
-                        cells[6] = "graded"    # status
+                        cells[2] = "graded"  # phase
+                        cells[3] = verdict  # poc
+                        cells[6] = "graded"  # status
                         cells[8] = datetime.now().strftime("%Y-%m-%d")
                         lines[i] = "| " + " | ".join(cells) + " |"
                         ledger_matched = True
@@ -208,7 +268,9 @@ def grade_poc(slug: str, verdict: str, reason: str) -> dict:
             # Silent no-op on a slug typo/mismatch is the exact failure that left
             # graded PoCs stuck at poc="—": fail loudly so the caller (or the
             # operator's grade button) knows the verdict did not land.
-            return {"error": f"{slug} not found in opportunity ledger — verdict not recorded"}
+            return {
+                "error": f"{slug} not found in opportunity ledger — verdict not recorded"
+            }
         return {"success": True, "slug": slug, "verdict": verdict}
     except OSError as exc:
         return {"error": str(exc)}
@@ -229,7 +291,7 @@ def update_opportunity(
         lines = LEDGER_FILE.read_text(encoding="utf-8").splitlines()
         for i, line in enumerate(lines):
             if line.startswith(f"| {slug} |"):
-                cells = [c.strip() for c in line.strip("|").split("|")]
+                cells = split_cells(line)
                 if len(cells) < 9:
                     return {"error": f"malformed ledger row for {slug}"}
                 if composite is not None:
@@ -243,7 +305,12 @@ def update_opportunity(
                 cells[8] = datetime.now().strftime("%Y-%m-%d")
                 lines[i] = "| " + " | ".join(cells) + " |"
                 LEDGER_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
-                return {"success": True, "slug": slug, "composite": cells[1], "phase": cells[2]}
+                return {
+                    "success": True,
+                    "slug": slug,
+                    "composite": cells[1],
+                    "phase": cells[2],
+                }
         return {"error": f"{slug} not found in ledger"}
     except OSError as exc:
         return {"error": str(exc)}
@@ -260,11 +327,26 @@ TOOL_SPEC_UPDATE = {
     "input_schema": {
         "type": "object",
         "properties": {
-            "slug": {"type": "string", "description": "The opportunity slug exactly as in the ledger."},
-            "composite": {"type": "number", "description": "Revised composite score 0-100."},
-            "phase": {"type": "string", "description": "e.g. 'deepdived', 'graded', 'building'."},
-            "est_rev_mo": {"type": "string", "description": "Estimated monthly revenue, if newly estimated."},
-            "status": {"type": "string", "description": "e.g. 'deepdived', 'rejected', 'promoted'."},
+            "slug": {
+                "type": "string",
+                "description": "The opportunity slug exactly as in the ledger.",
+            },
+            "composite": {
+                "type": "number",
+                "description": "Revised composite score 0-100.",
+            },
+            "phase": {
+                "type": "string",
+                "description": "e.g. 'deepdived', 'graded', 'building'.",
+            },
+            "est_rev_mo": {
+                "type": "string",
+                "description": "Estimated monthly revenue, if newly estimated.",
+            },
+            "status": {
+                "type": "string",
+                "description": "e.g. 'deepdived', 'rejected', 'promoted'.",
+            },
         },
         "required": ["slug"],
     },
@@ -283,7 +365,10 @@ TOOL_SPEC_GRADE = {
         "properties": {
             "slug": {"type": "string"},
             "verdict": {"type": "string", "enum": ["promising", "weak", "dead"]},
-            "reason": {"type": "string", "description": "One paragraph justifying the verdict, citing the PoC output."},
+            "reason": {
+                "type": "string",
+                "description": "One paragraph justifying the verdict, citing the PoC output.",
+            },
         },
         "required": ["slug", "verdict", "reason"],
     },

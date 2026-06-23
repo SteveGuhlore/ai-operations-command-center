@@ -1,5 +1,6 @@
 """account_mode tests (Phase 2): paper is the default; going live is fail-closed and requires an
 ISOLATED live account. No test enables real trading — these assert the guard REFUSES."""
+
 import pytest
 
 from runner.ledger import account_mode as am
@@ -57,7 +58,9 @@ def test_live_preconditions_blocks_when_credentials_missing(monkeypatch):
     monkeypatch.delenv("TONY_LIVE_ALPACA_API_KEY", raising=False)
     monkeypatch.delenv("TONY_LIVE_ALPACA_SECRET_KEY", raising=False)
     g = am.live_preconditions(_passing_record())
-    assert g["ready"] is False and any("credentials not provided" in r for r in g["reasons"])
+    assert g["ready"] is False and any(
+        "credentials not provided" in r for r in g["reasons"]
+    )
 
 
 def test_live_preconditions_propagates_track_record_guard(monkeypatch):
@@ -70,3 +73,39 @@ def test_live_preconditions_propagates_track_record_guard(monkeypatch):
     g = am.live_preconditions({"graded": 2, "tony_win_rate": 10.0})
     assert g["ready"] is False
     assert any("track record" in r or "win rate" in r for r in g["reasons"])
+
+
+# --- DESLOPPIFY C7: paper account-identity guard ----------------------------
+
+
+class _FakeAcct:
+    def __init__(self, num):
+        self.account_number = num
+
+
+class _FakeClient:
+    def __init__(self, num):
+        self._num = num
+
+    def get_account(self):
+        return _FakeAcct(self._num)
+
+
+def test_account_identity_unset_warns_and_allows(monkeypatch):
+    monkeypatch.delenv("TONY_ALPACA_ACCOUNT_ID", raising=False)
+    monkeypatch.setattr(am, "_account_verified", False)
+    # Unset -> no raise even with a mismatching client (the guard is not pinned yet).
+    am.assert_paper_account_identity(_FakeClient("anything"))
+
+
+def test_account_identity_match_allows(monkeypatch):
+    monkeypatch.setenv("TONY_ALPACA_ACCOUNT_ID", "PA-TONY")
+    monkeypatch.setattr(am, "_account_verified", False)
+    am.assert_paper_account_identity(_FakeClient("PA-TONY"))  # no raise
+
+
+def test_account_identity_mismatch_fails_closed(monkeypatch):
+    monkeypatch.setenv("TONY_ALPACA_ACCOUNT_ID", "PA-TONY")
+    monkeypatch.setattr(am, "_account_verified", False)
+    with pytest.raises(RuntimeError):
+        am.assert_paper_account_identity(_FakeClient("PA-BOT"))

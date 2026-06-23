@@ -48,8 +48,10 @@ def test_offhours_lane_runs_past_daytime_cap(tmp_path, monkeypatch):
     _patch_budget(monkeypatch, tmp_path, cap=5.00)
     monkeypatch.delenv("TONY_OFFHOURS_BUDGET_USD", raising=False)
     budget_module.record_spend("market_research_worker", 50.00)
-    assert budget_module.is_budget_exceeded() is True              # daytime cap enforced
-    assert budget_module.is_budget_exceeded(off_hours=True) is False  # off-hours lane uncapped
+    assert budget_module.is_budget_exceeded() is True  # daytime cap enforced
+    assert (
+        budget_module.is_budget_exceeded(off_hours=True) is False
+    )  # off-hours lane uncapped
 
 
 def test_offhours_lane_can_be_bounded(tmp_path, monkeypatch):
@@ -88,9 +90,21 @@ def test_spend_resets_on_new_day(tmp_path, monkeypatch):
     _patch_budget(monkeypatch, tmp_path)
     spend_file = tmp_path / "daily-spend.json"
     # Write yesterday's data
-    spend_file.write_text(json.dumps({
-        "date": "2000-01-01",
-        "total_usd": 999.0,
-        "by_role": {}
-    }))
+    spend_file.write_text(
+        json.dumps({"date": "2000-01-01", "total_usd": 999.0, "by_role": {}})
+    )
+    assert budget_module.get_daily_spend() == pytest.approx(0.0)
+
+
+def test_spend_day_keyed_on_et_trading_day_not_utc(tmp_path, monkeypatch):
+    # Regression (DESLOPPIFY C1): the ledger must roll over on the ET trading day,
+    # not str(date.today()) (the UTC server date). On a UTC VM the naive date flips
+    # at ~8 PM ET, which used to reset the cap to $0 mid-evening and re-open spend.
+    _patch_budget(monkeypatch, tmp_path)
+    monkeypatch.setattr(budget_module, "trading_day", lambda: "2026-06-23")
+    budget_module.record_spend("manager", 7.0)
+    # Same ET trading day -> spend persists (even though wall-clock UTC may have rolled).
+    assert budget_module.get_daily_spend() == pytest.approx(7.0)
+    # New ET trading day -> meter resets.
+    monkeypatch.setattr(budget_module, "trading_day", lambda: "2026-06-24")
     assert budget_module.get_daily_spend() == pytest.approx(0.0)

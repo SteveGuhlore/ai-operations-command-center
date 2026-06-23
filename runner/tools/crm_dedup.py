@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from runner.tools.mdtable import split_cells
+
 CRM_FILE = Path(__file__).parent.parent.parent / "vault" / "outreach" / "crm.md"
 
 
@@ -15,10 +17,14 @@ def dedup_crm() -> int:
     removed = 0
 
     for line in lines:
-        if not line.startswith("|") or line.startswith("|---") or "Business" in line[:30]:
+        if (
+            not line.startswith("|")
+            or line.startswith("|---")
+            or "Business" in line[:30]
+        ):
             out.append(line)
             continue
-        parts = [p.strip() for p in line.strip("|").split("|")]
+        parts = split_cells(line)
         name = parts[0].lower().strip() if parts else ""
         if not name:
             out.append(line)

@@ -288,6 +288,7 @@ async def api_analytics_agents():
 
 @app.get("/api/outreach/stats")
 async def api_outreach_stats():
+    from runner.tools.mdtable import split_cells
     crm_file   = VAULT_DIR / "outreach" / "crm.md"
     queue_file = VAULT_DIR / "outreach" / "dm-queue.md"
     stats = {
@@ -308,7 +309,7 @@ async def api_outreach_stats():
         for line in crm_lines:
             if not line.startswith("|"):
                 continue
-            parts = [p.strip() for p in line.strip("|").split("|")]
+            parts = split_cells(line)
             if len(parts) < 7:
                 continue
             # Skip the header row and the |---| divider only — NOT any data row that merely
@@ -349,6 +350,7 @@ CALL_OUTCOMES = {"answered", "no_answer", "interested", "not_interested", "callb
 
 @app.post("/api/outreach/update-status", dependencies=[Depends(_require_operator)])
 async def update_outreach_status(request: Request):
+    from runner.tools.mdtable import split_cells
     data = await request.json()
     business = (data.get("business") or "").strip()
     new_status = (data.get("status") or "").strip()
@@ -361,6 +363,11 @@ async def update_outreach_status(request: Request):
         # CRM rows are a markdown table; a pipe/newline in free-text notes would break
         # the row structure (or inject extra rows).
         return {"error": "notes may not contain '|' or newlines"}
+    if "<" in new_notes or ">" in new_notes or '"' in new_notes:
+        # Notes are rendered into the dashboard CRM table; reject HTML-significant chars
+        # so stored markup can't execute in the operator's session (defense in depth — the
+        # client also escapes on render).
+        return {"error": "notes may not contain '<', '>', or '\"'"}
     crm_file = VAULT_DIR / "outreach" / "crm.md"
     if not crm_file.exists():
         return {"error": "CRM not found"}
@@ -368,7 +375,7 @@ async def update_outreach_status(request: Request):
     for i, line in enumerate(lines):
         if not line.startswith("|"):
             continue
-        parts = [p.strip() for p in line.strip("|").split("|")]
+        parts = split_cells(line)
         # skip only the header row + the |---| divider — NOT a lead named "...Business..."
         if not parts or parts[0].lower() == "business" or set(parts[0]) <= {"-", ":", " "}:
             continue
@@ -555,15 +562,16 @@ async def api_pnl():
 
 def read_opportunities() -> list[dict]:
     """Parse vault/opportunities/ledger.md into rows for the Opportunity Board."""
+    from runner.tools.mdtable import table_rows
     ledger = VAULT_DIR / "opportunities" / "ledger.md"
     if not ledger.exists():
         return []
     rows = []
-    for line in ledger.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line.startswith("|") or line.startswith("| slug") or set(line) <= set("|- "):
-            continue
-        cells = [c.strip() for c in line.strip("|").split("|")]
+    for cells in table_rows(
+        ledger.read_text(encoding="utf-8"),
+        is_header=lambda line: line.startswith("| slug"),
+        is_divider=lambda line: set(line) <= set("|- "),
+    ):
         if len(cells) < 9:
             continue
         rows.append({

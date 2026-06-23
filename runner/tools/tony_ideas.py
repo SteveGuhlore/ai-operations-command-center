@@ -5,23 +5,34 @@ or a setup matching a pattern he wins on — he logs it here. Over time these ar
 same way verdicts are, so the second layer stops only reacting to the bot and starts
 originating. Writes tony_stocks_ideas.json beside the verdicts file.
 """
-import json
+
 import logging
 import os
-from datetime import date
 from pathlib import Path
+
+from runner.ledger._jsonio import atomic_write_json, load_list
+from runner.ledger.market_clock import trading_day
 
 _log = logging.getLogger(__name__)
 
-_default = (Path(__file__).parent.parent.parent.parent / "TradingBotAgentProject"
-            / "reports" / "tony_stocks_ideas.json")
+_default = (
+    Path(__file__).parent.parent.parent.parent
+    / "TradingBotAgentProject"
+    / "reports"
+    / "tony_stocks_ideas.json"
+)
 IDEAS_FILE = Path(os.environ.get("TONY_IDEAS_FILE", str(_default)))
 
 _SOURCES = {"sector_theme", "earnings_drift", "own_pattern", "news_catalyst", "other"}
 
 
-def log_tony_idea(symbol: str, thesis: str, source: str = "other",
-                  score: float | None = None, catalysts: str = "") -> dict:
+def log_tony_idea(
+    symbol: str,
+    thesis: str,
+    source: str = "other",
+    score: float | None = None,
+    catalysts: str = "",
+) -> dict:
     sym = (symbol or "").strip().upper()
     if not sym:
         return {"error": "symbol required"}
@@ -29,7 +40,7 @@ def log_tony_idea(symbol: str, thesis: str, source: str = "other",
     if src not in _SOURCES:
         return {"error": f"source must be one of {sorted(_SOURCES)}"}
     entry = {
-        "date": str(date.today()),
+        "date": trading_day(),
         "symbol": sym,
         "thesis": thesis,
         "source": src,
@@ -38,16 +49,14 @@ def log_tony_idea(symbol: str, thesis: str, source: str = "other",
         "status": "new",
     }
     try:
-        entries: list = []
-        if IDEAS_FILE.exists():
-            try:
-                entries = json.loads(IDEAS_FILE.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                entries = []
-        entries = [e for e in entries if not (e.get("date") == entry["date"] and e.get("symbol") == sym)]
+        entries: list = load_list(IDEAS_FILE)
+        entries = [
+            e
+            for e in entries
+            if not (e.get("date") == entry["date"] and e.get("symbol") == sym)
+        ]
         entries.append(entry)
-        IDEAS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        IDEAS_FILE.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+        atomic_write_json(IDEAS_FILE, entries, indent=2)
         return {"success": True, "symbol": sym, "total_ideas": len(entries)}
     except OSError as exc:
         _log.warning("log_tony_idea failed: %s", exc)

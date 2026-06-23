@@ -21,7 +21,6 @@ from runner.tasks.router import route_task
 from runner.tasks.transitions import move_task, write_task_output
 from runner.bridge.tony_bridge import scan_and_process as scan_tony_bridge
 from runner.tools.social import TOOL_SPEC_SAVE
-from runner.tools.etsy import TOOL_SPEC as ETSY_TOOL_SPEC
 from runner.tools.image import TOOL_SPEC as IMAGE_TOOL_SPEC
 from runner.tools.audio import TOOL_SPEC as AUDIO_TOOL_SPEC
 from runner.tools.web import TOOL_SPEC as WEB_TOOL_SPEC
@@ -50,6 +49,9 @@ from runner.tools.vault_memory import (
 )
 from runner.tools.inbox_reader import TOOL_SPEC as INBOX_TOOL_SPEC
 from runner.tools.outreach_crm import TOOL_SPEC as OUTREACH_CRM_TOOL_SPEC
+from runner.tools.lead_score import TOOL_SPEC as LEAD_SCORE_TOOL_SPEC
+from runner.tools.apify import TOOL_SPEC as APIFY_TOOL_SPEC
+from runner.tools.cold_export import TOOL_SPEC as COLD_EXPORT_TOOL_SPEC
 from runner.ledger.research_queue import TOOL_SPEC as RESEARCH_QUEUE_TOOL_SPEC
 from runner.tools.crm_dedup import dedup_crm
 from runner.tools.opportunity import (
@@ -172,8 +174,11 @@ ROLE_TOOLS: dict[str, list[dict]] = {
     ],
     "outreach_worker": [
         PLACES_TOOL_SPEC,
+        LEAD_SCORE_TOOL_SPEC,
+        APIFY_TOOL_SPEC,
         WEB_TOOL_SPEC,
         EMAIL_TOOL_SPEC,
+        COLD_EXPORT_TOOL_SPEC,
         SOCIAL_DM_TOOL_SPEC,
         OUTREACH_CRM_TOOL_SPEC,
         FILE_TOOL_SPEC,
@@ -182,7 +187,7 @@ ROLE_TOOLS: dict[str, list[dict]] = {
         INBOX_TOOL_SPEC,
         MEMORY_TOOL_SPEC,
     ],
-    "marketing_worker": [ETSY_TOOL_SPEC, FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
+    "marketing_worker": [FILE_TOOL_SPEC, MEMORY_TOOL_SPEC],
     "manager": [
         FILE_TOOL_SPEC,
         TASK_CREATOR_TOOL_SPEC,

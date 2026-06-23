@@ -1026,6 +1026,12 @@ const PODS = [
   { label: "Sage · Memory",      tab: "sage" },
 ];
 
+// HTML-escape dynamic/server values before interpolating into innerHTML. CRM names/notes
+// and opportunity fields come from web-scraping + operator free-text, so raw markup would
+// execute JS in the authenticated operator's session (stored XSS). Mirrors the esc() used
+// by the error console below.
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]));
+
 let selectedAgent = null;
 let logEntries    = [];
 async function loadActivity() {
@@ -1180,8 +1186,8 @@ function renderLog() {
     const short = e.role.replace("_worker","").replace(/_/g," ");
     return `<div class="log-entry log-${e.type}">
       <span class="log-time">${e.time}</span>
-      <span class="log-agent">${short}</span>
-      <span class="log-msg">${e.msg}</span>
+      <span class="log-agent">${esc(short)}</span>
+      <span class="log-msg">${esc(e.msg)}</span>
     </div>`;
   }).join("");
 }
@@ -1196,9 +1202,9 @@ function showDetail(agent, silent = false) {
 
   const info = lastState?.agents?.[agent.role] ?? {};
   document.getElementById("detail-content").innerHTML =
-    `State: <b>${info.state ?? "—"}</b> &nbsp;·&nbsp; ` +
-    `Task: <b>${info.task_id ?? "none"}</b><br>` +
-    `Last action: ${info.last_action ?? "—"}`;
+    `State: <b>${esc(info.state ?? "—")}</b> &nbsp;·&nbsp; ` +
+    `Task: <b>${esc(info.task_id ?? "none")}</b><br>` +
+    `Last action: ${esc(info.last_action ?? "—")}`;
 
   document.getElementById("detail-log").textContent =
     logEntries.filter(e => e.role === agent.role).slice(0, 30)
@@ -1305,7 +1311,7 @@ async function refreshVaultFeed() {
     el.innerHTML = d.sessions.map(s => {
       const dot = s.status === 'failed' ? '✗' : '✓';
       const color = s.status === 'failed' ? 'var(--red)' : 'var(--green)';
-      return `<div class="vault-entry"><span style="color:${color}">${dot}</span>${s.summary || s.label || s.task_id}</div>`;
+      return `<div class="vault-entry"><span style="color:${color}">${dot}</span>${esc(s.summary || s.label || s.task_id)}</div>`;
     }).join("");
   } catch {}
 }
@@ -1372,7 +1378,7 @@ function renderCrmPage() {
   if (!tbody) return;
   const start = crmPage * CRM_PAGE_SIZE;
   tbody.innerHTML = crmRecent.slice(start, start + CRM_PAGE_SIZE).map(r => {
-      const cls = (r.status||"new").toLowerCase().replace(/\s+/g,"_");
+      const cls = esc((r.status||"new").toLowerCase().replace(/\s+/g,"_"));
       const phone = r.contact || "—";
       const noteTip = r.notes ? r.notes : "";
       const statusLabels = {
@@ -1395,13 +1401,13 @@ function renderCrmPage() {
           <option value="no_interest">🚫 Not Interested</option>
         </select>
       ` : `<span style="color:var(--muted);font-size:9px">—</span>`;
-      return `<tr title="${noteTip}">
-        <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis" title="${r.business}">${r.business}</td>
-        <td>${r.type}</td><td>${r.city}</td>
-        <td style="font-family:monospace;color:var(--cyan);white-space:nowrap">${phone}</td>
-        <td>${r.channel}</td>
-        <td><span class="crm-status ${cls}">${statusLabel}</span></td>
-        <td>${r.date}</td>
+      return `<tr title="${esc(noteTip)}">
+        <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis" title="${esc(r.business)}">${esc(r.business)}</td>
+        <td>${esc(r.type)}</td><td>${esc(r.city)}</td>
+        <td style="font-family:monospace;color:var(--cyan);white-space:nowrap">${esc(phone)}</td>
+        <td>${esc(r.channel)}</td>
+        <td><span class="crm-status ${cls}">${esc(statusLabel)}</span></td>
+        <td>${esc(r.date)}</td>
         <td style="white-space:nowrap">${actions}</td>
       </tr>`;
     }).join("");
@@ -1463,7 +1469,7 @@ async function refreshAnalytics() {
         const pct   = r.success_pct;
         const color = pct >= 80 ? "var(--green)" : pct >= 50 ? "var(--orange)" : "var(--red)";
         const label = r.agent.replace("_worker","").replace(/_/g," ");
-        return `<div class="agent-stat-row"><div class="ar-name" title="${r.agent}">${label}</div><div class="ar-done">${r.done}</div><div class="ar-fail">${r.failed}</div><div class="ar-pct" style="color:${color}">${pct}%</div></div><div class="pct-bar-wrap" style="margin-bottom:2px"><div class="pct-bar" style="width:${pct}%;background:${color}"></div></div>`;
+        return `<div class="agent-stat-row"><div class="ar-name" title="${esc(r.agent)}">${esc(label)}</div><div class="ar-done">${r.done}</div><div class="ar-fail">${r.failed}</div><div class="ar-pct" style="color:${color}">${pct}%</div></div><div class="pct-bar-wrap" style="margin-bottom:2px"><div class="pct-bar" style="width:${pct}%;background:${color}"></div></div>`;
       }).join("");
     }
 
@@ -1500,15 +1506,16 @@ async function refreshOpportunities() {
       const score = parseFloat(r.composite) || 0;
       const color = score >= 75 ? "var(--green)" : (score >= 60 ? "var(--orange)" : "var(--muted)");
       const ungraded = ["—", "-", ""].includes((r.poc || "").trim());
+      const slug = esc(r.slug);
       const actions = ungraded
-        ? `<button class="mini-btn ok"  title="promising → graduate (queues landing build)" onclick="gradeOpp('${r.slug}','promising')">✓</button>`
-        + `<button class="mini-btn warn" title="weak" onclick="gradeOpp('${r.slug}','weak')">~</button>`
-        + `<button class="mini-btn bad"  title="dead" onclick="gradeOpp('${r.slug}','dead')">✗</button>`
-        : r.poc;
+        ? `<button class="mini-btn ok"  title="promising → graduate (queues landing build)" onclick="gradeOpp('${slug}','promising')">✓</button>`
+        + `<button class="mini-btn warn" title="weak" onclick="gradeOpp('${slug}','weak')">~</button>`
+        + `<button class="mini-btn bad"  title="dead" onclick="gradeOpp('${slug}','dead')">✗</button>`
+        : esc(r.poc);
       return `<tr>` +
-        `<td>${i + 1}</td><td>${r.slug}</td>` +
-        `<td style="color:${color}">${r.composite}</td>` +
-        `<td>${r.phase}</td><td>${r.poc}</td><td>${r.system_fit}</td><td>${r.est_rev_mo}</td>` +
+        `<td>${i + 1}</td><td>${slug}</td>` +
+        `<td style="color:${color}">${esc(r.composite)}</td>` +
+        `<td>${esc(r.phase)}</td><td>${esc(r.poc)}</td><td>${esc(r.system_fit)}</td><td>${esc(r.est_rev_mo)}</td>` +
         `<td>${actions}</td>` +
         `</tr>`;
     }).join("");
@@ -1629,10 +1636,12 @@ async function refreshLandings() {
     const el = document.getElementById("landing-pending");
     if (!el) return;
     if (!d.pending || !d.pending.length) { el.textContent = "No products awaiting deploy."; return; }
-    el.innerHTML = d.pending.map(p =>
-      `<div class="queue-row"><span>${p.slug} (${p.status})</span>` +
-      `<span><a class="trigger-btn" href="/sites/${p.slug}" target="_blank" rel="noopener">👁 Preview</a> ` +
-      `<button class="trigger-btn" onclick="deployLanding('${p.slug}')">🚀 Deploy</button></span></div>`).join("");
+    el.innerHTML = d.pending.map(p => {
+      const slug = esc(p.slug);
+      return `<div class="queue-row"><span>${slug} (${esc(p.status)})</span>` +
+      `<span><a class="trigger-btn" href="/sites/${slug}" target="_blank" rel="noopener">👁 Preview</a> ` +
+      `<button class="trigger-btn" onclick="deployLanding('${slug}')">🚀 Deploy</button></span></div>`;
+    }).join("");
   } catch { /* leave last-known */ }
 }
 
@@ -1644,7 +1653,7 @@ async function refreshPnl() {
     if (!d.pods || !d.pods.length) { el.textContent = "No graduated pods earning yet."; return; }
     el.innerHTML = d.pods.map(p => {
       const cls = p.net < 0 ? "failed" : "done";
-      return `<div class="queue-row"><span>${p.pod}</span>` +
+      return `<div class="queue-row"><span>${esc(p.pod)}</span>` +
              `<span class="queue-count ${cls}">$${p.revenue_to_date} real / $${p.est_rev_mo} est · net $${p.net}</span></div>`;
     }).join("");
   } catch { /* leave last-known */ }
@@ -1672,7 +1681,7 @@ async function renderTonyStocks() {
   const saved = (a.cc_overrode_saved != null) ? a.cc_overrode_saved : "—";
   const equityTxt = bk.equity != null ? "$" + Number(bk.equity).toLocaleString() : "—";
   const tile = (v, label, color) =>
-    `<div class="funnel-card"><span class="f-num" style="color:${color}">${v ?? "—"}</span><span class="f-label">${label}</span></div>`;
+    `<div class="funnel-card"><span class="f-num" style="color:${color}">${esc(v ?? "—")}</span><span class="f-label">${label}</span></div>`;
   el.innerHTML = `
     <a href="/tony" target="_blank" rel="noopener" style="display:block;text-decoration:none">
       <div style="padding:18px;border:1px solid rgba(0,245,160,.35);border-radius:8px;background:linear-gradient(180deg,rgba(0,245,160,.08),rgba(0,245,160,.02))" onmouseover="this.style.borderColor='var(--green)'" onmouseout="this.style.borderColor='rgba(0,245,160,.35)'">
@@ -1686,7 +1695,7 @@ async function renderTonyStocks() {
       ${tile(saved, "Tony saved", "var(--cyan)")}
       ${tile(positions.length, "Open positions", "var(--green)")}
     </div>
-    <div style="font-size:9px;color:var(--muted);margin-top:10px">Equity ${equityTxt}${bk.status && bk.status!=='ok' ? ' · '+bk.status : ''} &middot; full detail on the <a href="/tony" target="_blank" rel="noopener" style="color:var(--green)">standalone dashboard</a>.</div>
+    <div style="font-size:9px;color:var(--muted);margin-top:10px">Equity ${equityTxt}${bk.status && bk.status!=='ok' ? ' · '+esc(bk.status) : ''} &middot; full detail on the <a href="/tony" target="_blank" rel="noopener" style="color:var(--green)">standalone dashboard</a>.</div>
   `;
 }
 
@@ -1762,7 +1771,7 @@ async function renderPod(key) {
   if (!el) return;
   try {
     const d = await fetch(`/api/pod/${key}`).then(r => r.json());
-    if (d.error) { el.innerHTML = `<div style="color:var(--red);font-size:10px">${d.error}</div>`; return; }
+    if (d.error) { el.innerHTML = `<div style="color:var(--red);font-size:10px">${esc(d.error)}</div>`; return; }
     const dot = {green:"var(--green)",yellow:"var(--orange)",red:"var(--red)"}[d.status] || "var(--muted)";
     const b = d.budget || {};
     const capTxt = (b.cap === null || b.cap === undefined) ? "∞" : `$${b.cap}`;
@@ -1771,30 +1780,30 @@ async function renderPod(key) {
     const recentRows = recent.length ? recent.map(r => {
       const c = r.status === "done" ? "var(--green)" : r.status === "failed" ? "var(--red)" : "var(--muted)";
       const icon = r.status === "done" ? "✓" : r.status === "failed" ? "✗" : "•";
-      return `<div class="pod-row"><span style="color:${c};flex-shrink:0">${icon}</span><span class="pr-label">${r.label}</span><span class="pr-when">${r.when || ""}</span></div>`;
+      return `<div class="pod-row"><span style="color:${c};flex-shrink:0">${icon}</span><span class="pr-label">${esc(r.label)}</span><span class="pr-when">${esc(r.when || "")}</span></div>`;
     }).join("") : `<div class="pod-muted">No task activity yet.</div>`;
     const art = d.artifacts || {items:[]};
     const artItems = (art.items || []);
     const artRows = artItems.length ? artItems.map(i =>
-      `<div class="pod-row"><span class="pr-label">${i.label}</span><span class="pr-when">${i.value || ""}</span></div>`
-    ).join("") : `<div class="pod-muted">${art.empty || "Nothing to show yet."}</div>`;
+      `<div class="pod-row"><span class="pr-label">${esc(i.label)}</span><span class="pr-when">${esc(i.value || "")}</span></div>`
+    ).join("") : `<div class="pod-muted">${esc(art.empty || "Nothing to show yet.")}</div>`;
     const tt = (d.task_types || []).slice(0, 6).join(" · ");
     el.innerHTML = `
       <div class="section-title" style="margin-bottom:4px">
-        <span style="color:${dot}">●</span> ${d.name}
-        <span style="font-size:8px;color:var(--muted);letter-spacing:0;text-transform:none"> · ${d.agent} · ${d.pod}</span>
+        <span style="color:${dot}">●</span> ${esc(d.name)}
+        <span style="font-size:8px;color:var(--muted);letter-spacing:0;text-transform:none"> · ${esc(d.agent)} · ${esc(d.pod)}</span>
       </div>
-      <div class="pod-purpose">${d.purpose || ""}</div>
-      ${tt ? `<div class="pod-tt">${tt}</div>` : ""}
+      <div class="pod-purpose">${esc(d.purpose || "")}</div>
+      ${tt ? `<div class="pod-tt">${esc(tt)}</div>` : ""}
       <div class="funnel-row" style="grid-template-columns:repeat(4,1fr);margin-top:10px">
         <div class="funnel-card green"><span class="f-num">${a.done ?? 0}</span><span class="f-label">Done</span></div>
         <div class="funnel-card"><span class="f-num" style="color:var(--red)">${a.failed ?? 0}</span><span class="f-label">Failed</span></div>
         <div class="funnel-card orange"><span class="f-num">${a.todo ?? 0}</span><span class="f-label">Queued</span></div>
-        <div class="funnel-card cyan"><span class="f-num" style="font-size:15px">$${b.spent ?? 0}<span style="font-size:9px;color:var(--muted)"> / ${capTxt}</span></span><span class="f-label">Spend (${b.basis || "—"})</span></div>
+        <div class="funnel-card cyan"><span class="f-num" style="font-size:15px">$${b.spent ?? 0}<span style="font-size:9px;color:var(--muted)"> / ${capTxt}</span></span><span class="f-label">Spend (${esc(b.basis || "—")})</span></div>
       </div>
       <div class="section-title">Recent Task Activity</div>
       <div class="pod-list">${recentRows}</div>
-      <div class="section-title" style="margin-top:10px">${art.title || "Artifacts"}</div>
+      <div class="section-title" style="margin-top:10px">${esc(art.title || "Artifacts")}</div>
       <div class="pod-list">${artRows}</div>
     `;
   } catch { el.innerHTML = `<div style="color:var(--red);font-size:10px">Error loading ${key} pod.</div>`; }
@@ -1883,10 +1892,10 @@ async function refreshSpawnGate() {
         const allow = r.allowed;
         const label = (r.key || `${r.agent||"?"}:${r.task_type||"?"}`);
         const txt = allow ? `allowed ${label}` : (r.reason || `denied ${label}`);
-        return `<div class="sg-act-row" title="${(r.reason||"").replace(/"/g,"&quot;")}">
+        return `<div class="sg-act-row" title="${esc(r.reason||"")}">
           <span class="sg-act-time">${_fmtClock(r.ts)}</span>
           <span class="sg-act-icon ${allow?"allow":"deny"}">${allow?"✓":"✕"}</span>
-          <span class="sg-act-text">${txt}</span>
+          <span class="sg-act-text">${esc(txt)}</span>
         </div>`;
       }).join("");
     }
@@ -1928,16 +1937,16 @@ function renderSpawnCards() {
       const c = pct >= 100 ? "var(--red)" : (pct >= 75 ? "var(--orange)" : "var(--green)");
       capBar = `<div class="sg-cap-bar"><div class="sg-cap-fill" style="width:${pct}%;background:${c}"></div></div>`;
     }
-    const reason = r.last_reason ? `<div class="sg-reason" title="${r.last_reason.replace(/"/g,"&quot;")}">last: ${r.last_reason}</div>` : "";
+    const reason = r.last_reason ? `<div class="sg-reason" title="${esc(r.last_reason)}">last: ${esc(r.last_reason)}</div>` : "";
     const unconf = r.configured ? "" : " sg-unconfigured";
     const scopeLabel = r.configured ? r.scope : (r.scope + " · history only");
     return `<div class="sg-card ${status}${unconf}">
       <div class="sg-card-head">
         <div style="min-width:0">
-          <div class="sg-key" title="${r.key}">${r.key}</div>
-          <div class="sg-scope">${scopeLabel}</div>
+          <div class="sg-key" title="${esc(r.key)}">${esc(r.key)}</div>
+          <div class="sg-scope">${esc(scopeLabel)}</div>
         </div>
-        <span class="sg-badge ${status}"><span class="dot"></span>${badgeText}</span>
+        <span class="sg-badge ${status}"><span class="dot"></span>${esc(badgeText)}</span>
       </div>
       ${countdown}
       <div class="sg-meta">

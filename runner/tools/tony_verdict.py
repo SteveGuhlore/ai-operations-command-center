@@ -7,13 +7,14 @@ the typed contract the Cockpit's dual-agent view + Track Record read, and the ba
 for scoring Tony against the scanner over time. Lives beside agent_insights.json so
 the trading-bot project / dashboard pick it up.
 """
-import json
+
 import logging
 import os
 import threading
-from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from pathlib import Path
+
+from runner.ledger._jsonio import atomic_write_json, load_list
 
 _log = logging.getLogger(__name__)
 
@@ -25,8 +26,12 @@ _ET = ZoneInfo("America/New_York")
 
 
 def _trading_date() -> str:
-    from runner.ledger.market_clock import trading_day  # single source of truth for the ET day
+    from runner.ledger.market_clock import (
+        trading_day,
+    )  # single source of truth for the ET day
+
     return trading_day()
+
 
 # Fan-out runs several ticker tasks concurrently (ThreadPoolExecutor); serialize the verdicts
 # file's read-modify-write so concurrent calls don't clobber each other's entries.
@@ -61,10 +66,14 @@ def write_tony_verdict(
         return {"error": f"verdict must be one of {sorted(_VERDICTS)}, got '{verdict}'"}
     if v in ("adjust", "override"):
         if target is None or stop is None:
-            return {"error": f"verdict '{v}' requires both target and stop (set YOUR own levels)"}
+            return {
+                "error": f"verdict '{v}' requires both target and stop (set YOUR own levels)"
+            }
         if not float(target) > float(stop):
-            return {"error": f"verdict '{v}' needs target > stop for a long bracket "
-                             f"(got target={target}, stop={stop})"}
+            return {
+                "error": f"verdict '{v}' needs target > stop for a long bracket "
+                f"(got target={target}, stop={stop})"
+            }
     sym = (symbol or "").strip().upper()
     if not sym:
         return {"error": "symbol required"}
@@ -77,7 +86,9 @@ def write_tony_verdict(
         "date": _trading_date(),
         "symbol": sym,
         "tony_score": round(score, 1),
-        "scanner_score": round(float(scanner_score), 2) if scanner_score is not None else None,
+        "scanner_score": round(float(scanner_score), 2)
+        if scanner_score is not None
+        else None,
         "verdict": v,
         "thesis": thesis,
         "tony_reasoning": thesis,  # the bot's load_cc_verdicts reads `tony_reasoning` for its teaching ledger
@@ -94,18 +105,21 @@ def write_tony_verdict(
 
     try:
         with _WRITE_LOCK:
-            entries: list = []
-            if VERDICTS_FILE.exists():
-                try:
-                    entries = json.loads(VERDICTS_FILE.read_text(encoding="utf-8"))
-                except (json.JSONDecodeError, OSError):
-                    entries = []
+            entries: list = load_list(VERDICTS_FILE)
             # One verdict per (date, symbol): replace same-day re-runs rather than stacking.
-            entries = [e for e in entries if not (e.get("date") == entry["date"] and e.get("symbol") == sym)]
+            entries = [
+                e
+                for e in entries
+                if not (e.get("date") == entry["date"] and e.get("symbol") == sym)
+            ]
             entries.append(entry)
-            VERDICTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            VERDICTS_FILE.write_text(json.dumps(entries, indent=2), encoding="utf-8")
-            return {"success": True, "symbol": sym, "verdict": v, "total_verdicts": len(entries)}
+            atomic_write_json(VERDICTS_FILE, entries, indent=2)
+            return {
+                "success": True,
+                "symbol": sym,
+                "verdict": v,
+                "total_verdicts": len(entries),
+            }
     except OSError as exc:
         _log.warning("write_tony_verdict failed: %s", exc)
         return {"error": str(exc)}
@@ -132,15 +146,40 @@ TOOL_SPEC = {
         "type": "object",
         "properties": {
             "symbol": {"type": "string", "description": "Ticker symbol."},
-            "tony_score": {"type": "number", "description": "YOUR independent 0-100 conviction."},
-            "verdict": {"type": "string", "enum": ["reaffirm", "adjust", "override", "pass", "close"]},
-            "thesis": {"type": "string", "description": "2-4 sentences: why this verdict, grounded in the data you pulled."},
-            "scanner_score": {"type": "number", "description": "The scanner's score from the bridge, for comparison."},
-            "target": {"type": "number", "description": "YOUR price target (may differ from the scanner's)."},
+            "tony_score": {
+                "type": "number",
+                "description": "YOUR independent 0-100 conviction.",
+            },
+            "verdict": {
+                "type": "string",
+                "enum": ["reaffirm", "adjust", "override", "pass", "close"],
+            },
+            "thesis": {
+                "type": "string",
+                "description": "2-4 sentences: why this verdict, grounded in the data you pulled.",
+            },
+            "scanner_score": {
+                "type": "number",
+                "description": "The scanner's score from the bridge, for comparison.",
+            },
+            "target": {
+                "type": "number",
+                "description": "YOUR price target (may differ from the scanner's).",
+            },
             "stop": {"type": "number", "description": "YOUR stop."},
-            "evidence": {"type": "array", "items": {"type": "string"}, "description": "Short tags for the data points behind the call, e.g. ['rev_growth_28pct','analyst_upside_12pct']."},
-            "catalysts": {"type": "string", "description": "Known upcoming catalyst(s), e.g. 'Q2 earnings 2026-06-10'."},
-            "earnings_date": {"type": "string", "description": "Next earnings date YYYY-MM-DD if known."},
+            "evidence": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Short tags for the data points behind the call, e.g. ['rev_growth_28pct','analyst_upside_12pct'].",
+            },
+            "catalysts": {
+                "type": "string",
+                "description": "Known upcoming catalyst(s), e.g. 'Q2 earnings 2026-06-10'.",
+            },
+            "earnings_date": {
+                "type": "string",
+                "description": "Next earnings date YYYY-MM-DD if known.",
+            },
             "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
         },
         "required": ["symbol", "tony_score", "verdict", "thesis"],
