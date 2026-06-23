@@ -7,20 +7,31 @@ from runner.ledger import tony_live_guard as guard
 
 # ---- Phase 4: market regime ----
 def test_regime_risk_on(monkeypatch):
-    monkeypatch.setattr(mr, "_fetch", lambda: {"vix": 14.0, "spy_above_sma50": True,
-                                               "sector_rs": {"XLK": 1.2, "XLE": -0.3}})
+    monkeypatch.setattr(
+        mr,
+        "_fetch",
+        lambda: {
+            "vix": 14.0,
+            "spy_above_sma50": True,
+            "sector_rs": {"XLK": 1.2, "XLE": -0.3},
+        },
+    )
     r = mr.get_market_regime()
     assert r["regime"] == "risk_on"
     assert "Tech (XLK)" in r["leaders"]
 
 
 def test_regime_risk_off_on_high_vix(monkeypatch):
-    monkeypatch.setattr(mr, "_fetch", lambda: {"vix": 30.0, "spy_above_sma50": True, "sector_rs": {}})
+    monkeypatch.setattr(
+        mr, "_fetch", lambda: {"vix": 30.0, "spy_above_sma50": True, "sector_rs": {}}
+    )
     assert mr.get_market_regime()["regime"] == "risk_off"
 
 
 def test_regime_risk_off_when_spy_below_sma(monkeypatch):
-    monkeypatch.setattr(mr, "_fetch", lambda: {"vix": 15.0, "spy_above_sma50": False, "sector_rs": {}})
+    monkeypatch.setattr(
+        mr, "_fetch", lambda: {"vix": 15.0, "spy_above_sma50": False, "sector_rs": {}}
+    )
     assert mr.get_market_regime()["regime"] == "risk_off"
 
 
@@ -29,6 +40,11 @@ def test_log_idea_writes(tmp_path, monkeypatch):
     monkeypatch.setattr(ti, "IDEAS_FILE", tmp_path / "ideas.json")
     r = ti.log_tony_idea(symbol="smci", thesis="x", source="own_pattern", score=72)
     assert r.get("success") and r["symbol"] == "SMCI"
+    # M9: idea is stamped with the ET trading day, not the UTC date.
+    import json
+    from runner.ledger.market_clock import trading_day
+
+    assert json.loads((tmp_path / "ideas.json").read_text())[0]["date"] == trading_day()
 
 
 def test_log_idea_bad_source(tmp_path, monkeypatch):
@@ -51,7 +67,8 @@ def test_live_requires_enable_and_record(monkeypatch, tmp_path):
 
 def test_kill_switch_blocks(monkeypatch, tmp_path):
     monkeypatch.setenv("TONY_LIVE_ENABLED", "1")
-    ks = tmp_path / "kill"; ks.write_text("stop")
+    ks = tmp_path / "kill"
+    ks.write_text("stop")
     monkeypatch.setattr(guard, "KILL_SWITCH", ks)
     assert guard.live_allowed({"tony_win_rate": 99, "graded": 100})["allowed"] is False
 
@@ -76,4 +93,7 @@ def test_live_nan_winrate_rejected(monkeypatch, tmp_path):
     # Regression: NaN win rate slips past `nan < MIN_WIN_RATE` (always False).
     monkeypatch.setenv("TONY_LIVE_ENABLED", "1")
     monkeypatch.setattr(guard, "KILL_SWITCH", tmp_path / "no_kill")
-    assert guard.live_allowed({"tony_win_rate": float("nan"), "graded": 100})["allowed"] is False
+    assert (
+        guard.live_allowed({"tony_win_rate": float("nan"), "graded": 100})["allowed"]
+        is False
+    )

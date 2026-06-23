@@ -1,8 +1,9 @@
 import json
 import logging
 import os
-from datetime import date
 from pathlib import Path
+
+from runner.ledger.market_clock import trading_day
 
 _log = logging.getLogger(__name__)
 
@@ -29,14 +30,16 @@ def write_tony_insight(
             except (json.JSONDecodeError, OSError):
                 entries = []
 
-        entries.append({
-            "date": str(date.today()),
-            "category": category,
-            "insight": insight,
-            "confidence": confidence,
-            "symbols": symbols or [],
-            "status": "new",
-        })
+        entries.append(
+            {
+                "date": trading_day(),
+                "category": category,
+                "insight": insight,
+                "confidence": confidence,
+                "symbols": symbols or [],
+                "status": "new",
+            }
+        )
 
         INSIGHTS_FILE.parent.mkdir(parents=True, exist_ok=True)
         INSIGHTS_FILE.write_text(json.dumps(entries, indent=2), encoding="utf-8")
