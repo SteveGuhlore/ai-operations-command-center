@@ -368,12 +368,12 @@ Production runs 24/7 on the VM (`/opt/command-center`, systemd `cc-runner`) off 
 | C7 | No Alpaca account-identity guard | Critical | 🟢/🔴 | ✅ (env-gated; pin `TONY_ALPACA_ACCOUNT_ID` to arm) |
 | C8 | run_cycle god-fn + no real timeout | Critical | 🟡 | ☐ |
 | C9 | systemd units wrong layout | Critical | 🔴 | ☐ (needs VM-layout confirm) |
-| M1 | Shared JSON-I/O helper | Medium | 🟢 | ☐ |
+| M1 | Shared JSON-I/O helper | Medium | 🟢 | ✅ |
 | M2 | Shared markdown-table parser | Medium | 🟢 | ☐ |
 | M3 | Tokens → headers | Medium | 🟢 | ☐ |
 | M4 | Single _fail_task() | Medium | 🟢 | ☐ |
 | M5 | Task dedup via frontmatter | Medium | 🟢 | ☐ |
-| M6 | Vertex token lock | Medium | 🟢 | ☐ |
+| M6 | Vertex token lock | Medium | 🟢 | ✅ |
 | M7 | Outreach post-run hook | Medium | 🟢 | ☐ |
 | M8 | Market-clock holiday/fallback | Medium | 🟢 | ☐ |
 | M9 | date.today()→trading_day() | Medium | 🟢 | ✅ |
@@ -384,7 +384,7 @@ Production runs 24/7 on the VM (`/opt/command-center`, systemd `cc-runner`) off 
 | M14 | IMAP caps + sanitize | Medium | 🟢 | ☐ |
 | M15 | send_email hardening | Medium | 🟢 | ☐ |
 | M16 | Tool registration consistency | Medium | 🟢 | ☐ |
-| M17 | dispatch_tool error classify | Medium | 🟢 | ☐ |
+| M17 | dispatch_tool error logging | Medium | 🟢 | ✅ |
 | M18 | Config/example reconcile | Medium | 🟢 | ☐ |
 | M19 | budgets.yaml drift | Medium | 🟢 | ☐ |
 | M20 | brand.yaml strip Etsy | Medium | 🟢 | ✅ |
