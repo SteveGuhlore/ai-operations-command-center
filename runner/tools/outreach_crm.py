@@ -14,6 +14,8 @@ import os
 from datetime import date
 from pathlib import Path
 
+from runner.tools.mdtable import clean_cell, table_rows
+
 _log = logging.getLogger(__name__)
 
 CRM_FILE = Path(
@@ -43,14 +45,12 @@ def _existing_names() -> set[str]:
     if not CRM_FILE.exists():
         return set()
     names: set[str] = set()
-    for line in CRM_FILE.read_text(encoding="utf-8").splitlines():
-        if (
-            not line.startswith("|")
-            or line.startswith("|---")
-            or "Business" in line[:30]
-        ):
-            continue
-        parts = [p.strip() for p in line.strip("|").split("|")]
+    for parts in table_rows(
+        CRM_FILE.read_text(encoding="utf-8"),
+        strip_line=False,
+        is_divider=lambda line: line.startswith("|---"),
+        is_header=lambda line: "Business" in line[:30],
+    ):
         if parts and parts[0]:
             names.add(parts[0].lower())
     return names
@@ -58,7 +58,7 @@ def _existing_names() -> set[str]:
 
 def _clean(value: str) -> str:
     # Pipes would break the row; collapse them so a stray one can't corrupt the table.
-    return (value or "").replace("|", "/").replace("\n", " ").strip()
+    return clean_cell(value)
 
 
 def log_outreach_lead(
