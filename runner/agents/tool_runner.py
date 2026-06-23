@@ -31,7 +31,6 @@ from runner.tools.opportunity import log_opportunity, grade_poc, update_opportun
 from runner.tools.revenue_tool import log_revenue
 from runner.tools.image import image_generation
 from runner.tools.audio import audio_generation
-from runner.tools.etsy import etsy_listing
 from runner.tools.social import (
     save_video_package,
     post_to_instagram,
@@ -72,7 +71,6 @@ register_tool("update_opportunity", update_opportunity)
 register_tool("log_revenue", log_revenue)
 register_tool("image_generation", image_generation)
 register_tool("audio_generation", audio_generation)
-register_tool("etsy_listing", etsy_listing)
 register_tool("save_video_package", save_video_package)
 register_tool("post_to_instagram", post_to_instagram)
 register_tool("post_to_facebook", post_to_facebook)
