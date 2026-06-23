@@ -19,44 +19,46 @@ Updated by sync() each cycle (file write only when something changed); symbols n
 pruned so a re-entry restarts its clock. Fail-soft: a missing/corrupt ledger degrades to {} and
 rebuilds — positions are simply re-adopted as of today.
 """
-import json
+
 import logging
 import os
 from pathlib import Path
 
+from runner.ledger._jsonio import atomic_write_json, load_dict
+
 _log = logging.getLogger(__name__)
 
-META_FILE = Path(os.environ.get(
-    "TONY_POSITION_META_FILE",
-    str(Path(__file__).parent.parent.parent / "workspace" / "position-meta.json"),
-))
+META_FILE = Path(
+    os.environ.get(
+        "TONY_POSITION_META_FILE",
+        str(Path(__file__).parent.parent.parent / "workspace" / "position-meta.json"),
+    )
+)
 
 # Adopted mid-flight (stop already ratcheted to/above entry, so entry-stop is meaningless) ->
 # R proxy as a fraction of entry. 4% ~ a 2-ATR scanner stop on a ~2%-daily-vol swing name.
 _R_PROXY_PCT = float(os.environ.get("TONY_RATCHET_R_PROXY_PCT", "4.0"))
 
-_HORIZON_MAX_DAYS = {"day": 1, "swing": None}  # swing=None -> the global default; "long" is exempt
+_HORIZON_MAX_DAYS = {
+    "day": 1,
+    "swing": None,
+}  # swing=None -> the global default; "long" is exempt
 
 
 def load_meta() -> dict:
-    try:
-        data = json.loads(META_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, OSError, FileNotFoundError):
-        return {}
+    return load_dict(META_FILE)
 
 
 def save_meta(meta: dict) -> None:
     try:
-        META_FILE.parent.mkdir(parents=True, exist_ok=True)
-        tmp = META_FILE.with_suffix(META_FILE.suffix + ".tmp")
-        tmp.write_text(json.dumps(meta, indent=2, sort_keys=True), encoding="utf-8")
-        os.replace(tmp, META_FILE)
+        atomic_write_json(META_FILE, meta, indent=2, sort_keys=True)
     except OSError as exc:
         _log.warning("position-meta save failed: %s", exc)
 
 
-def update_meta(meta: dict, positions: list, live_stops: dict, today: str) -> tuple[dict, bool]:
+def update_meta(
+    meta: dict, positions: list, live_stops: dict, today: str
+) -> tuple[dict, bool]:
     """Pure: fold the current sync snapshot into the ledger. Returns (new_meta, changed).
     - new symbols are adopted: first_seen=today, hwm=max(entry, px), initial_stop captured from
       the live stop leg when one exists (else left unset until protection lands);
@@ -84,8 +86,13 @@ def update_meta(meta: dict, positions: list, live_stops: dict, today: str) -> tu
             px = 0.0
         cur = dict(meta.get(sym) or {})
         if not cur:
-            cur = {"first_seen": today, "entry": entry, "hwm": max(entry, px) or entry,
-                   "initial_stop": None, "horizon": "swing"}
+            cur = {
+                "first_seen": today,
+                "entry": entry,
+                "hwm": max(entry, px) or entry,
+                "initial_stop": None,
+                "horizon": "swing",
+            }
             changed = True
         if px and px > float(cur.get("hwm") or 0):
             cur["hwm"] = px

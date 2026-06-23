@@ -23,6 +23,8 @@ import time
 from datetime import date
 from pathlib import Path
 
+from runner.ledger._jsonio import atomic_write_json, load_list
+
 _log = logging.getLogger(__name__)
 
 _reports = (
@@ -605,21 +607,14 @@ def entry_qty(price, mult: float = 1.0) -> int:
 
 
 def _load(p) -> list:
-    try:
-        data = json.loads(Path(p).read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError, FileNotFoundError):
-        return []
+    return load_list(p)
 
 
 def _save_executed_log(done) -> None:
     """Atomic write of the executed-order dedupe log. A torn write here would erase
     dedupe history and let the NEXT sync re-submit already-placed orders, so write to
     a temp sibling and os.replace (atomic on the same filesystem, incl. Windows)."""
-    EXECUTED_LOG.parent.mkdir(parents=True, exist_ok=True)
-    tmp = EXECUTED_LOG.with_name(EXECUTED_LOG.name + f".{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(sorted(done)), encoding="utf-8")
-    os.replace(tmp, EXECUTED_LOG)
+    atomic_write_json(EXECUTED_LOG, sorted(done))
 
 
 _SYNC_LOCK_STALE_SECS = 600

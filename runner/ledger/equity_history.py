@@ -14,6 +14,8 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
+from runner.ledger._jsonio import atomic_write_json, load_list
+
 _log = logging.getLogger(__name__)
 
 # Honor both env names with one precedence (this writer historically used
@@ -31,11 +33,7 @@ MAX_POINTS = 5000
 
 
 def _load() -> list:
-    try:
-        data = json.loads(HISTORY_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError, FileNotFoundError):
-        return []
+    return load_list(HISTORY_FILE)
 
 
 def append_point(
@@ -176,8 +174,7 @@ def snapshot() -> dict:
         _load(), datetime.now(timezone.utc).isoformat(), tony_equity(), bot_equity()
     )
     try:
-        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        HISTORY_FILE.write_text(json.dumps(points), encoding="utf-8")
+        atomic_write_json(HISTORY_FILE, points)
     except OSError as exc:
         _log.warning("equity snapshot write failed: %s", exc)
     return {"points": len(points)}
@@ -324,8 +321,7 @@ def backfill(days: int = 7) -> dict:
     ]  # don't lose live points
     pts = (pts + live_newer)[-MAX_POINTS:]
     try:
-        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        HISTORY_FILE.write_text(json.dumps(pts), encoding="utf-8")
+        atomic_write_json(HISTORY_FILE, pts)
     except OSError as exc:
         _log.warning("backfill write failed: %s", exc)
     return {"status": "ok", "points": len(pts)}

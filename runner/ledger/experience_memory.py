@@ -18,7 +18,6 @@ changed by this module until something wires `relevant_rules` into the prompt â€
 """
 import json
 import logging
-import math
 import os
 from datetime import date, datetime
 from pathlib import Path

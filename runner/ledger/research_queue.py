@@ -8,26 +8,44 @@ which the existing alpaca_paper.sync() executes within the existing risk caps. S
 prices NEVER execute directly: a candidate with no live price, or whose price has breached the
 proposed stop / blown past the proposed target, is dropped.
 """
-import json
+
 import logging
 import os
-from datetime import datetime, date
+from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-_ET = ZoneInfo("America/New_York")  # verdict dates = Eastern trading day, not the UTC server day
-from pathlib import Path
+from runner.ledger._jsonio import atomic_write_json, load_dict, load_list
+
+_ET = ZoneInfo(
+    "America/New_York"
+)  # verdict dates = Eastern trading day, not the UTC server day
 
 _log = logging.getLogger(__name__)
 
-QUEUE_FILE = Path(os.environ.get(
-    "TONY_RESEARCH_QUEUE_FILE",
-    str(Path(__file__).parent.parent.parent / "workspace" / "research-queue.json"),
-))
+QUEUE_FILE = Path(
+    os.environ.get(
+        "TONY_RESEARCH_QUEUE_FILE",
+        str(Path(__file__).parent.parent.parent / "workspace" / "research-queue.json"),
+    )
+)
 # Same verdicts file alpaca_paper / tony_scorecard read, so the open re-check feeds the normal flow.
-_reports = Path(__file__).parent.parent.parent.parent / "TradingBotAgentProject" / "reports"
-VERDICTS_FILE = Path(os.environ.get("TONY_VERDICTS_FILE", str(_reports / "tony_stocks_verdicts.json")))
+_reports = (
+    Path(__file__).parent.parent.parent.parent / "TradingBotAgentProject" / "reports"
+)
+VERDICTS_FILE = Path(
+    os.environ.get("TONY_VERDICTS_FILE", str(_reports / "tony_stocks_verdicts.json"))
+)
 
-_FIELDS = ("symbol", "thesis_ref", "score", "confidence", "proposed_target", "proposed_stop", "source")
+_FIELDS = (
+    "symbol",
+    "thesis_ref",
+    "score",
+    "confidence",
+    "proposed_target",
+    "proposed_stop",
+    "source",
+)
 
 
 def write_queue(candidates: list, target_open: str) -> dict:
@@ -41,19 +59,15 @@ def write_queue(candidates: list, target_open: str) -> dict:
     rows.sort(key=lambda r: float(r.get("score") or 0), reverse=True)
     payload = {"generated_at": now, "target_open": target_open, "candidates": rows}
     try:
-        QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        QUEUE_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        atomic_write_json(QUEUE_FILE, payload, indent=2)
     except OSError as exc:
         _log.warning("research queue write failed: %s", exc)
     return payload
 
 
 def read_queue() -> dict:
-    try:
-        data = json.loads(QUEUE_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {"candidates": []}
-    except (json.JSONDecodeError, OSError, FileNotFoundError):
-        return {"candidates": []}
+    data = load_dict(QUEUE_FILE)
+    return data or {"candidates": []}
 
 
 def _to_float(x):
@@ -63,9 +77,15 @@ def _to_float(x):
         return None
 
 
-def queue_research_candidate(symbol: str, score, confidence: str = "medium",
-                             proposed_target=None, proposed_stop=None,
-                             thesis_ref: str = "", source: str = "research_wave") -> dict:
+def queue_research_candidate(
+    symbol: str,
+    score,
+    confidence: str = "medium",
+    proposed_target=None,
+    proposed_stop=None,
+    thesis_ref: str = "",
+    source: str = "research_wave",
+) -> dict:
     """Append ONE ranked candidate to workspace/research-queue.json — deterministically. The
     research-wave RANK step used to have the LLM hand-write the whole JSON file; it narrated the
     step without reliably producing it, so the queue came out empty (and triggered a Scout/Forge
@@ -80,6 +100,7 @@ def queue_research_candidate(symbol: str, score, confidence: str = "medium",
         return {"error": f"score must be numeric, got {score!r}"}
     try:
         from runner.bridge.research_wave import _next_open_date
+
         target_open = _next_open_date()
     except Exception:
         target_open = ""
@@ -92,13 +113,24 @@ def queue_research_candidate(symbol: str, score, confidence: str = "medium",
     rolled = bool(existing_open and target_open and existing_open != target_open)
     prior = [] if rolled else (existing.get("candidates") or [])
     cands = [c for c in prior if (c.get("symbol") or "").upper() != symbol]
-    cands.append({
-        "symbol": symbol, "thesis_ref": thesis_ref, "score": sc, "confidence": confidence,
-        "proposed_target": _to_float(proposed_target), "proposed_stop": _to_float(proposed_stop),
-        "source": source, "generated_at": datetime.now().isoformat(),
-    })
+    cands.append(
+        {
+            "symbol": symbol,
+            "thesis_ref": thesis_ref,
+            "score": sc,
+            "confidence": confidence,
+            "proposed_target": _to_float(proposed_target),
+            "proposed_stop": _to_float(proposed_stop),
+            "source": source,
+            "generated_at": datetime.now().isoformat(),
+        }
+    )
     payload = write_queue(cands, target_open or existing_open)
-    return {"success": True, "symbol": symbol, "queue_size": len(payload.get("candidates", []))}
+    return {
+        "success": True,
+        "symbol": symbol,
+        "queue_size": len(payload.get("candidates", [])),
+    }
 
 
 TOOL_SPEC = {
@@ -118,12 +150,24 @@ TOOL_SPEC = {
         "type": "object",
         "properties": {
             "symbol": {"type": "string", "description": "Ticker (required)."},
-            "score": {"type": "number", "description": "Your 0-100 conviction for ranking (required)."},
+            "score": {
+                "type": "number",
+                "description": "Your 0-100 conviction for ranking (required).",
+            },
             "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
-            "proposed_target": {"type": "number", "description": "Proposed take-profit price."},
+            "proposed_target": {
+                "type": "number",
+                "description": "Proposed take-profit price.",
+            },
             "proposed_stop": {"type": "number", "description": "Proposed stop price."},
-            "thesis_ref": {"type": "string", "description": "Short thesis / where the idea came from."},
-            "source": {"type": "string", "description": "Which research step produced it, e.g. 'edge_mining'."},
+            "thesis_ref": {
+                "type": "string",
+                "description": "Short thesis / where the idea came from.",
+            },
+            "source": {
+                "type": "string",
+                "description": "Which research step produced it, e.g. 'edge_mining'.",
+            },
         },
         "required": ["symbol", "score"],
     },
@@ -145,11 +189,7 @@ def _setup_holds(price, target, stop) -> bool:
 
 
 def _load_verdicts() -> list:
-    try:
-        data = json.loads(VERDICTS_FILE.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, OSError, FileNotFoundError):
-        return []
+    return load_list(VERDICTS_FILE)
 
 
 def recheck_queue(price_fn=None, top_n: int = 10) -> dict:
@@ -157,6 +197,7 @@ def recheck_queue(price_fn=None, top_n: int = 10) -> dict:
     execution verdicts for the survivors. Returns {validated, discarded}."""
     if price_fn is None:
         from runner.tools.stock_data import get_stock_data
+
         def price_fn(sym):  # noqa: E306
             d = get_stock_data(sym)
             return d.get("price") if isinstance(d, dict) else None
@@ -165,6 +206,7 @@ def recheck_queue(price_fn=None, top_n: int = 10) -> dict:
     candidates = (queue.get("candidates") or [])[:top_n]
     validated, discarded, new_verdicts = [], [], []
     from runner.ledger.market_clock import trading_day
+
     today = trading_day()  # ET trading day so recheck verdicts match the flush's day
     for c in candidates:
         sym = c.get("symbol")
@@ -176,13 +218,20 @@ def recheck_queue(price_fn=None, top_n: int = 10) -> dict:
         except Exception as exc:
             _log.info("recheck price %s failed: %s", sym, exc)
         if _setup_holds(price, c.get("proposed_target"), c.get("proposed_stop")):
-            new_verdicts.append({
-                "date": today, "symbol": sym, "verdict": "override",
-                "tony_score": c.get("score"),  # carry the queue score so it isn't "undefined" on the board
-                "target": float(c.get("proposed_target")), "stop": float(c.get("proposed_stop")),
-                "confidence": c.get("confidence", "medium"),
-                "source": "research_queue_recheck",
-            })
+            new_verdicts.append(
+                {
+                    "date": today,
+                    "symbol": sym,
+                    "verdict": "override",
+                    "tony_score": c.get(
+                        "score"
+                    ),  # carry the queue score so it isn't "undefined" on the board
+                    "target": float(c.get("proposed_target")),
+                    "stop": float(c.get("proposed_stop")),
+                    "confidence": c.get("confidence", "medium"),
+                    "source": "research_queue_recheck",
+                }
+            )
             validated.append(sym)
         else:
             discarded.append(sym)
@@ -190,9 +239,12 @@ def recheck_queue(price_fn=None, top_n: int = 10) -> dict:
     if new_verdicts:
         verdicts = _load_verdicts() + new_verdicts
         try:
-            VERDICTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-            VERDICTS_FILE.write_text(json.dumps(verdicts, indent=2), encoding="utf-8")
+            atomic_write_json(VERDICTS_FILE, verdicts, indent=2)
         except OSError as exc:
             _log.warning("recheck verdicts write failed: %s", exc)
-    _log.info("research queue re-check: %d validated, %d discarded", len(validated), len(discarded))
+    _log.info(
+        "research queue re-check: %d validated, %d discarded",
+        len(validated),
+        len(discarded),
+    )
     return {"validated": validated, "discarded": discarded}

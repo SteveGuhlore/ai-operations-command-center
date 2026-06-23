@@ -1,8 +1,8 @@
-import json
 import logging
 import os
 from pathlib import Path
 
+from runner.ledger._jsonio import atomic_write_json, load_list
 from runner.ledger.market_clock import trading_day
 
 _log = logging.getLogger(__name__)
@@ -23,12 +23,7 @@ def write_tony_insight(
     symbols: list | None = None,
 ) -> dict:
     try:
-        entries: list = []
-        if INSIGHTS_FILE.exists():
-            try:
-                entries = json.loads(INSIGHTS_FILE.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                entries = []
+        entries: list = load_list(INSIGHTS_FILE)
 
         entries.append(
             {
@@ -41,8 +36,7 @@ def write_tony_insight(
             }
         )
 
-        INSIGHTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        INSIGHTS_FILE.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+        atomic_write_json(INSIGHTS_FILE, entries, indent=2)
         return {"success": True, "total_insights": len(entries)}
     except OSError as exc:
         _log.warning("write_tony_insight failed: %s", exc)

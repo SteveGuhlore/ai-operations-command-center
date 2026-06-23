@@ -6,11 +6,11 @@ same way verdicts are, so the second layer stops only reacting to the bot and st
 originating. Writes tony_stocks_ideas.json beside the verdicts file.
 """
 
-import json
 import logging
 import os
 from pathlib import Path
 
+from runner.ledger._jsonio import atomic_write_json, load_list
 from runner.ledger.market_clock import trading_day
 
 _log = logging.getLogger(__name__)
@@ -49,20 +49,14 @@ def log_tony_idea(
         "status": "new",
     }
     try:
-        entries: list = []
-        if IDEAS_FILE.exists():
-            try:
-                entries = json.loads(IDEAS_FILE.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                entries = []
+        entries: list = load_list(IDEAS_FILE)
         entries = [
             e
             for e in entries
             if not (e.get("date") == entry["date"] and e.get("symbol") == sym)
         ]
         entries.append(entry)
-        IDEAS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        IDEAS_FILE.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+        atomic_write_json(IDEAS_FILE, entries, indent=2)
         return {"success": True, "symbol": sym, "total_ideas": len(entries)}
     except OSError as exc:
         _log.warning("log_tony_idea failed: %s", exc)

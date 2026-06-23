@@ -6,7 +6,7 @@ risk_off). The scanner's regime is equity-only; this also layers the rates pictu
 Treasury yields + the 2s10s curve) from FRED when FRED_API_KEY is set — an inverted curve is
 a macro risk flag a price-based scanner never sees. Network fetches are isolated for testing.
 """
-import json
+
 import logging
 import os
 from datetime import datetime
@@ -14,20 +14,35 @@ from pathlib import Path
 
 import httpx
 
+from runner.ledger._jsonio import atomic_write_json, load_dict
+
 _log = logging.getLogger(__name__)
 
 _WORKSPACE = Path(__file__).parent.parent.parent / "workspace"
 
-_SECTORS = {"XLK": "Tech", "XLE": "Energy", "XLF": "Financials", "XLV": "Health",
-            "XLI": "Industrials", "XLY": "Discretionary", "XLP": "Staples", "XLU": "Utilities"}
+_SECTORS = {
+    "XLK": "Tech",
+    "XLE": "Energy",
+    "XLF": "Financials",
+    "XLV": "Health",
+    "XLI": "Industrials",
+    "XLY": "Discretionary",
+    "XLP": "Staples",
+    "XLU": "Utilities",
+}
 
 _FRED_URL = "https://api.stlouisfed.org/fred/series/observations"
 _FRED_TIMEOUT = 12.0
 
 
 def _fred_latest(series_id: str, key: str) -> float | None:
-    params = {"series_id": series_id, "api_key": key, "file_type": "json",
-              "sort_order": "desc", "limit": 1}
+    params = {
+        "series_id": series_id,
+        "api_key": key,
+        "file_type": "json",
+        "sort_order": "desc",
+        "limit": 1,
+    }
     try:
         r = httpx.get(_FRED_URL, params=params, timeout=_FRED_TIMEOUT)
         r.raise_for_status()
@@ -39,7 +54,7 @@ def _fred_latest(series_id: str, key: str) -> float | None:
         return None
     val = obs[0].get("value")
     try:
-        return float(val)        # FRED uses "." for missing readings -> ValueError -> None
+        return float(val)  # FRED uses "." for missing readings -> ValueError -> None
     except (TypeError, ValueError):
         return None
 
@@ -56,7 +71,9 @@ def _fred_yields() -> dict | None:
     if dgs10 is not None and dgs2 is not None:
         spread = round(dgs10 - dgs2, 2)
         out["spread_2s10s"] = spread
-        out["curve"] = "inverted" if spread < 0 else "flat" if spread < 0.2 else "normal"
+        out["curve"] = (
+            "inverted" if spread < 0 else "flat" if spread < 0.2 else "normal"
+        )
     return out
 
 
@@ -101,7 +118,11 @@ def get_market_regime() -> dict:
     rs = d.get("sector_rs", {})
     ranked = sorted(rs.items(), key=lambda kv: -kv[1])
     leaders = [f"{_SECTORS.get(k, k)} ({k})" for k, _ in ranked[:3]]
-    laggards = [f"{_SECTORS.get(k, k)} ({k})" for k, _ in ranked[-3:]] if len(ranked) >= 3 else []
+    laggards = (
+        [f"{_SECTORS.get(k, k)} ({k})" for k, _ in ranked[-3:]]
+        if len(ranked) >= 3
+        else []
+    )
     out = {
         "regime": regime,
         "vix": round(vix, 2),
@@ -118,14 +139,13 @@ def get_market_regime() -> dict:
 
 
 def _regime_cache_path() -> Path:
-    return Path(os.environ.get("TONY_REGIME_CACHE", str(_WORKSPACE / "regime-cache.json")))
+    return Path(
+        os.environ.get("TONY_REGIME_CACHE", str(_WORKSPACE / "regime-cache.json"))
+    )
 
 
 def read_regime_cache() -> dict:
-    try:
-        return json.loads(_regime_cache_path().read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, FileNotFoundError):
-        return {}
+    return load_dict(_regime_cache_path())
 
 
 def _cache_age_min(cache: dict) -> float | None:
@@ -155,9 +175,7 @@ def refresh_regime_cache(max_age_min: float = 30.0) -> dict:
         return read_regime_cache()
     d = {"ts": datetime.now().isoformat(timespec="seconds"), **d}
     try:
-        p = _regime_cache_path()
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(d, indent=2), encoding="utf-8")
+        atomic_write_json(_regime_cache_path(), d, indent=2)
     except OSError as exc:
         _log.info("regime cache write failed: %s", exc)
     return d
@@ -170,8 +188,11 @@ def regime_header() -> str:
     regime = c.get("regime")
     if not regime:
         return ""
-    bits = [f"**{regime}**", f"VIX {c.get('vix', '?')}",
-            "SPY above 50d" if c.get("spy_above_sma50") else "SPY below 50d"]
+    bits = [
+        f"**{regime}**",
+        f"VIX {c.get('vix', '?')}",
+        "SPY above 50d" if c.get("spy_above_sma50") else "SPY below 50d",
+    ]
     rates = c.get("rates") or {}
     if rates.get("dgs10") is not None:
         rate_bit = f"10Y {rates['dgs10']}%"
